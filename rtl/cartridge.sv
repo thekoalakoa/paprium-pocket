@@ -320,6 +320,17 @@ if(SVP) begin
 	assign sram_q  = 0;
 	assign sram2_q = 0;
 end
+// paprium: the Paprium save is paprium_backup's 4 KB array inside paprium_cart, and
+// save_do / save_change are muxed to it, so this 64 KB cart SRAM is pure dead weight
+// in the Paprium build. At 512 Kbit it is more block RAM than the entire Paprium
+// subsystem costs (MCU work RAM 256 Kbit + firmware ROM 128 Kbit + backup 32 Kbit),
+// which makes dropping it the single largest memory saving available to this bitstream
+else if(PAPRIUM) begin
+	assign sram_q     = 0;
+	assign sram2_q    = 0;
+	assign svp_dram_q = 0;
+end
+// paprium-end
 else begin
 	wire [15:0] sram2_addr;
 	wire  [7:0] sram2_di;
