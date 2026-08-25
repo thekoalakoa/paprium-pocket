@@ -175,3 +175,38 @@ and the virtual 6-button combo injection — are all in the MiSTer `cartridge.sv
 diff and are *not* ported yet. They are self-contained ROM-read substitutions
 and pad hooks; they cost area we have not measured yet, so they wait until the
 core fits and boots.
+
+## Findings from the actual ROM dump
+
+Header of the local dump (8,231,927 bytes), offsets from the file start:
+
+```
+0x100  SEGA MEGA DRIVE (C) WM  2020.JUN  PAPRIUM
+0x180  GM MK-12056-00
+0x1B0  (no "RA" marker)
+```
+
+Two things follow, both already fixed in the tree:
+
+1. **The serial does not match what the MiSTer core looks for.** MiSTer's quirk
+   table activates Paprium on `cart_id[87:0] == "GM T-574120"`; this dump reads
+   `GM MK-12056-00`. Serial-based detection would silently fail on it. This is
+   the concrete reason `paprium_quirk` is hard-wired to the `PAPRIUM` parameter
+   rather than sniffed from the header — different Paprium dumps carry different
+   serials, and a dedicated bitstream does not need to guess.
+
+2. **The header declares no battery RAM.** There is no `"RA"` at `0x1B0`, so the
+   stock detection leaves `sram_present` low, APF never allocates a save slot,
+   and the MCU's backup RAM never persists. The Paprium build now announces the
+   save unconditionally, and `SAVE_SIZE` is 4 KB there instead of 64 KB —
+   `paprium_backup` decodes only 12 address bits, so a 64 KB slot would wrap
+   sixteen times over the array and corrupt the save on every load.
+
+### Asset gap for CDDA
+
+`docs/paprium.cue` in the MiSTer repo lists **62 tracks** drawn from WAV files
+numbered up to at least 42. The local OST folder holds **26 MP3s** numbered
+01-26. Whatever form the Pocket CDDA streamer takes, the track set on hand does
+not cover the cue — several referenced files (e.g. `42 1988 Commercial`) are
+simply absent. Sourcing the full 52-file WAV set is a prerequisite for music,
+independent of any RTL work.
