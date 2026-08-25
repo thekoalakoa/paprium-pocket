@@ -20,7 +20,10 @@ set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_
 
 set_global_assignment -name VHDL_FILE                 [file join $::quartus(qip_path) "upstream/bram.vhd"]
 set_global_assignment -name VERILOG_FILE              [file join $::quartus(qip_path) "upstream/ram_md.v"]
-set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/sdram.sv"]
+# paprium: local copy of upstream/sdram.sv carrying the port-2 anti-starvation
+# counter (MisterPezz82 V.04). The arbiter is strict fixed priority, so the Paprium
+# MCU on port 2 gets starved by VDP stream traffic and drops animation frames
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "sdram.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/EEPROM_24CXX.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/video_cond.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/cofi.sv"]

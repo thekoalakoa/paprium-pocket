@@ -28,7 +28,12 @@ module cartridge
 // is a separate bitstream the Chip32 loader picks for Virtua Racing only. Virtua
 // Racing has no battery RAM, so that build gives up the save RAM and the EEPROM
 // to pay for the DSP
-#(parameter SVP = 1'b0)
+// paprium: PAPRIUM is a third bitstream variant on the same footing as SVP. It swaps
+// the general mapper/protection hardware for the Paprium cartridge subsystem: SSF2
+// banking is suppressed, SDRAM port 2 moves from the SVP to the Paprium MCU, and the
+// save RAM becomes the MCU-managed 4 KB backup RAM. SVP and PAPRIUM are mutually
+// exclusive - both want port 2
+#(parameter SVP = 1'b0, parameter PAPRIUM = 1'b0)
 // pocket-end
 (
 	input             clk,
@@ -87,6 +92,30 @@ module cartridge
 	output            save_change,
 // pocket-end
 
+// paprium: the Paprium subsystem's connections to the top level. paprium_active
+// selects the Paprium audio mix and the 48 kHz CDDA rate there; paprium_md_reset
+// lets the MCU hold the 68000 in reset while it boots the cartridge. The mdp_*
+// group is the MCU's MD+ background-music command channel: on MiSTer it drives the
+// core's MD+ engine, which this build does not compile, so it is exported for the
+// APF CDDA streamer to consume instead
+	output            paprium_active,
+	output            paprium_md_reset,
+	output signed [15:0] paprium_sfx_l,
+	output signed [15:0] paprium_sfx_r,
+
+	output            mdp_track_request,
+	output      [7:0] mdp_track_num,
+	output            mdp_track_loop,
+	output            mdp_stop_request,
+	output      [7:0] mdp_fade_sectors,
+	output            mdp_resume_request,
+	output      [7:0] mdp_volume,
+	output            mdp_volume_request,
+	output            mdp_active,
+	input             mdp_playing,
+	input       [7:0] mdp_current_track,
+// paprium-end
+
 	output            ym2612_quirk,
 
 	output     [23:0] md_addr
@@ -119,13 +148,18 @@ sdram sdram
 	.req1(rom_req),
 	.ack1(rom_ack),
 
-	.addr2(rom2_a),
-	.din2(0),
+// paprium: port 2 is the SVP ROM port in the base build and the Paprium MCU flash /
+// workspace port here. PAPRIUM and SVP are mutually exclusive so one mux serves both;
+// it constant-folds away in the builds where paprium_active is tied low. rom2_a is
+// [20:1], the SVP 2 MB window, and addr2 is [24:1], hence the zero extension
+	.addr2(paprium_active ? paprium_mem_addr : {4'd0, rom2_a}),
+	.din2(paprium_active ? paprium_mem_din : 16'd0),
 	.dout2(rom2_data),
-	.wrl2(0),
-	.wrh2(0),
-	.req2(rom2_req),
+	.wrl2(paprium_active & paprium_mem_wrl),
+	.wrh2(paprium_active & paprium_mem_wrh),
+	.req2(paprium_active ? paprium_mem_req : rom2_req),
 	.ack2(rom2_ack)
+// paprium-end
 );
 
 reg        cart_wr_addr0;
@@ -179,7 +213,11 @@ assign cart_data_en = cart_oe & (cart_cs | svp_cs | data_en);
 reg data_en;
 always @(posedge clk_ram) data_en <= ms_rom_cs | ms_ram_cs | fm_det_cs | pier_eeprom_cs | cart_cs_ext | sf_cs | chk_cs;
 
-wire rom_data_req = cart_cs | ms_rom_cs | cart_cs_ext;
+// paprium: a mailbox access is answered from the Paprium cart RAM, not SDRAM. Without
+// this the same cycle would also launch a ROM fetch whose late data would overwrite
+// the mailbox value in cart_data
+wire rom_data_req = (cart_cs & ~paprium_mailbox_cs) | ms_rom_cs | cart_cs_ext;
+// paprium-end
 wire sdram_rd     = cart_oe;
 
 reg  [24:1] rom_addr;
@@ -205,9 +243,14 @@ always @(posedge clk_ram) begin
 	we_old <= rom_we;
 	rd_old <= sdram_rd & rom_data_req;
 	if((~rd_old & sdram_rd & rom_data_req) || (~we_old & rom_we)) begin
-		rom_addr <= (cart_ms ? ms_cart_addr : md_cart_addr) & rom_mask[24:1];
+		// paprium: the decompression stream window supplies its own address from the MCU
+		// pointer instead of the decoded cart address
+		rom_addr <= paprium_stream_cs ? paprium_stream_addr :
+		            (cart_ms ? ms_cart_addr : md_cart_addr) & rom_mask[24:1];
+		// paprium-end
 		rom_req <= ~rom_req;
 		rom_rd <= sdram_rd;
+		paprium_stream_pending <= paprium_stream_cs & sdram_rd;  // paprium
 	end
 
 // pocket: three deletions in one region. The reads whose source is gone: Master
@@ -220,6 +263,8 @@ always @(posedge clk_ram) begin
 	if(svp_cs)         cart_data <= svp_data;
 	if(sf_cs)          cart_data <= sf_data;
 	if(chk_cs)         cart_data <= chk_data;
+	// paprium: the mailbox wins the mux - it is the cart RAM the 68000 boots out of
+	if(paprium_mailbox_cs) cart_data <= paprium_cart_data;
 end
 
 wire [15:0] sram_addr;
@@ -312,8 +357,11 @@ end
 endgenerate
 // pocket-end
 
-assign save_do     = sram2_q;
-assign save_change = sram_wren;
+// paprium: the Paprium save is the MCU-managed 4 KB backup RAM inside paprium_cart,
+// not this build's cart SRAM
+assign save_do     = paprium_active ? paprium_save_do     : sram2_q;
+assign save_change = paprium_active ? paprium_save_change : sram_wren;
+// paprium-end
 
 //---------------------- MD cart ---------------------------------------
 
@@ -332,7 +380,12 @@ always @(posedge clk) begin
 // pocket: the SSF2 banks key off the ROM size, not a quirk, so unlike the mappers below
 // they do not fall out of the SVP build on their own. Gating the write leaves the three
 // bank registers at reset and folds the banked arm of md_cart_addr away
-	else if (!SVP && cart_lwr && cart_time) begin
+	// paprium: Paprium does NOT use SSF2 banking - the real mega-ppm cart FPGA has no
+	// bank logic, it only flags the A130xx TIME region. Its anti-emulation routine RUNS
+	// in slot 1 and writes A130F3=0; stock SSF2 banking would remap the slot the code is
+	// executing in, giving a garbage fetch and an illegal-instruction crash at 0x081192
+	// hidden under the legal screen. Suppressing it keeps the reads identity-mapped
+	else if (!SVP && !PAPRIUM && cart_lwr && cart_time) begin
 // pocket-end
 		if(rom_mask[24:22]) begin
 			if(cart_addr[3:1]) begin
@@ -425,6 +478,132 @@ else begin
 end
 endgenerate
 // pocket-end
+
+// paprium: the Paprium cartridge subsystem. Ported from MisterPezz82's MiSTer fork;
+// the differences from it are the PAPRIUM generate guard (that core always compiles
+// the subsystem in and gates it at run time on the serial - this device cannot afford
+// to carry it in the other bitstreams), the byte-wide save port, and the MD+ commands
+// leaving the module instead of driving an on-chip MD+ engine
+wire [15:0] paprium_cart_data;
+wire        paprium_mailbox_cs;
+wire        paprium_stream_cs;
+wire [24:1] paprium_stream_addr;
+wire [24:1] paprium_mem_addr;
+wire [15:0] paprium_mem_din;
+wire        paprium_mem_wrl;
+wire        paprium_mem_wrh;
+wire        paprium_mem_req;
+wire  [7:0] paprium_save_do;
+wire        paprium_save_change;
+reg         paprium_stream_pending = 0;
+reg         paprium_stream_ack_toggle = 0;
+
+// The Paprium build is Paprium-only. Like the SVP bitstream, the loader has already
+// decided by serial which core to launch, so re-detecting the header here would only add
+// a way to fail on a differently-headered dump. Hard-wiring it also drops the whole quirk
+// table, cart_id and crc from this build. To go back to serial detection, restore the
+// 'GM T-574120' compare in the quirk table and drive this from it
+wire paprium_quirk = PAPRIUM;
+
+assign paprium_active = PAPRIUM & paprium_quirk;
+
+// One toggle per COMPLETED stream word. The stream pointer must advance per word
+// actually delivered, not per raw bus strobe: the cycle-accurate VDP glitches
+// cart_cs/cart_oe within a single DMA word, and keying off the combinational
+// stream_cs falling edge double-counted those glitches and desynced the stream
+// (per-pixel tile noise on backgrounds while resident font/UI stayed clean)
+wire paprium_stream_read_ack = paprium_stream_pending & rom_rd & (rom_req == rom_ack);
+
+always @(posedge clk_ram) begin
+	if(reset) paprium_stream_ack_toggle <= 0;
+	else if(paprium_stream_read_ack) paprium_stream_ack_toggle <= ~paprium_stream_ack_toggle;
+end
+
+generate
+if(PAPRIUM) begin
+	paprium_cart paprium
+	(
+		.clk(clk),
+		.reset(reset),
+		.enable(paprium_quirk),
+
+		.cart_addr(cart_addr),
+		.cart_data_wr(cart_data_wr),
+		.cart_cs(cart_cs),
+		.cart_oe(cart_oe),
+		.cart_lwr(cart_lwr),
+		.cart_uwr(cart_uwr),
+		.cart_time(cart_time),
+		.stream_read_ack_toggle(paprium_stream_ack_toggle),
+
+		.cart_data(paprium_cart_data),
+		.mailbox_cs(paprium_mailbox_cs),
+		.stream_cs(paprium_stream_cs),
+		.stream_addr(paprium_stream_addr),
+		.md_reset(paprium_md_reset),
+
+		.mdp_track_request(mdp_track_request),
+		.mdp_track_num(mdp_track_num),
+		.mdp_track_loop(mdp_track_loop),
+		.mdp_stop_request(mdp_stop_request),
+		.mdp_fade_sectors(mdp_fade_sectors),
+		.mdp_resume_request(mdp_resume_request),
+		.mdp_volume(mdp_volume),
+		.mdp_volume_request(mdp_volume_request),
+		.mdp_active(mdp_active),
+		.mdp_playing(mdp_playing),
+		.mdp_current_track(mdp_current_track),
+
+		.sfx_l(paprium_sfx_l),
+		.sfx_r(paprium_sfx_r),
+
+		.dbg_ramdp_write(),
+		.dbg_ramdp_addr(),
+		.dbg_ramdp_data(),
+
+		.save_addr(save_addr),
+		.save_di(save_di),
+		.save_do(paprium_save_do),
+		.save_wr(save_wr),
+		.save_change(paprium_save_change),
+
+		.mem_addr(paprium_mem_addr),
+		.mem_din(paprium_mem_din),
+		.mem_dout(rom2_data),
+		.mem_wrl(paprium_mem_wrl),
+		.mem_wrh(paprium_mem_wrh),
+		.mem_req(paprium_mem_req),
+		.mem_ack(rom2_ack)
+	);
+end
+else begin
+	assign paprium_cart_data   = 0;
+	assign paprium_mailbox_cs  = 0;
+	assign paprium_stream_cs   = 0;
+	assign paprium_stream_addr = 0;
+	assign paprium_mem_addr    = 0;
+	assign paprium_mem_din     = 0;
+	assign paprium_mem_wrl     = 0;
+	assign paprium_mem_wrh     = 0;
+	assign paprium_mem_req     = 0;
+	assign paprium_save_do     = 0;
+	assign paprium_save_change = 0;
+	assign paprium_md_reset    = 0;
+	assign paprium_sfx_l       = 0;
+	assign paprium_sfx_r       = 0;
+
+	assign mdp_track_request  = 0;
+	assign mdp_track_num      = 0;
+	assign mdp_track_loop     = 0;
+	assign mdp_stop_request   = 0;
+	assign mdp_fade_sectors   = 0;
+	assign mdp_resume_request = 0;
+	assign mdp_volume         = 0;
+	assign mdp_volume_request = 0;
+	assign mdp_active         = 0;
+end
+endgenerate
+// paprium-end
 
 // SRAM
 // pocket: svp_quirk already sets noram_quirk, so this select is dead in the SVP build at
@@ -709,8 +888,10 @@ always @(posedge clk) begin
 		if(cart_dl_addr == 'h18A) cart_id[07:00] <= cart_dl_data[7:0];
 		if(cart_dl_addr == 'h18E) crc <= {cart_dl_data[7:0],cart_dl_data[15:8]};
 // pocket: the loader only ever sends Virtua Racing here, so this build detects nothing.
+// paprium: and the Paprium build only ever gets Paprium, so it detects nothing either -
+// see the paprium_quirk note above the subsystem
 // Gating the table drops it, cart_id, sp and crc
-		if(!SVP && cart_dl_addr == 'h190) begin
+		if(!SVP && !PAPRIUM && cart_dl_addr == 'h190) begin
 // pocket-end
 			     if(cart_id[63:0] == "T-50446 ") eeprom_quirk <= 4'b0001;  // X24C01 John Madden Football 93
 			else if(cart_id[63:0] == "T-50516 ") eeprom_quirk <= 4'b0001;  // X24C01 John Madden Football 93 Championship Edition
