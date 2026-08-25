@@ -125,3 +125,53 @@ work, but far smaller.
   Standard).
 - Paprium's `mcu.txt` is krikzz `mega-ppm` firmware — check its licence before
   redistributing anything.
+
+## Progress
+
+### Done
+
+- **`rtl/PAPRIUM/` vendored** (12 SV + NEORV32 28 VHDL + `mcu.txt`), listed in
+  `rtl/paprium.qip`, wired into the project.
+- **Firmware path fixed.** `mcu_core.sv` loaded `mcu.txt` with a path relative to
+  the MiSTer tree root. Quartus resolves `$readmemh` against the *project*
+  directory, which here is `projects/`. Now a bare filename plus
+  `SEARCH_PATH "../rtl/PAPRIUM"`, the same way `68k.v` loads its 68000 microcode.
+- **`sdram.sv` port-2 anti-starvation** copied to `rtl/sdram.sv` (the repo keeps
+  `rtl/upstream/` pristine) and swapped in `rtl/core.qip`.
+- **Save RAM adapted.** MiSTer's cartridge save interface is 16-bit; APF's is
+  byte-wide. `paprium_backup.sv` port B is now an 8-bit port on the same
+  2048x16 array via `dpram_dif`'s mixed-width support, so the `.sav` is a flat
+  4096-byte file with no adapter logic. Byte order within the word is a
+  `localparam` (`SAVE_BIG_ENDIAN`) because altsyncram's mixed-width ordering is
+  little-endian and MD saves are big-endian — **unverified on hardware**; if a
+  MiSTer save loads byte-swapped, clearing that constant is the whole fix.
+- **`rtl/cartridge.sv` integrated** behind a new `PAPRIUM` parameter, mutually
+  exclusive with `SVP` (both want SDRAM port 2). All hooks carry `// paprium:`
+  markers matching the file's existing `// pocket:` convention:
+  SDRAM port 2 mux, mailbox excluded from `rom_data_req`, stream-window address
+  mux, stream-pointer ack toggle, mailbox in the `cart_data` mux, save mux,
+  SSF2 banking suppressed, and the `paprium_cart` instantiation.
+- **`paprium_quirk` is hard-wired to `PAPRIUM`**, mirroring how the SVP
+  bitstream trusts the loader's serial check rather than re-detecting. This also
+  drops the entire quirk table, `cart_id` and `crc` from the Paprium build.
+
+### Next
+
+1. **`core_top.sv` wiring** — thread the `PAPRIUM` parameter, mix
+   `paprium_sfx_l/r` into the audio path, hold the 68000 on `paprium_md_reset`,
+   and force NTSC (the PAL PLL is 53.203 MHz, but the MCU's `CLOCK_FREQUENCY`
+   generic and `CLK_FREQ` are 53.693 MHz; PAL would put the firmware's
+   clock-derived timing out by 0.9%).
+2. **`generate.tcl`** — add a `paprium` variant alongside `ntsc`/`pal`/`*_svp`.
+3. **CDDA streamer** — the `mdp_*` command channel currently leaves `cartridge`
+   with nothing consuming it. Needs a new APF `target_dataslot_read` streamer
+   feeding a CRAM ring buffer at 48 kHz.
+4. **Chip32 loader rule** so the Pocket picks this bitstream for Paprium.
+
+### Deferred
+
+The V.05/V.06 extras — Arcade Mode IPS substitution, stage select, coin chute,
+and the virtual 6-button combo injection — are all in the MiSTer `cartridge.sv`
+diff and are *not* ported yet. They are self-contained ROM-read substitutions
+and pad hooks; they cost area we have not measured yet, so they wait until the
+core fits and boots.
