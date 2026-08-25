@@ -311,6 +311,12 @@ module core_top (
   // rtl/upstream/sdram.sv drives it off its own altddio_out
   parameter PAL = 1'b0;
   parameter SVP = 1'b0;
+// paprium: a third variant. It swaps the general mapper and save hardware for the
+// Paprium cartridge subsystem, and is NTSC-only: the MCU's CLOCK_FREQUENCY generic and
+// CLK_FREQ are 53.693 MHz, so building it PAL would put every clock-derived figure in
+// the firmware out by 0.9%
+  parameter PAPRIUM = 1'b0;
+// paprium-end
 
 
   //
@@ -458,7 +464,10 @@ module core_top (
   wire        sram_present_74a;
   wire        eeprom_present_74a;
 
-  localparam [31:0] SAVE_SIZE = 32'h10000;
+  // paprium: the Paprium save is the MCU-managed 4 KB backup RAM, not a 64 KB cart SRAM.
+  // APF sizes the .sav file from this, and paprium_backup only decodes 12 address bits,
+  // so a 64 KB slot would wrap 16 times over the array and corrupt the save on load
+  localparam [31:0] SAVE_SIZE = PAPRIUM ? 32'h1000 : 32'h10000;
   wire [ 9:0] datatable_addr = 10'd3;
   wire        datatable_wren = pll_core_locked_s;
   wire [31:0] datatable_data = (sram_present_74a | eeprom_present_74a) ? SAVE_SIZE : 32'd0;
@@ -923,8 +932,34 @@ module core_top (
     end
   end
 
+  // paprium: the signals crossing between the Paprium cartridge subsystem and this
+  // level. The mdp_* group is the MCU's MD+ background-music command channel; on
+  // MiSTer it drives the core's on-chip MD+ engine, which this build does not
+  // compile. Nothing consumes it yet - the APF CDDA streamer that will answer it is
+  // still to be written - so mdp_playing reads back 0 and the firmware sees every
+  // track as already finished. Sound effects work regardless; they are the cart's own
+  // PCM engine, not CDDA
+  wire        paprium_active;
+  wire        paprium_md_reset;
+  wire signed [15:0] paprium_sfx_l;
+  wire signed [15:0] paprium_sfx_r;
+
+  wire        mdp_track_request;
+  wire  [7:0] mdp_track_num;
+  wire        mdp_track_loop;
+  wire        mdp_stop_request;
+  wire  [7:0] mdp_fade_sectors;
+  wire        mdp_resume_request;
+  wire  [7:0] mdp_volume;
+  wire        mdp_volume_request;
+  wire        mdp_active;
+
+  wire        md_reset_effective = md_reset | (paprium_active & paprium_md_reset);
+  // paprium-end
+
   cartridge #(
-      .SVP(SVP)
+      .SVP(SVP),
+      .PAPRIUM(PAPRIUM)
   ) cartridge (
       .clk        (clk_sys_53_69),
       .clk_ram    (clk_md_107_39),
@@ -971,6 +1006,27 @@ module core_top (
       .save_do    (save_do),
       .save_wr    (save_wr),
       .save_change(),               // MiSTer uses it to schedule a save writeback, APF does not
+
+      // paprium: mdp_playing and mdp_current_track are the CDDA engine's status back to
+      // the MCU. Tied off until the streamer exists, which makes the firmware treat every
+      // requested track as finished immediately
+      .paprium_active  (paprium_active),
+      .paprium_md_reset(paprium_md_reset),
+      .paprium_sfx_l   (paprium_sfx_l),
+      .paprium_sfx_r   (paprium_sfx_r),
+
+      .mdp_track_request (mdp_track_request),
+      .mdp_track_num     (mdp_track_num),
+      .mdp_track_loop    (mdp_track_loop),
+      .mdp_stop_request  (mdp_stop_request),
+      .mdp_fade_sectors  (mdp_fade_sectors),
+      .mdp_resume_request(mdp_resume_request),
+      .mdp_volume        (mdp_volume),
+      .mdp_volume_request(mdp_volume_request),
+      .mdp_active        (mdp_active),
+      .mdp_playing       (1'b0),
+      .mdp_current_track (8'd0),
+      // paprium-end
 
       .md_addr()                    // MiSTer's cheat engine watches the bus, this port has none
   );
@@ -1182,7 +1238,7 @@ module core_top (
   md_board md_board (
       .MCLK2(clk_md_107_39),
 
-      .ext_reset   (md_reset),
+      .ext_reset   (md_reset_effective),  // paprium: the MCU holds the 68000 while it boots
       .reset_button(btn_reset),
       // md_board.v reads these, MiSTer leaves them dangling
       .ext_vres    (1'b0),
@@ -1444,6 +1500,10 @@ module core_top (
   // has no summed output. MOL/MOR carry one FM channel slot at a time, so a
   // sample only exists once audio_cond has summed the slots; sending md_board's own
   // A_L/A_R mix to the 48 kHz output instead folds the slot rate into the audio band
+  // paprium: audio_cond now feeds the mix below rather than the output buffer directly
+  wire signed [15:0] base_audio_l;
+  wire signed [15:0] base_audio_r;
+  // paprium-end
   wire [15:0] audio_l;
   wire [15:0] audio_r;
 
@@ -1465,10 +1525,25 @@ module core_top (
 
       .sms_fm_audio(14'd0),  // MD mode only, no Master System FM
 
-      .AUDIO_L(audio_l),
-      .AUDIO_R(audio_r)
+      .AUDIO_L(base_audio_l),
+      .AUDIO_R(base_audio_r)
   );
   // pocket-end
+
+  // paprium: the cartridge's own PCM sound-effect engine is a second stereo pair that
+  // has to be summed with FM/PSG. Both are full-scale 16-bit, so the sum needs headroom
+  // and a hard clip - without one, loud effects over loud music wrap and click. Three
+  // guard bits cover this sum and leave room for the CDDA term when the streamer lands.
+  // In the other builds paprium_sfx_* is a constant 0 and this folds to a pass-through
+  wire signed [18:0] mix_l = $signed(base_audio_l) + $signed(paprium_sfx_l);
+  wire signed [18:0] mix_r = $signed(base_audio_r) + $signed(paprium_sfx_r);
+
+  wire mix_l_ov = (mix_l[18:15] != 4'b0000) && (mix_l[18:15] != 4'b1111);
+  wire mix_r_ov = (mix_r[18:15] != 4'b0000) && (mix_r[18:15] != 4'b1111);
+
+  assign audio_l = mix_l_ov ? (mix_l[18] ? 16'h8000 : 16'h7fff) : mix_l[15:0];
+  assign audio_r = mix_r_ov ? (mix_r[18] ? 16'h8000 : 16'h7fff) : mix_r[15:0];
+  // paprium-end
 
   reg [15:0] audio_buffer_l = 0;
   reg [15:0] audio_buffer_r = 0;

@@ -946,7 +946,11 @@ always @(posedge clk) begin
 // size in the data table before it will write a save file back. The SVP build has
 // no save RAM behind the flag, and announcing one would let APF overwrite a real
 // save file with zeroes if a battery game is ever run there by hand
-		if(cart_dl_addr == 'h1B0 && {cart_dl_data[7:0],cart_dl_data[15:8]} == "RA" && !SVP) sram_present <= 1;
+// paprium: the Paprium header carries NO "RA" battery-RAM marker at 0x1B0 (verified
+// against the GM MK-12056-00 dump), so header detection would leave sram_present low,
+// APF would never allocate a save slot, and the MCU's backup RAM would never persist.
+// The Paprium build announces the save unconditionally - it is a Paprium-only bitstream
+		if(cart_dl_addr == 'h1B0 && (PAPRIUM || ({cart_dl_data[7:0],cart_dl_data[15:8]} == "RA" && !SVP))) sram_present <= 1;
 // pocket-end
 
 		if(cart_dl_addr == 'h7E100) realtec_id[31:16] <= {cart_dl_data[7:0],cart_dl_data[15:8]};
