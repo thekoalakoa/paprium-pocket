@@ -1,0 +1,56 @@
+# pocket: the Paprium cartridge subsystem, vendored from
+# MisterPezz82/Paprium_MegaDrive_MiSTer rtl/PAPRIUM/ unmodified except where a
+# "// pocket:" comment marks a change. File order mirrors that repo's files.qip:
+# paprium_defs.sv and structs.sv must precede everything (macros + interface
+# types), and neorv32_package.vhd must precede the rest of the RISC-V tree.
+#
+# The NEORV32 peripherals that the MCU configuration leaves off (SPI, TWI, PWM,
+# TRNG, CFU0/1, IMEM, DMEM, the bootloader and the compressed-ISA decompressor)
+# are listed anyway, as upstream does. They sit inside false generate branches
+# and cost no area; dropping the files is a later cleanup, not a saving.
+#
+# The MCU firmware image rtl/PAPRIUM/mcu.txt is pulled in by $readmemh in
+# mcu_core.sv, which resolves against the project directory -- see the
+# SEARCH_PATH assignment in projects/megadrive_pocket.qsf.
+
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_defs.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/structs.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/memory.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/audio_clock.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/audio_sfx.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/mcu_core.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/ramdp_io.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/fpgio.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_mcu_mem.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_backup.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_mdp_adapter.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cart.sv"]
+
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_package.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_top_stdlogic.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_top.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_busswitch.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_wishbone.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_sysinfo.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cpu.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cpu_control.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cpu_alu.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cpu_bus.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cpu_regfile.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cpu_cp_muldiv.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cpu_decompressor.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_gpio.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_mtime.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_uart.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_wdt.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_spi.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_twi.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_pwm.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_trng.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cfu0.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_cfu1.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_imem.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_dmem.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_boot_rom.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_bootloader_image.vhd"]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_application_image.vhd"]
