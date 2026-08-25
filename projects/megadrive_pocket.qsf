@@ -74,11 +74,18 @@ set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION
 source ../platform/pocket/pocket.tcl
 set_global_assignment -name QIP_FILE ../rtl/core.qip
 
+# paprium: the Paprium cartridge subsystem - NEORV32 MCU, 68000 mailbox, streaming
+# window and the cartridge PCM SFX engine
+set_global_assignment -name QIP_FILE ../rtl/paprium.qip
+
 # ==============================================================================
 # pocket: 68k.v reads its microcode with $readmemb, which resolves relative to the
 # project directory, and the tables live in the vendored tree. Nothing else here
-# needs a search path
+# needed one until Paprium arrived
 set_global_assignment -name SEARCH_PATH "../rtl/upstream/nuked-md"
+# paprium: mcu_core.sv reads the mega-ppm firmware image (mcu.txt) with $readmemh
+# the same way, so the Paprium directory needs the same treatment
+set_global_assignment -name SEARCH_PATH "../rtl/PAPRIUM"
 
 # The H32/H40 dot clock mux is a LUT with 136 clock loads, the video output registers
 # plus the APF data DDIOs. Left on local routing that much skew makes core-to-DDIO hold
