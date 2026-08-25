@@ -99,3 +99,7 @@ set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to ic|clk_vid
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
 set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
 set_global_assignment -name SEED 1
+
+set_parameter -name PAL '0 -entity core_top
+set_parameter -name SVP '0 -entity core_top
+set_parameter -name PAPRIUM '1 -entity core_top
