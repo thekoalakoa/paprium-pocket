@@ -31,3 +31,7 @@ platform/pocket/build_id.v
 __pycache__/
 *~
 .DS_Store
+build_output/
+projects/db/
+projects/incremental_db/
+projects/output_files/
