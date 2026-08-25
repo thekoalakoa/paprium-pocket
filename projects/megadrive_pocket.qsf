@@ -85,7 +85,7 @@ set_global_assignment -name QIP_FILE ../rtl/paprium.qip
 set_global_assignment -name SEARCH_PATH "../rtl/upstream/nuked-md"
 # paprium: mcu_core.sv reads the mega-ppm firmware image (mcu.txt) with $readmemh
 # the same way, so the Paprium directory needs the same treatment
-set_global_assignment -name SEARCH_PATH "../rtl/PAPRIUM"
+set_global_assignment -name SEARCH_PATH ../rtl/PAPRIUM
 
 # The H32/H40 dot clock mux is a LUT with 136 clock loads, the video output registers
 # plus the APF data DDIOs. Left on local routing that much skew makes core-to-DDIO hold
