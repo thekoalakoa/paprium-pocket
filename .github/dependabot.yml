@@ -1,0 +1,8 @@
+# pocket: no upstream counterpart. The workflows pin actions by SHA, so something has
+# to bump them.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

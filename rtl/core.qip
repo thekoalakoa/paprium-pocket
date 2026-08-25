@@ -1,0 +1,31 @@
+# pocket: the compiled subset of the vendored MegaDrive_MiSTer tree. No upstream tree
+# ships a file list for this core, so it is written here; the .qip idiom
+# (file join $::quartus(qip_path)) follows agg23/openfpga-NES rtl/nes.qip.
+#
+# Everything not listed here stays vendored but uncompiled: the
+# MiSTer-platform-only files (md_plus.sv, mdp_audio.sv, md_io.sv, cheatcodes.sv,
+# the pad/lightgun/multitap/keyboard muxes) and the features this device cannot
+# fit (VM2413/, mboot.mif, EEPROM_STM95.sv). SVP/ compiles but only elaborates in
+# the SVP bitstreams: cartridge.sv keeps it behind the SVP parameter because it
+# does not fit next to the save hardware.
+#
+# No memory primitives come from agg23 either: bram.vhd in the vendored tree
+# already carries dpram, dpram_dif and spram under those names, and cartridge.sv
+# is written against MegaDrive's own 3-port SDRAM controller.
+set_global_assignment -name QIP_FILE                  [file join $::quartus(qip_path) "upstream/nuked-md.qip"]
+set_global_assignment -name QIP_FILE                  [file join $::quartus(qip_path) "upstream/SVP/SVP.qip"]
+
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "cartridge.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "scanline_filler.sv"]
+
+set_global_assignment -name VHDL_FILE                 [file join $::quartus(qip_path) "upstream/bram.vhd"]
+set_global_assignment -name VERILOG_FILE              [file join $::quartus(qip_path) "upstream/ram_md.v"]
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/sdram.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/EEPROM_24CXX.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/video_cond.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/cofi.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/pad_io.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE        [file join $::quartus(qip_path) "upstream/audio_cond.sv"]
+set_global_assignment -name VERILOG_FILE              [file join $::quartus(qip_path) "upstream/genesis_lpf.v"]
+set_global_assignment -name VERILOG_FILE              [file join $::quartus(qip_path) "upstream/audio_iir_filter.v"]
+set_global_assignment -name VHDL_FILE                 [file join $::quartus(qip_path) "upstream/CEGen.vhd"]

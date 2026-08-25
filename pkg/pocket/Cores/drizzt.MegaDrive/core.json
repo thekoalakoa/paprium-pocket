@@ -1,0 +1,52 @@
+{
+  "core": {
+    "magic": "APF_VER_1",
+    "metadata": {
+      "platform_ids": [
+        "genesis"
+      ],
+      "shortname": "MegaDrive",
+      "description": "Sega Mega Drive / Genesis (Nuked-MD)",
+      "author": "drizzt",
+      "url": "https://github.com/drizzt/openFPGA-MegaDrive",
+      "version": "0.3.0",
+      "date_release": "2026-08-05"
+    },
+    "framework": {
+      "target_product": "Analogue Pocket",
+      "version_required": "1.1",
+      "sleep_supported": false,
+      "dock": {
+        "supported": true,
+        "analog_output": false
+      },
+      "hardware": {
+        "link_port": false,
+        "cartridge_adapter": -1
+      },
+      "chip32_vm": "loader.bin"
+    },
+    "cores": [
+      {
+        "name": "NTSC",
+        "id": 0,
+        "filename": "md_ntsc.rbf_r"
+      },
+      {
+        "name": "PAL",
+        "id": 1,
+        "filename": "md_pal.rbf_r"
+      },
+      {
+        "name": "NTSC SVP",
+        "id": 2,
+        "filename": "mds_ntsc.rbf_r"
+      },
+      {
+        "name": "PAL SVP",
+        "id": 3,
+        "filename": "mds_pal.rbf_r"
+      }
+    ]
+  }
+}

@@ -1,0 +1,125 @@
+name: Release
+
+# pocket: the release half of agg23/openfpga-NES .github/workflows/build.yml, split out so a pull
+# request can be gated on timing without publishing. The version bump, the
+# per-platform zips and the label-driven bump level are local.
+
+# Cuts a release: version bump, compile, tag, GitHub release and the
+# per-platform zips. Run manually, or automatically when the Copybara sync PR is
+# merged, taking the bump from its release:major / release:minor label.
+#
+# Always releases the default branch, whatever ref the manual run started from.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+  pull_request:
+    types: [closed]
+    branches: [master, main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # The bitstreams are compiled by build.yml, one job each. Nothing in them
+  # depends on the version, so the bump happens afterwards, in the job that
+  # actually publishes: a failed compile then leaves nothing behind to undo.
+  build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       github.event.pull_request.head.ref == 'vendor/upstream')
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ github.event.repository.default_branch }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+
+    steps:
+      - name: Resolve bump
+        id: bump
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          if [ -n "$INPUT_BUMP" ]; then
+            BUMP="$INPUT_BUMP"
+          elif echo "$LABELS" | grep -q 'release:major'; then
+            BUMP="major"
+          elif echo "$LABELS" | grep -q 'release:minor'; then
+            BUMP="minor"
+          else
+            BUMP="patch"
+          fi
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "Bump type: $BUMP"
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          # Admin PAT: bypasses the required "gate" check on the default branch
+          # (gate runs only on pull_request, so a default GITHUB_TOKEN push is
+          # rejected).
+          token: ${{ secrets.CUSTOM_GH_TOKEN }}
+
+      - name: Bump version
+        id: version
+        run: |
+          NEW=$(scripts/bump_version.sh "${{ steps.bump.outputs.bump }}")
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+
+      # The compile jobs' own artifacts, loader.bin included, rather than the
+      # pocket-tree one: that tree's core.json predates the bump above.
+      - name: Download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: bitstream-*
+          merge-multiple: true
+          path: build_output
+
+      - name: Assemble core packages
+        run: |
+          scripts/install_binaries.sh
+          scripts/check_packages.sh
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pkg/pocket/Cores/*/core.json gateware.json
+          git commit -m "release v${{ steps.version.outputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "HEAD:$DEFAULT_BRANCH" --tags
+
+      - name: Package release zips
+        run: scripts/package_release.sh "${{ steps.version.outputs.version }}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: openfpga-*_${{ steps.version.outputs.version }}.zip
+          generate_release_notes: true
+
+      # vendor/upstream must survive this merge: it is the merge base the next
+      # sync needs, and Copybara fetches its baseline from it. Keep GitHub's
+      # "automatically delete head branches" setting away from that branch.

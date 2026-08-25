@@ -1,0 +1,155 @@
+name: Build
+
+# pocket: agg23/openfpga-NES combines build and release in one .github/workflows/build.yml. Split
+# here, so a pull request can be gated on timing without publishing anything.
+
+# The single build path: called by release.yml, or run manually to build a branch
+# and get install zips without opening a PR.
+#
+# The variants share nothing but the source tree, so they compile one job each
+# and the package job reassembles the core packages from their artifacts.
+# One fit costs over half an hour of runner time; serially that is most of an
+# afternoon.
+#
+# No concurrency block: as a called workflow it shares the caller's group, and
+# github.workflow resolves to the caller, so setting one here would let parent
+# and child cancel each other mid-compile.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: >-
+          Ref to build. release.yml passes the default branch, since that is what
+          it tags. Empty on a direct run of this workflow, which is also how the
+          zip steps below tell the two apart.
+        type: string
+        required: false
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      # A failing variant must not cancel its siblings: the point of a build run
+      # is every timing report, not the first one to go negative.
+      fail-fast: false
+      matrix:
+        # Not derived from anything: build.sh rejects a name it does not know, and
+        # dropping one here fails the package job, where install_binaries.sh works
+        # off the bitstream list in core.json and finds this one missing.
+        variant: [ntsc, pal, ntsc_svp, pal_svp]
+
+    env:
+      # Repository variable, so the registry can be changed without a commit.
+      # Unset lands on build.sh's Docker Hub default.
+      QUARTUS_IMAGE: ${{ vars.QUARTUS_IMAGE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Seconds, and independent of everything below: fail before the slow parts.
+      # The filename cap, the folder name and the version lockstep all fail on
+      # source alone, which is what makes this worth running in front of the
+      # half-hour fits. The binary drift half only bites in the package job.
+      - name: Check package consistency
+        run: scripts/check_packages.sh
+
+      # build.sh owns the Quartus image pin and calls build_loader.sh and
+      # deploy_bitstream.sh itself. CONTAINER_RUNTIME: it defaults to podman for
+      # local use, hosted runners only ship docker
+      - name: Compile
+        env:
+          CONTAINER_RUNTIME: docker
+          VARIANT: ${{ matrix.variant }}
+        run: scripts/build.sh "$VARIANT"
+
+      # One .rbf_r per job, named after the variant so the packaging job can pull
+      # the whole set with one glob. Artifact names have to be unique within a run.
+      # loader.bin rides along because every job assembles an identical copy, and
+      # merge-multiple collapses them; shipping half a kilobyte beats building
+      # bass from source again in the package job.
+      - name: Upload bitstream
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bitstream-${{ matrix.variant }}
+          path: |
+            build_output/*.rbf_r
+            build_output/loader.bin
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reports-${{ matrix.variant }}
+          path: build_output/reports/
+
+  package:
+    needs: compile
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Download bitstreams
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: bitstream-*
+          merge-multiple: true
+          path: build_output
+
+      - name: Assemble core packages
+        run: scripts/install_binaries.sh
+
+      # The compile jobs ran this on a tree with no binaries in it. Here the whole
+      # set is present, so the drift and filename checks finally mean something.
+      - name: Check package consistency
+        run: scripts/check_packages.sh
+
+      - name: Read version
+        id: version
+        run: |
+          # Packages release in lockstep, so any core.json carries the version.
+          set -- pkg/pocket/Cores/*/core.json
+          echo "version=$(jq -r '.core.metadata.version' "$1")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload packaged tree
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pocket-tree
+          # Assets/<id>/ holds only a dot-file placeholder until the porter adds
+          # art, and upload-artifact skips hidden files by default
+          include-hidden-files: true
+          path: |
+            pkg/pocket/Cores
+            pkg/pocket/Platforms
+            pkg/pocket/Assets
+
+      # Only when this workflow was dispatched on its own. github.event_name is no
+      # use for that: a called workflow sees the caller's event, so a manual
+      # release would build zips here that release.yml packages again anyway,
+      # after the version bump these would predate. Only release.yml passes a ref.
+      - name: Package build zips
+        if: inputs.ref == ''
+        run: |
+          SAFE_BRANCH=$(printf '%s' "$GITHUB_REF_NAME" | sed 's#[^A-Za-z0-9._-]#-#g')
+          scripts/package_release.sh "${{ steps.version.outputs.version }}" "$SAFE_BRANCH"
+          echo "PACKAGE_BRANCH=${SAFE_BRANCH}" >> "$GITHUB_ENV"
+
+      - name: Upload package zips
+        if: inputs.ref == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-${{ env.PACKAGE_BRANCH }}
+          path: openfpga-*_${{ env.PACKAGE_BRANCH }}_${{ steps.version.outputs.version }}.zip

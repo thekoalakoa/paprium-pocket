@@ -1,0 +1,168 @@
+name: Sync Upstream
+
+# pocket: derived from agg23/openfpga-NES .github/workflows/upstream.yml. copy.bara.sky here defines
+# a single workflow, so this drives one migration; the auto-merge arming and the
+# release hand-off are local.
+
+# Mirrors new upstream rtl/ changes onto the vendor/upstream branch via Copybara,
+# opens a pull request merging that branch into the default branch, and arms
+# auto-merge on it. The whole cycle is unattended: the merge commit is what
+# re-applies the port's edits to vendored files, and merging cuts a release. A
+# conflict or a red timing gate is what stops it and asks for a human. See
+# "Building" in the README before changing any of that, and note the three repo
+# settings it depends on.
+#
+# Requires the CUSTOM_GH_TOKEN secret (a fine-grained PAT scoped to this repo:
+# Contents RW + Pull requests RW). Copybara pushes the vendor branch with it so
+# the native pull_request build (pr.yml) and the merge-triggered release
+# (release.yml) fire; a branch pushed with the default GITHUB_TOKEN would not
+# trigger those workflows.
+#
+# vendor/upstream must already exist (README, "Building"). Seed it with the
+# GitOrigin-RevId trailer in its commit message and no run ever needs "last_rev";
+# without the trailer, pass the forked-from upstream commit there once.
+#
+# The trailer only counts on a commit that touches the vendor dir, which the
+# README's seed does. Copybara reads the label off the commits that changed the
+# files it owns, so an otherwise empty commit carrying the trailer is skipped and
+# every run fails with "Previous revision label GitOrigin-RevId could not be
+# found".
+
+on:
+  workflow_dispatch:
+    inputs:
+      last_rev:
+        description: "Fallback baseline: upstream commit to sync from (e.g. 7365a13)"
+        required: false
+        default: ""
+  schedule:
+    # Daily at 00:00 UTC
+    - cron: "0 0 * * *"
+
+# One sync at a time: a manual trigger near the cron would race on the branch
+# whose ancestry the whole scheme depends on, and on gh pr create / gh pr merge.
+# Never cancel a run in flight, it may already have pushed
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CUSTOM_GH_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          echo "https://x-access-token:${{ secrets.CUSTOM_GH_TOKEN }}@github.com" > /home/runner/.git-credentials
+          git config --global credential.helper store
+
+      - name: Determine latest upstream release
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # gateware.json is the single source for the upstream repo and its
+          # release path
+          UPSTREAM=$(jq -r '.upstream.repository' gateware.json)
+          RELEASE_PATH=$(jq -r '.upstream.release_path // "releases/"' gateware.json)
+          case "$UPSTREAM" in
+            '<'*|null|'')
+              echo "gateware.json .upstream.repository is not set yet; set it first."
+              echo "skip=1" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          # Only upstream commits that update the release path count as a
+          # release (MiSTer cores commit the built .rbf there). Sync targets the
+          # newest such commit, so unreleased WIP that touches only rtl/ is not
+          # pulled in. One API call, no clone.
+          SLUG=$(printf '%s' "${UPSTREAM%.git}" | sed 's#.*github.com[:/]##')
+          TARGET=$(gh api "repos/$SLUG/commits?path=$RELEASE_PATH&per_page=1" --jq '.[0].sha')
+          if [ -z "$TARGET" ] || [ "$TARGET" = "null" ]; then
+            echo "No upstream commit touches $RELEASE_PATH." >&2
+            exit 1
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream release commit: $TARGET"
+
+      - name: Copybara
+        if: steps.rel.outputs.skip != '1'
+        env:
+          LAST_REV: ${{ github.event.inputs.last_rev }}
+          TARGET: ${{ steps.rel.outputs.target }}
+        run: |
+          # Capture the Copybara exit code; 4 = "no changes to migrate" (success).
+          # TARGET (a release-bearing commit) is the source_ref, so migration
+          # never advances past the latest release.
+          set +e
+          /usr/bin/docker run \
+            -v "$(pwd)":/usr/src/app \
+            -v /home/runner/.gitconfig:/root/.gitconfig \
+            -v /home/runner/.git-credentials:/root/.git-credentials \
+            -e TARGET \
+            -e LAST_REV \
+            ghcr.io/anipos/copybara-docker-image@sha256:63fa6e642207973e5e3608515b76efd513919456135dfbdde929a4a36b8eef7a \
+            --ignore-noop \
+            migrate /usr/src/app/.github/copy.bara.sky default "$TARGET" \
+            ${LAST_REV:+--last-rev "$LAST_REV"}
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -eq 4 ]; then
+            echo "No new upstream release to migrate."
+            exit 0
+          fi
+          exit $EXIT_CODE
+
+      - name: Open sync PR and arm auto-merge
+        if: steps.rel.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ secrets.CUSTOM_GH_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # Not driven by the Copybara exit code: it is a no-op whenever an
+          # earlier sync is still sitting unmerged, which is exactly when the PR
+          # has to stay open. Ask git instead.
+          git fetch -q origin \
+            "+refs/heads/vendor/upstream:refs/remotes/origin/vendor/upstream" \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          if git merge-base --is-ancestor origin/vendor/upstream "origin/$DEFAULT_BRANCH"; then
+            echo "Vendor branch fully merged; nothing to open."
+            exit 0
+          fi
+          if [ -n "$(gh pr list --head vendor/upstream --base "$DEFAULT_BRANCH" \
+                       --state open --json number --jq '.[].number')" ]; then
+            echo "Sync PR already open; Copybara pushed onto it."
+          else
+            CORE=$(basename "$(jq -r '.upstream.repository' gateware.json)" .git)
+            gh pr create --base "$DEFAULT_BRANCH" --head vendor/upstream \
+              --title "Sync upstream $CORE" --body "$(cat <<'EOF'
+          Copybara mirrored the upstream rtl/ tree onto vendor/upstream. Merging brings
+          it into rtl/upstream/, and the merge re-applies this port's own edits to
+          vendored files, so any conflict here is a real one.
+
+          Auto-merge is armed, so this lands by itself once the timing gate is green.
+          It stops and waits for a human on exactly two things: a merge conflict with
+          the port's edits, or a red gate. Merging cuts a release: patch by default,
+          or add a release:minor / release:major label before the gate finishes.
+          EOF
+          )"
+          fi
+          # Unattended merge. --merge is not a preference: a squash or rebase drops
+          # the merge parent, and the next sync then replays the whole upstream
+          # history against a tree that already has it. Re-armed on every run so a
+          # PR opened while the repo settings were wrong still picks it up.
+          #
+          # Needs "Allow auto-merge" on the repo and at least one required status
+          # check on the default branch (the gate), otherwise gh fails here rather
+          # than merging something ungated. Never enable "Automatically delete head
+          # branches": with nobody watching, that silently destroys the merge base.
+          gh pr merge --auto --merge vendor/upstream
