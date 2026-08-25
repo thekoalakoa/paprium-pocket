@@ -1,0 +1,84 @@
+# pocket: derived from agg23/openfpga-NES .github/copy.bara.sky. Local: the mirror pushes to a
+# dedicated vendor/upstream branch instead of opening a PR straight onto master, so
+# git's three-way merge is what re-applies this port's edits to vendored files; there
+# are no upstream_patches; and CRLF is normalised on ingest.
+#
+# Copybara: mirror the upstream MegaDrive_MiSTer rtl/ tree onto the vendor/upstream
+# branch, as rtl/upstream/ and with no local edits applied. upstream.yml opens a
+# pull request merging that branch into master, where git's three-way merge
+# re-applies the port's own changes to vendored files. The branch is pushed with a
+# PAT (CUSTOM_GH_TOKEN) because a GITHUB_TOKEN push would not trigger the
+# downstream workflows.
+
+upstream_url = "https://github.com/MiSTer-devel/MegaDrive_MiSTer.git"
+downstream_url = "https://github.com/drizzt/openFPGA-MegaDrive.git"
+
+# Must match gateware.json .upstream.vendored.
+vendor_dir = "rtl/upstream"
+
+core.workflow(
+    name = "default",
+
+    # ORIGIN: upstream MiSTer MegaDrive core (its default branch is "main";
+    # this repo's own branch, below, is "master")
+    origin = git.origin(
+        url = upstream_url,
+        ref = "main",
+    ),
+
+    # DESTINATION: pushed straight to the vendor branch, never to master. That
+    # branch holds untouched upstream and must outlive every merge: it is the
+    # merge base that lets git carry the port's edits across syncs, and Copybara
+    # reads its own baseline from the GitOrigin-RevId trailer there. Same branch
+    # name in release.yml.
+    destination = git.destination(
+        url = downstream_url,
+        fetch = "vendor/upstream",
+        push = "vendor/upstream",
+    ),
+
+    # 1:1 commit per upstream commit, preserving upstream history/granularity
+    mode = "ITERATIVE",
+
+    # Preserve upstream authorship
+    authoring = authoring.pass_thru("Copybara <copybara@example.com>"),
+
+    # A full mirror of upstream rtl/, which is also what every comparable Pocket
+    # port vendors. rtl/core.qip enumerates its sources individually and alone
+    # decides what is built, so a vendored file this port does not compile costs
+    # nothing, and enabling one later is a qip edit instead of a change here plus
+    # a resync.
+    origin_files = glob(
+        ["rtl/**"],
+        exclude = [
+            # documentation images and the progress log, not sources
+            "rtl/nuked-md/*.png",
+            "rtl/nuked-md/*.jpg",
+            "rtl/nuked-md/Progress.md",
+        ],
+    ),
+
+    # Copybara owns rtl/upstream/ in full, and deletes files there that the origin
+    # glob above no longer lists. rtl/cartridge.sv sits outside on purpose: it is the
+    # upstream file plus marked regions, and the vendored copy right beside it is what
+    # a resync updates, so the diff between the two stays readable. Pull the mapper
+    # changes across by hand from that diff.
+    destination_files = glob([vendor_dir + "/**"]),
+
+    transformations = [
+        # upstream rtl/foo -> rtl/upstream/foo
+        core.move("rtl", vendor_dir),
+
+        # Normalize CRLF -> LF before merging (upstream stores mixed/CRLF endings)
+        core.transform(transformations = [
+            core.replace(
+                before = "\r\n",
+                after = "\n",
+                paths = glob([vendor_dir + "/**"]),
+                multiline = True,
+            ),
+        ], noop_behavior = "IGNORE_NOOP"),
+
+        metadata.add_header("[UPSTREAM] ", ignore_label_not_found = True, new_line = False),
+    ],
+)

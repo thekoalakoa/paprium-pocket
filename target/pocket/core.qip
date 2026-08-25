@@ -1,0 +1,29 @@
+# Rewritten from agg23/openfpga-NES target/pocket/core.qip, which names a save_state_controller,
+# a pll_reconfig and an stp1.stp this core does not carry.
+#
+# Everything listed under Data loaders / Audio is agg23/openfpga-NES target/pocket/ verbatim, and
+# core_bridge_cmd.v is open-fpga/core-template/src/fpga/core/ verbatim; each says so in its own header.
+# Only core_top.sv and core_constraints.sdc are local, and both say so in theirs.
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "core_top.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "video_cleaner.sv"]
+set_global_assignment -name VERILOG_FILE       [file join $::quartus(qip_path) "core_bridge_cmd.v"]
+set_global_assignment -name SDC_FILE           [file join $::quartus(qip_path) "core_constraints.sdc"]
+
+# Data loaders
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "data_loader.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "data_unloader.sv"]
+
+# Audio
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "sound_i2s.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "sync_fifo.sv"]
+set_global_assignment -name QIP_FILE           [file join $::quartus(qip_path) "audio/audio.qip"]
+set_global_assignment -name QIP_FILE           [file join $::quartus(qip_path) "mf_audio_pll.qip"]
+
+set_global_assignment -name QIP_FILE           [file join $::quartus(qip_path) "mf_pllbase.qip"]
+# pocket: the MD master clock is baked into the PLL, so PAL needs a second one.
+# mf_pllbase_pal is the hand-edited twin, selected by core_top's PAL parameter, so
+# both are always compiled in and the unused one is pruned. It replaces the
+# agg23's pin_ddio_clk, which this core does not use: sdram.sv forwards dram_clk
+# through its own altddio_out
+set_global_assignment -name VERILOG_FILE       [file join $::quartus(qip_path) "mf_pllbase_pal.v"]
+# pocket-end

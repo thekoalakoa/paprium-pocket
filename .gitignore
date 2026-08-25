@@ -1,0 +1,33 @@
+# Quartus build artifacts
+projects/db/
+projects/incremental_db/
+projects/output_files/
+projects/qdb/
+projects/*.qws
+projects/*.rpt
+projects/*.summary
+projects/*.smsg
+projects/c5_pin_model_dump.txt
+projects/*.smp_dump.txt
+projects/*assignment_defaults.qdf
+projects/quartus.pid
+projects/map.log
+build.log
+
+# Generated bitstream / loader / package binaries
+build_output/
+# written by scripts/package_release.sh
+openfpga-*.zip
+pkg/pocket/Cores/*/*.rbf_r
+pkg/pocket/Cores/*/loader.bin
+# assembled in place by scripts/build_loader.sh, moved to build_output/ on success
+support/loader.bin
+# regenerated pre-flow by platform/pocket/build_id_gen.tcl
+platform/pocket/build_id.mif
+platform/pocket/build_id.v
+
+# Editor / OS
+*.bak
+__pycache__/
+*~
+.DS_Store
