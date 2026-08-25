@@ -411,7 +411,12 @@ always @(posedge clk) begin
 	end
 end
 
-wire [24:1] md_cart_addr = realtec_quirk ? realtec_addr       :
+// paprium: no mapper is live in the Paprium build. The real cart FPGA has no bank
+// logic, SSF2 banking is suppressed above, and Realtec / SF-00x / the SVP DMA offset
+// belong to other cartridges. Folding this to a pass-through drops the bank registers,
+// both mapper address paths and their quirk comparators
+wire [24:1] md_cart_addr = PAPRIUM ? cart_addr :
+                           realtec_quirk ? realtec_addr       :
                            sf_quirk      ? sf_rom_addr        :
                            md_bank_use   ? {md_bank[cart_addr[21:19]], cart_addr[18:1]} :
                                            cart_addr - svp_dma;
@@ -675,8 +680,11 @@ wire [12:0] eeprom_mask[8] = '{13'h00, 13'h7f, 13'h7f, 13'hff, 13'h7ff, 13'h1fff
 // DSP; Virtua Racing has none, and the loader only routes Virtua Racing to that
 // build. sda_o high is the bus idle level, so a mis-routed EEPROM game sees a
 // device that never answers
+// paprium: Paprium has no serial EEPROM either, and the Paprium build detects no
+// quirks at all, so the 24CXX engine can never be selected. Same tie-off as the SVP
+// bitstream uses
 generate
-if(SVP) begin
+if(SVP || PAPRIUM) begin
 	assign eeprom_sdao = 1;
 	// The sram mux still reads these when eeprom_quirk hits; tie them off so
 	// save_change stays driven instead of floating with the 24CXX gone
