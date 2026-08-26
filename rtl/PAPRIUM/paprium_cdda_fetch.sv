@@ -248,9 +248,11 @@ module paprium_cdda_fetch #(
 	// wr_chunk is the ring pointer and wraps at NUM_CHUNKS, so it cannot count a
 	// duration. This one is absolute, reset per track.
 	reg [15:0] chunks_done;
-	// ~1 second of audio per error code. 48 kHz stereo is 192000 bytes/s, so 48
-	// chunks of 4096 is 1.02 s - close enough to count by ear.
-	wire [15:0] diag_limit = saw_ack ? ({13'd0, open_err} * 16'd48) : 16'd1;
+	// 3 seconds of audio per error code. One second per unit was too fine for hand
+	// timing: readings spread 0.45 s across a 1.02 s unit, straddling err 3 and 4.
+	// 48 kHz stereo is 192000 bytes/s, so 144
+	// chunks of 4096 is 3.07 s, and the codes land 3 s apart.
+	wire [15:0] diag_limit = saw_ack ? ({13'd0, open_err} * 16'd144) : 16'd1;
 
 	always @(posedge clk_74a) begin
 		target_dataslot_read     <= 0;
