@@ -363,3 +363,34 @@ density rather than logic:
 
 With placement room the Paprium build is better than the untouched base core on
 both figures.
+
+## The fit was a settings problem, not an RTL problem
+
+With sound effects in and the Fmax-tuned settings inherited from the base core,
+the Paprium variant failed at 18,560 ALMs / 1868 LABs against 1848 available.
+Switching the Paprium variants alone to area-oriented fitter settings:
+
+| | ALMs | LABs | worst slack | TNS |
+|---|---|---|---|---|
+| Fmax settings, SFX | 18,560 (100%) | 1868 - **failed** | - | - |
+| Area settings, SFX | **17,737 (96%)** | fits | -2.318 | -1061.9 |
+
+**823 ALMs recovered from six `set_global_assignment` lines** - more than the
+whole `audio_sfx` engine costs, and with no RTL sacrificed. The time-multiplexed
+`sfx_bank` rewrite, the NEORV32 trims and the audio-conditioning cut are all
+still available and all still untouched.
+
+Memory is unchanged at 1,733,903 bits (55%), 230/308 RAM blocks, 33 DSP.
+
+The lesson is in the base core's own qsf comment: it moved *off* area settings
+because its first fit landed at 82% ALM and it had room to spend on Fmax. That
+trade is correct at 82% and backwards at 100%. MisterPezz82's qsf points the same
+way from the other side - he sets `ALM_REGISTER_PACKING_EFFORT LOW` on a device
+2.3x this size.
+
+Cost: timing is worse than the `nosfx` build (-2.318 / -1061.9 against
+-2.135 / -562.8), which is the expected area-for-speed trade. Worst-case slack is
+still better than the untouched baseline's -2.612; TNS is worse than its -717.7.
+
+**743 ALMs of headroom now exist for the CDDA streamer**, which is the number
+that decides whether music and sound effects can coexist.
