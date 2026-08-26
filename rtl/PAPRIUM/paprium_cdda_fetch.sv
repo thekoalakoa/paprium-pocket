@@ -29,12 +29,24 @@ module paprium_cdda_fetch #(
 	parameter        CHUNK_BYTES  = 4096,
 	parameter        NUM_CHUNKS   = 4,
 	parameter        CHUNK_W      = $clog2(NUM_CHUNKS),
-	// Diagnostic: skip the openfile step and stream whatever file data.json already
+	// Diagnostic: report openfile's outcome by how long music plays. Audio is the only
+	// output channel proven to work end to end, so the readout rides on it:
+	//
+	//   continuous music  openfile acked and returned 0 - it worked
+	//   ~1s then silence  err 1   (created and opened)
+	//   ~2s then silence  err 2   (slot undefined)
+	//   ~3s then silence  err 3   (file not found - the path is wrong)
+	//   ~4s then silence  err 4   (malformed path)
+	//   ~5s then silence  err 5   (general error)
+	//   silence at once   never acknowledged - APF is not offering openfile at all
+	//
+	// Track 1 plays throughout either way; only the DURATION carries the answer.
+	// Old meaning: skip the openfile step and stream whatever file data.json already
 	// names for the slot. A deferload slot is declared to the core with its file, just
 	// not preloaded, so target reads should work against it untouched. Hearing track 01
 	// over everything proves reads, ring, player and mix all work and isolates the
 	// fault to openfile; still-silence rules openfile out entirely.
-	parameter        SKIP_OPENFILE = 1'b0
+	parameter        DIAG_MODE = 1'b0
 ) (
 	input  wire        clk_74a,
 	input  wire        reset,
@@ -238,6 +250,16 @@ module paprium_cdda_fetch #(
 	// and says plainly what happened.
 	reg [21:0] wait_timer;
 
+	// Diagnostic capture: did the command start, and what did it report
+	reg        saw_ack;
+	reg  [2:0] open_err;
+	// wr_chunk is the ring pointer and wraps at NUM_CHUNKS, so it cannot count a
+	// duration. This one is absolute, reset per track.
+	reg [15:0] chunks_done;
+	// ~1 second of audio per error code. 48 kHz stereo is 192000 bytes/s, so 48
+	// chunks of 4096 is 1.02 s - close enough to count by ear.
+	wire [15:0] diag_limit = saw_ack ? ({13'd0, open_err} * 16'd48) : 16'd1;
+
 	always @(posedge clk_74a) begin
 		target_dataslot_read     <= 0;
 		param_we                 <= 0;
@@ -265,6 +287,9 @@ module paprium_cdda_fetch #(
 				cursor          <= 0;
 				wr_chunk        <= 0;
 				param_idx       <= 0;
+				saw_ack         <= 0;
+				open_err        <= 0;
+				chunks_done     <= 0;
 				state           <= S_PARAM;
 			end
 			else case(state)
@@ -280,9 +305,9 @@ module paprium_cdda_fetch #(
 				                        ? path_word(param_idx)
 				                        : 32'd0;
 				if(param_idx == PARAM_WORDS-1) begin
-					if(SKIP_OPENFILE) playing <= 1;
+
 					param_idx <= 0;
-					state     <= SKIP_OPENFILE ? S_READ : S_OPEN;
+					state     <= S_OPEN;
 				end
 				else param_idx <= param_idx + 1'd1;
 			end
@@ -295,7 +320,7 @@ module paprium_cdda_fetch #(
 
 			S_OPEN_ACK: begin
 				wait_timer <= wait_timer + 1'd1;
-				if(target_dataslot_ack)  begin wait_timer <= 0; state <= S_OPEN_WAIT; end
+				if(target_dataslot_ack)  begin wait_timer <= 0; saw_ack <= 1; state <= S_OPEN_WAIT; end
 				else if(&wait_timer)     begin wait_timer <= 0; playing <= 1; state <= S_READ; end
 			end
 
@@ -304,6 +329,7 @@ module paprium_cdda_fetch #(
 			// without openfile, so a failure stays audible and which track plays says
 			// plainly whether openfile did anything at all.
 			S_OPEN_WAIT: if(target_dataslot_done) begin
+				open_err <= target_dataslot_err;
 				playing <= 1;
 				state   <= S_READ;
 			end
@@ -327,10 +353,15 @@ module paprium_cdda_fetch #(
 			end
 
 			S_ADVANCE: begin
-				wr_chunk <= wr_chunk + 1'd1;
+				wr_chunk    <= wr_chunk + 1'd1;
+				chunks_done <= chunks_done + 1'd1;
 				cursor   <= cursor + CHUNK_BYTES[31:0];
 
-				if(track_bytes_valid && (cursor + CHUNK_BYTES[31:0] >= track_bytes))
+				// Diagnostic builds cut the track short to spell out the error code;
+				// diag_limit is 0 for err 0, which means "do not cut it short".
+				if(DIAG_MODE && (diag_limit != 0) && (chunks_done + 1'd1 >= diag_limit))
+					state <= S_DONE;
+				else if(track_bytes_valid && (cursor + CHUNK_BYTES[31:0] >= track_bytes))
 					state <= S_DONE;
 				else
 					state <= S_READ;
