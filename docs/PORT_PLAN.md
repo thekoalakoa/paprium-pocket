@@ -394,3 +394,33 @@ still better than the untouched baseline's -2.612; TNS is worse than its -717.7.
 
 **743 ALMs of headroom now exist for the CDDA streamer**, which is the number
 that decides whether music and sound effects can coexist.
+
+## CDDA fits: full core measured
+
+| | ALMs | Memory | RAM blocks | DSP | worst slack | TNS |
+|---|---|---|---|---|---|---|
+| SFX only | 17,737 (96%) | 1,733,903 (55%) | 230 | 33 | -2.318 | -1061.9 |
+| + CDDA, param struct inferred | 18,794 (**102%** - failed) | 1,865,053 | - | 39 | - | - |
+| + CDDA, param struct instantiated | **18,100 (98%)** | 1,869,149 (59%) | 249 (81%) | 39 | -3.040 | -1347.5 |
+
+The streamer's true cost is **363 ALMs**, not the 1,057 the first attempt showed.
+The difference was a 66-word parameter struct that failed to infer as block RAM
+because its write sits inside the sequencer's always block; 66 words of flops
+plus a 66-way 32-bit read mux cost 694 ALMs. Instantiating `dpram_dif` explicitly
+fixed it, and the memory figure is what exposed the problem: the first fit's
++131,150 bits was exactly the ring and nothing else.
+
+**Lesson for this device: infer nothing, instantiate everything.**
+
+Timing degraded to -3.040 / -1347.5, worse than the untouched baseline's -2.612 /
+-717.7 for the first time. The worst eight paths are still `ym7101:vdp` and the
+prescaler - no CDDA path appears - so this is congestion at 98% making the same
+inherited paths route worse, not a new critical path. Reclaiming ALMs would pull
+it back; the reserve levers are all still unspent:
+
+| Lever | ~ALUTs | Risk |
+|---|---|---|
+| Time-multiplex `sfx_bank` | 260 | moderate, no audible effect |
+| NEORV32 `MTIME` | 185 | firmware may use the timer |
+| NEORV32 `FAST_SHIFT_EN` | 150 | slows the decompressors |
+| Hardwire `audio_cond` LPF | 300-400 | audibly changes MD sound character |
