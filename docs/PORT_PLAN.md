@@ -255,3 +255,38 @@ Two things worth keeping in view. The failing model is the worst-case corner
 (1100 mV, 85 C); a Pocket does not run at 85 C. And the base core ships as a
 declared beta. Neither makes a violation acceptable, but both bear on whether
 this is a regression or the status quo.
+
+## Baseline comparison: the timing violation is inherited
+
+Fitting the untouched `ntsc` variant on the same toolchain and device:
+
+| | ALMs | Memory bits | DSP | general[1] slack | TNS |
+|---|---|---|---|---|---|
+| Baseline `ntsc` (no Paprium) | 16,249 (88%) | 1,731,855 (55%) | 26 | **-2.612** | -717.7 |
+| `paprium` | 18,314 (99%) | 1,733,903 (55%) | 33 | **-2.277** | -1590.9 |
+
+**The baseline fails the same clock, on the same paths, with a worse worst-case
+slack than the Paprium build.** Its failing nodes are the same base-core logic:
+`ym7101:vdp|mclk_clk3_l`, `ym7101:vdp|ym7101_dff:prescaler_dff11`,
+`z80cpu:z80|z80_dlatch`. Nothing this port added appears in either list.
+
+So `clk_md_107_39` not closing at the slow 85 C corner is a property of the
+gate-level Nuked-MD core as shipped, not a regression introduced here. The
+released v0.3.0 core carries it too, and people run that core on real hardware.
+
+The one honest caveat: our **TNS is worse** (-1590.9 against -717.7). The single
+worst path improved, but the *number* of failing paths roughly doubled. That is
+what 99% ALM utilisation does - the fitter has almost no placement freedom left,
+so many paths land marginally worse even though the logic on them is unchanged.
+Reclaiming ALMs would pull TNS back down; it will not fix the worst path, because
+that path is the base core's.
+
+Paprium's net cost, after the dead-hardware cuts: **+2,065 ALMs, +7 DSP, and
+essentially no memory** (+2,048 bits - the MCU work RAM, firmware ROM and backup
+RAM almost exactly replace the 64 KB cart SRAM that was removed).
+
+### What this means for the plan
+
+Hardware testing is reasonable now. The core is no further outside timing than
+the base core that already works on real Pockets, so a bring-up attempt will tell
+us something real rather than just re-measuring a known violation.
