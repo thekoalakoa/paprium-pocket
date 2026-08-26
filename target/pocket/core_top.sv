@@ -903,7 +903,15 @@ module core_top (
   wire [15:0] cart_data;
   wire [15:0] cart_data_wr;
   wire        cart_cs;
+// paprium: two strobes now, muxed below. The stock core uses the VDP early DMA OE to
+// hide SDRAM latency on ordinary ROM reads. Paprium's 0xC000-0xFFFF window is not an
+// ordinary read: every accepted one advances the cart FPGA private stream pointer, so a
+// speculative early phase that never delivers a word still consumes one and desyncs the
+// stream. Paprium takes the real cartridge OE (CAS0) instead
+  wire        cart_oe_raw;
+  wire        cart_oe_early;
   wire        cart_oe;
+// paprium-end
   wire        cart_lwr;
   wire        cart_uwr;
   wire        cart_time;
@@ -955,6 +963,9 @@ module core_top (
   wire        mdp_active;
 
   wire        md_reset_effective = md_reset | (paprium_active & paprium_md_reset);
+
+  // Paprium reads the real cartridge OE; everything else keeps the early DMA strobe
+  assign      cart_oe = paprium_active ? cart_oe_raw : cart_oe_early;
   // paprium-end
 
   cartridge #(
@@ -1207,7 +1218,8 @@ module core_top (
 
   // pocket: the shell instantiates md_board.v rather than a MiSTer top, so the work
   // RAM, cartridge and pad wiring above is the shell's job instead of the core's.
-  // cart_oe comes off vdp_dma_oe_early, the same strobe a cycle earlier, and TMSS
+  // cart_oe is muxed between the real CAS0 and vdp_dma_oe_early - see the paprium note
+  // above the declarations. TMSS
   // stays bypassed because no TMSS ROM is ever loaded
   wire [23:0] core_rgb;
   wire        core_hs;
@@ -1259,8 +1271,8 @@ module core_top (
       .tmss_data   (16'd0),
       .tmss_address(),
 
-      // cart_oe comes off vdp_dma_oe_early, the same strobe a cycle earlier, so
-      // the plain output of that name is left dangling. cart_dma gates the menu
+      // paprium: both OE strobes are taken now and muxed at the declaration, so
+      // neither is dangling. cart_dma gates the menu
       // pause and, in the svp builds, the cartridge's DSP DMA path
       .M3              (1'b1),          // MD mode, no Master System
       .cart_address    (cart_addr),
@@ -1268,8 +1280,8 @@ module core_top (
       .cart_data_en    (cart_data_en),
       .cart_data_wr    (cart_data_wr),
       .cart_cs         (cart_cs),
-      .cart_oe         (),
-      .vdp_dma_oe_early(cart_oe),
+      .cart_oe         (cart_oe_raw),    // paprium: no longer dangling
+      .vdp_dma_oe_early(cart_oe_early),
       .cart_lwr        (cart_lwr),
       .cart_uwr        (cart_uwr),
       .cart_time       (cart_time),
