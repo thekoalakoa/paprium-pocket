@@ -625,11 +625,16 @@ endgenerate
 // pocket: svp_quirk already sets noram_quirk, so this select is dead in the SVP build at
 // run time but not statically. Saying so drops the address compares, and with the sram
 // mux constant, save_change with them
-wire md_sram_cs = !SVP && ~cart_ms && (cart_addr[23:21] == 1) && (md_bank_sram || (cart_addr >= rom_sz && ~&cart_addr[20:19])) && ~noram_quirk;
+// paprium: dead in the Paprium build - the save is the MCU backup RAM and the cart
+// SRAM array is not even instantiated. Gating the select lets the address compares go
+wire md_sram_cs = !SVP && !PAPRIUM && ~cart_ms && (cart_addr[23:21] == 1) && (md_bank_sram || (cart_addr >= rom_sz && ~&cart_addr[20:19])) && ~noram_quirk;
 // pocket-end
 
 // EEPROM
-wire        md_eeprom_cs   = (eeprom_quirk[3:2] == 2'b01) ? (cart_addr[23:19] == 5'b00111) : (eeprom_quirk[2:0] && ((eeprom_bank & ~cart_addr[20]) || !eeprom_quirk[3]) && cart_addr[23:21] == 3'b001);
+// paprium: the 24CXX engine is not instantiated in this build, so the select must be
+// dead too. Note the parenthesis: && binds tighter than ?: , so the guard has to wrap
+// the whole conditional or PAPRIUM would just pick the false arm
+wire        md_eeprom_cs   = !PAPRIUM && ((eeprom_quirk[3:2] == 2'b01) ? (cart_addr[23:19] == 5'b00111) : (eeprom_quirk[2:0] && ((eeprom_bank & ~cart_addr[20]) || !eeprom_quirk[3]) && cart_addr[23:21] == 3'b001));
 wire [15:0] md_eeprom_data;
 
 always_comb begin
@@ -770,7 +775,9 @@ end
 wire [23:1] realtec_addr = realtec_boot ? {11'b00000111111,cart_addr[12:1]} : {2'b00,(cart_addr[21:17] & realtec_mask) + realtec_bank,cart_addr[16:1]};
 
 //SF-001,SF-002,SF-004 mappers
-wire        sf_cs     = sf_quirk && (sf_sram_en | cart_time);
+// paprium: the SF-00x mapper is dead here; gating the select prunes its whole
+// address generator and register file
+wire        sf_cs     = !PAPRIUM && sf_quirk && (sf_sram_en | cart_time);
 wire [15:0] sf_data   = cart_time ? (sf_quirk[1:0] == 2'd3 ? sf004_do : 16'h0000) : {8'hff,sram_q};
 
 reg   [7:0] sf001_bank_reg;
