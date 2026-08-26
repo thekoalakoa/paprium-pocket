@@ -424,3 +424,39 @@ it back; the reserve levers are all still unspent:
 | NEORV32 `MTIME` | 185 | firmware may use the timer |
 | NEORV32 `FAST_SHIFT_EN` | 150 | slows the decompressors |
 | Hardwire `audio_cond` LPF | 300-400 | audibly changes MD sound character |
+
+## CDDA bring-up log
+
+Music took four fixes, three of which were real bugs that were not the blocker.
+Recorded because the order matters more than the fixes.
+
+1. **Param struct not byte-swapped.** `core_top` ties `bridge_endian_little` to
+   0, so the bridge is big-endian and every other read path in the shell swaps
+   for it (`data_unloader.sv:200`). The struct returned raw words, reversing each
+   group of four path bytes. Real bug; did not change the symptom.
+
+2. **Stale `target_dataslot_done`.** `core_bridge_cmd` clears `done` only on
+   reaching `TARG_ST_DATASLOTOP`, several cycles after a request, so it still
+   holds the previous command's value. Waiting on `done` alone fired instantly on
+   a stale 1, and every read after the first "completed" with nothing written.
+   Commands now wait for `ack` first. Also: `err` 1 is *created and opened*, a
+   success code, and was being treated as failure. Real bugs; symptom unchanged.
+
+3. **Zero slot size read as end-of-track.** A `deferload` slot that is not loaded
+   reports size 0 through `dataslot_update`. With `track_bytes = 0` and
+   `track_bytes_valid = 1`, the first `S_ADVANCE` evaluated `0 + CHUNK >= 0` as
+   end-of-track: one 21 ms chunk, `playing` dropped, silence - **whatever
+   happened upstream**. This was the blocker, and it masked fixes 1 and 2.
+
+4. **`version_required` too low.** With audio flowing, every track played as
+   track 01, which is the fallback path: `openfile` was having no effect.
+   `core.json` declared `"1.1"`; `Mazamars312/openfpga-pcengine-cd`, the one core
+   known to use `openfile`, declares **`"2.3"`**. APF offers a core only the
+   features matching its declared framework version, so the core was asking for a
+   2.x command while claiming to be a 1.1 core. Reads are long-standing and
+   worked throughout; `openfile` silently did not.
+
+The lesson: silence is a terrible diagnostic, because every failure in a streamer
+looks identical. What broke the deadlock was making failures *audible* - falling
+back to streaming the slot untouched rather than going quiet turned "no music"
+into "wrong track", which named the remaining fault immediately.
