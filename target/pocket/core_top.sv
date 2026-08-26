@@ -316,6 +316,8 @@ module core_top (
 // CLK_FREQ are 53.693 MHz, so building it PAL would put every clock-derived figure in
 // the firmware out by 0.9%
   parameter PAPRIUM = 1'b0;
+  // Diagnostic switch: drop the cartridge PCM engine to buy ~700 ALMs. Shipping is 1
+  parameter PAPRIUM_SFX = 1'b1;
 // paprium-end
 
 
@@ -970,7 +972,8 @@ module core_top (
 
   cartridge #(
       .SVP(SVP),
-      .PAPRIUM(PAPRIUM)
+      .PAPRIUM(PAPRIUM),
+      .PAPRIUM_SFX(PAPRIUM_SFX)
   ) cartridge (
       .clk        (clk_sys_53_69),
       .clk_ram    (clk_md_107_39),

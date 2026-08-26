@@ -33,7 +33,7 @@ module cartridge
 // banking is suppressed, SDRAM port 2 moves from the SVP to the Paprium MCU, and the
 // save RAM becomes the MCU-managed 4 KB backup RAM. SVP and PAPRIUM are mutually
 // exclusive - both want port 2
-#(parameter SVP = 1'b0, parameter PAPRIUM = 1'b0)
+#(parameter SVP = 1'b0, parameter PAPRIUM = 1'b0, parameter PAPRIUM_SFX = 1'b1)
 // pocket-end
 (
 	input             clk,
@@ -537,7 +537,7 @@ end
 
 generate
 if(PAPRIUM) begin
-	paprium_cart paprium
+	paprium_cart #(.SFX(PAPRIUM_SFX)) paprium
 	(
 		.clk(clk),
 		.reset(reset),

@@ -1,4 +1,5 @@
 module paprium_cart
+#(parameter SFX = 1'b1)
 (
 	input             clk,
 	input             reset,
@@ -229,6 +230,12 @@ module paprium_cart
 		.save_wr(save_wr)
 	);
 
+// paprium: SFX is switchable so a diagnostic bitstream can trade it for the ~700 ALMs
+// needed to fit while a graphics-path fix is being validated on hardware. The cartridge
+// PCM engine has nothing to do with the stream window, so dropping it changes nothing
+// about what such a build proves. SFX=1 is the shipping configuration.
+generate
+if(SFX) begin : sfx_on
 	SndCk snd;
 	wire signed [15:0] sfx_l_raw;
 	wire signed [15:0] sfx_r_raw;
@@ -270,6 +277,14 @@ module paprium_cart
 
 	assign sfx_l = (enable & sfx_started & (sfx_volume != 0)) ? sfx_l_raw : 16'sd0;
 	assign sfx_r = (enable & sfx_started & (sfx_volume != 0)) ? sfx_r_raw : 16'sd0;
+end
+else begin : sfx_off
+	assign mcu_dati_sfx = 32'd0;
+	assign sfx_l        = 16'sd0;
+	assign sfx_r        = 16'sd0;
+end
+endgenerate
+// paprium-end
 
 	paprium_mdp_adapter mdp_adapter_inst
 	(
