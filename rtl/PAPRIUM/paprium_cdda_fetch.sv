@@ -216,11 +216,23 @@ module paprium_cdda_fetch #(
 	           S_READ      = 4'd4,
 	           S_READ_WAIT = 4'd5,
 	           S_ADVANCE   = 4'd6,
-	           S_DONE      = 4'd7;
+	           S_DONE      = 4'd7,
+	// A command is only finished once it has STARTED and then finished. done stays
+	// asserted from the previous command until core_bridge_cmd reaches
+	// TARG_ST_DATASLOTOP, several cycles after the request, so waiting on done alone
+	// fires on a stale value: every read after the first would "complete" instantly
+	// with nothing written, and the player would drain an untouched ring as silence.
+	           S_OPEN_ACK  = 4'd8,
+	           S_READ_ACK  = 4'd9;
 
 	reg  [3:0] state;
 	reg        loop_this_track;
 	reg [31:0] cursor;
+	// If a command is never acknowledged - an APF that does not offer openfile, say -
+	// waiting forever is silence with no way back. ~56 ms at 74 MHz, far longer than
+	// any SD access, then carry on regardless: a wrong track is better than no audio
+	// and says plainly what happened.
+	reg [21:0] wait_timer;
 
 	always @(posedge clk_74a) begin
 		target_dataslot_read     <= 0;
@@ -234,6 +246,7 @@ module paprium_cdda_fetch #(
 			playing       <= 0;
 			current_track <= 0;
 			param_idx     <= 0;
+			wait_timer    <= 0;
 		end
 		else begin
 			// A stop or a new track always wins over whatever is in flight
@@ -273,13 +286,22 @@ module paprium_cdda_fetch #(
 			S_OPEN: begin
 				target_dataslot_openfile <= 1;
 
-				state                    <= S_OPEN_WAIT;
+				state                    <= S_OPEN_ACK;
+			end
+
+			S_OPEN_ACK: begin
+				wait_timer <= wait_timer + 1'd1;
+				if(target_dataslot_ack)  begin wait_timer <= 0; state <= S_OPEN_WAIT; end
+				else if(&wait_timer)     begin wait_timer <= 0; playing <= 1; state <= S_READ; end
 			end
 
 			S_OPEN_WAIT: if(target_dataslot_done) begin
 				// err 3 = file not found. A missing track is silence, not a
 				// hang: the MCU polls mdp_playing and would wait forever.
-				if(target_dataslot_err != 3'd0) begin
+				// err 0 = opened, err 1 = created and opened. Both are success;
+				// only 2 (slot undefined), 3 (not found), 4 (malformed) and
+				// 5 (general) are failures.
+				if(target_dataslot_err > 3'd1) begin
 					playing <= 0;
 					state   <= S_IDLE;
 				end
@@ -293,7 +315,13 @@ module paprium_cdda_fetch #(
 				target_dataslot_slotoffset <= cursor;
 				target_dataslot_length     <= CHUNK_BYTES[31:0];
 				target_dataslot_read       <= 1;
-				state                      <= S_READ_WAIT;
+				state                      <= S_READ_ACK;
+			end
+
+			S_READ_ACK: begin
+				wait_timer <= wait_timer + 1'd1;
+				if(target_dataslot_ack)  begin wait_timer <= 0; state <= S_READ_WAIT; end
+				else if(&wait_timer)     begin wait_timer <= 0; state <= S_DONE;      end
 			end
 
 			S_READ_WAIT: if(target_dataslot_done) begin
