@@ -53,6 +53,21 @@ set build_status [catch {
     set_parameter -name SVP -entity core_top $svp_param
     set_parameter -name PAPRIUM -entity core_top $paprium_param
     set_parameter -name PAPRIUM_SFX -entity core_top $paprium_sfx_param
+
+    # paprium: the shared qsf is tuned for Fmax - its own comment says the first fit
+    # landed at 82% ALM "so there is room to spend on Fmax". The Paprium variants have
+    # no such room: they fit at 99-100% and fail on LAB packing, not ALM count. Trade
+    # it back here rather than in the qsf, so the ntsc/pal/svp bitstreams keep the
+    # tuning that suits them.
+    if {$paprium_param ne "'0"} {
+        set_global_assignment -name OPTIMIZATION_MODE "AGGRESSIVE AREA"
+        set_global_assignment -name OPTIMIZATION_TECHNIQUE AREA
+        set_global_assignment -name QII_AUTO_PACKED_REGISTERS "MINIMIZE AREA WITH CHAINS"
+        set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
+        set_global_assignment -name ALM_REGISTER_PACKING_EFFORT HIGH
+        set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
+        post_message "paprium: area-optimised fitter settings applied"
+    }
     execute_flow -compile
     project_close
 
