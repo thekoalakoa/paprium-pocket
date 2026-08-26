@@ -1056,7 +1056,8 @@ module core_top (
         .target_dataslot_length    (target_dataslot_length),
         .target_buffer_param_struct(target_buffer_param_struct),
 
-        .bridge_rd    (bridge_rd),
+        .bridge_rd           (bridge_rd),
+        .bridge_endian_little(bridge_endian_little),
         .bridge_addr  (bridge_addr),
         .param_rd_data(cdda_param_rd_data),
 
