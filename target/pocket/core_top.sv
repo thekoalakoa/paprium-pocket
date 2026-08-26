@@ -449,7 +449,7 @@ module core_top (
   wire        target_dataslot_read;
   wire        target_dataslot_write = 0;
   wire        target_dataslot_getfile = 0;
-  wire        target_dataslot_openfile;
+  wire        target_dataslot_openfile = 0;   // paprium: openfile is not used
 
   wire        target_dataslot_ack;
   wire        target_dataslot_done;
@@ -460,7 +460,7 @@ module core_top (
   wire [31:0] target_dataslot_bridgeaddr;
   wire [31:0] target_dataslot_length;
 
-  wire [31:0] target_buffer_param_struct;
+  wire [31:0] target_buffer_param_struct = 0;
   wire [31:0] target_buffer_resp_struct = 0;
 
   // pocket: APF creates a .sav for every game unless the slot size reads back 0, so
@@ -566,18 +566,11 @@ module core_top (
   //
 
   wire [31:0] save_rd_data;
-  // paprium: declared here rather than beside the CDDA block so it precedes the
-  // bridge read mux below
-  wire [31:0] cdda_param_rd_data;
 
   always @(*) begin
     casex (bridge_addr)
       32'h2xxxxxxx: begin
         bridge_rd_data <= save_rd_data;
-      end
-      32'h4xxxxxxx: begin
-        // paprium: APF reads the openfile parameter struct from here
-        bridge_rd_data <= cdda_param_rd_data;
       end
       32'hF8xxxxxx: begin
         bridge_rd_data <= cmd_bridge_rd_data;
@@ -1003,6 +996,31 @@ module core_top (
     // parameter comment in paprium_cdda_fetch.sv. Shipping is 0.
     localparam CDDA_DIAG   = PAPRIUM_CDDA_DBG;
 
+    // The 8-byte header entry lands in its own tiny bridge region so it cannot be
+    // confused with audio arriving in the ring.
+    wire        cdda_hdr_wr_en;
+    wire  [2:0] cdda_hdr_wr_addr;
+    wire [15:0] cdda_hdr_wr_data;
+
+    data_loader #(
+        .ADDRESS_MASK_UPPER_4 (4'h5),
+        .ADDRESS_SIZE         (3),      // one 8-byte entry
+        .OUTPUT_WORD_SIZE     (2),
+        .WRITE_MEM_CLOCK_DELAY(24)
+    ) cdda_hdr_loader (
+        .clk_74a   (clk_74a),
+        .clk_memory(clk_74a),           // the fetch sequencer lives in this domain
+
+        .bridge_wr           (bridge_wr),
+        .bridge_endian_little(bridge_endian_little),
+        .bridge_addr         (bridge_addr),
+        .bridge_wr_data      (bridge_wr_data),
+
+        .write_en  (cdda_hdr_wr_en),
+        .write_addr(cdda_hdr_wr_addr),
+        .write_data(cdda_hdr_wr_data)
+    );
+
     // ---- command channel across to the bridge domain -------------------
     // mdp_track_request and mdp_stop_request are single clk_sys pulses. A
     // toggle survives the crossing where a pulse would not; synch_3 hands back
@@ -1041,12 +1059,8 @@ module core_top (
         .track_loop   (trk_loop_s),
         .stop_request (stop_rise | stop_fall),
 
-        .dataslot_update     (dataslot_update),
-        .dataslot_update_id  (dataslot_update_id),
-        .dataslot_update_size(dataslot_update_size),
 
         .target_dataslot_read      (target_dataslot_read),
-        .target_dataslot_openfile  (target_dataslot_openfile),
         .target_dataslot_ack       (target_dataslot_ack),
         .target_dataslot_done      (target_dataslot_done),
         .target_dataslot_err       (target_dataslot_err),
@@ -1054,12 +1068,10 @@ module core_top (
         .target_dataslot_slotoffset(target_dataslot_slotoffset),
         .target_dataslot_bridgeaddr(target_dataslot_bridgeaddr),
         .target_dataslot_length    (target_dataslot_length),
-        .target_buffer_param_struct(target_buffer_param_struct),
 
-        .bridge_rd           (bridge_rd),
-        .bridge_endian_little(bridge_endian_little),
-        .bridge_addr  (bridge_addr),
-        .param_rd_data(cdda_param_rd_data),
+        .hdr_wr_en  (cdda_hdr_wr_en),
+        .hdr_wr_addr(cdda_hdr_wr_addr),
+        .hdr_wr_data(cdda_hdr_wr_data),
 
         .rd_chunk_gray(rd_chunk_gray[2:0]),
         .wr_chunk_gray(wr_chunk_gray[2:0]),
@@ -1083,7 +1095,6 @@ module core_top (
         .clk_memory(clk_sys_53_69),
 
         .bridge_wr           (bridge_wr),
-        .bridge_endian_little(bridge_endian_little),
         .bridge_addr         (bridge_addr),
         .bridge_wr_data      (bridge_wr_data),
 
@@ -1150,13 +1161,10 @@ module core_top (
   end
   else begin : no_cdda
     assign target_dataslot_read       = 0;
-    assign target_dataslot_openfile   = 0;
     assign target_dataslot_id         = 0;
     assign target_dataslot_slotoffset = 0;
     assign target_dataslot_bridgeaddr = 0;
     assign target_dataslot_length     = 0;
-    assign target_buffer_param_struct = 0;
-    assign cdda_param_rd_data         = 0;
     assign cdda_l                     = 0;
     assign cdda_r                     = 0;
     assign cdda_underruns             = 0;
