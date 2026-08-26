@@ -80,10 +80,27 @@ module paprium_cdda_fetch #(
 	// the byte order needs no special handling here.
 	// ---------------------------------------------------------------------
 	reg [15:0] hdr [0:3];
-	always @(posedge clk_74a) if(hdr_wr_en) hdr[hdr_wr_addr[2:1]] <= hdr_wr_data;
+	// target_dataslot_done says the COMMAND finished, but the bytes reach these
+	// registers through data_loader, which has a FIFO and a 24-cycle write pipeline.
+	// Sampling on done alone can read the entry before its last word has landed and
+	// take a stale offset, so count the four words in.
+	reg  [2:0] hdr_count;
 
-	wire [31:0] track_start = {hdr[1], hdr[0]};
-	wire [31:0] track_len   = {hdr[3], hdr[2]};
+	always @(posedge clk_74a) begin
+		if(track_request) hdr_count <= 0;
+		else if(hdr_wr_en) begin
+			hdr[hdr_wr_addr[2:1]] <= hdr_wr_data;
+			if(hdr_count < 3'd4) hdr_count <= hdr_count + 1'd1;
+		end
+	end
+
+	wire [31:0] hdr_start = {hdr[1], hdr[0]};
+	wire [31:0] hdr_len   = {hdr[3], hdr[2]};
+
+	// Latched once the entry is complete. Streaming off the live wires would let a
+	// later header read shift end-of-track under a track already playing.
+	reg [31:0] track_start;
+	reg [31:0] track_len;
 
 	// ---------------------------------------------------------------------
 	// Chunk flow control
@@ -176,18 +193,20 @@ module paprium_cdda_fetch #(
 				else if(&wait_timer)    begin wait_timer <= 0; state <= S_IDLE;     end
 			end
 
-			S_HDR_WAIT: if(target_dataslot_done) begin
+			S_HDR_WAIT: if(target_dataslot_done && (hdr_count >= 3'd4)) begin
 				// Length 0 means the track has no audio - one of the ten Blank.wav
 				// placeholders the cue asks for, or a track the pack was missing.
 				// Silence, not a hang: the MCU polls mdp_playing.
-				if(target_dataslot_err != 3'd0 || track_len == 0) begin
+				if(target_dataslot_err != 3'd0 || hdr_len == 0) begin
 					playing <= 0;
 					state   <= S_IDLE;
 				end
 				else begin
-					cursor  <= track_start;
-					playing <= 1;
-					state   <= S_READ;
+					track_start <= hdr_start;
+					track_len   <= hdr_len;
+					cursor      <= hdr_start;
+					playing     <= 1;
+					state       <= S_READ;
 				end
 			end
 
