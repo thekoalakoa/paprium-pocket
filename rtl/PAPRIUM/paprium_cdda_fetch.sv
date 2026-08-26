@@ -59,7 +59,7 @@ module paprium_cdda_fetch #(
 	// Param struct readback to the bridge (same clock domain)
 	input  wire        bridge_rd,
 	input  wire [31:0] bridge_addr,
-	output reg  [31:0] param_rd_data,
+	output wire [31:0] param_rd_data,
 
 	// Chunk flow control against the player (clk_sys), Gray coded
 	input  wire [CHUNK_W:0] rd_chunk_gray,
@@ -78,8 +78,36 @@ module paprium_cdda_fetch #(
 	// size at 0x104. APF reads it when openfile starts. Held in a small block
 	// RAM rather than registers - 264 bytes of flops would be absurd.
 	// ---------------------------------------------------------------------
+	// Instantiated rather than inferred. An inferred array here did NOT become
+	// block RAM - the write sits inside the main sequencer's always block, which
+	// is enough to defeat inference - and 66 words of flops plus a 66-way 32-bit
+	// read mux cost over 500 ALMs on a device that had 743 spare. dpram_dif is the
+	// same primitive paprium_backup uses, so this is guaranteed M10K.
 	localparam PARAM_WORDS = 66;                 // 0x108 bytes
-	(* ramstyle = "M10K" *) reg [31:0] param_ram [0:PARAM_WORDS-1];
+	localparam PARAM_AW    = 7;                  // 128 words, covers the struct
+
+	wire [31:0] param_q;
+	reg  [31:0] param_wdata;
+	reg         param_we;
+	reg   [6:0] param_idx;   // declared here: the RAM instance below uses it
+	// param_we and param_wdata register on the same edge that param_idx advances,
+	// so the write address has to be captured with them or it lands one word late
+	reg   [6:0] param_waddr;
+
+	dpram_dif #(PARAM_AW, 32, PARAM_AW, 32) param_ram
+	(
+		.clock(clk_74a),
+
+		.address_a(param_waddr[PARAM_AW-1:0]),
+		.data_a(param_wdata),
+		.wren_a(param_we),
+		.q_a(),
+
+		.address_b(bridge_addr[PARAM_AW+1:2]),
+		.data_b(32'd0),
+		.wren_b(1'b0),
+		.q_b(param_q)
+	);
 
 	// "/Assets/genesis/common/Paprium/track" - 35 bytes, then NN, ".pcm", NUL.
 	// Held as a constant and written into param_ram a word at a time on a track
@@ -184,12 +212,12 @@ module paprium_cdda_fetch #(
 	           S_DONE      = 4'd7;
 
 	reg  [3:0] state;
-	reg  [6:0] param_idx;
 	reg        loop_this_track;
 	reg [31:0] cursor;
 
 	always @(posedge clk_74a) begin
 		target_dataslot_read     <= 0;
+		param_we                 <= 0;
 		target_dataslot_openfile <= 0;
 
 		if(reset) begin
@@ -222,7 +250,9 @@ module paprium_cdda_fetch #(
 			// Write the path, then flags = 0 and size = 0: the file must exist
 			// already, so neither create nor resize is wanted.
 			S_PARAM: begin
-				param_ram[param_idx] <= (param_idx < 7'd11)
+				param_we    <= 1;
+				param_waddr <= param_idx;
+				param_wdata <= (param_idx < 7'd11)
 				                        ? path_word(param_idx)
 				                        : 32'd0;
 				if(param_idx == PARAM_WORDS-1) begin
@@ -299,13 +329,10 @@ module paprium_cdda_fetch #(
 
 	// ---------------------------------------------------------------------
 	// Param struct readback. APF reads the struct over the bridge while the
-	// openfile command runs.
+	// openfile command runs. The RAM's own registered output is the read data -
+	// core_top only selects this into bridge_rd_data for PARAM_ADDR, so there is
+	// nothing to gate here.
 	// ---------------------------------------------------------------------
-	always @(posedge clk_74a) begin
-		if(bridge_rd && (bridge_addr[31:28] == PARAM_ADDR[31:28]))
-			param_rd_data <= param_ram[bridge_addr[8:2]];
-		else
-			param_rd_data <= 0;
-	end
+	assign param_rd_data = param_q;
 
 endmodule
