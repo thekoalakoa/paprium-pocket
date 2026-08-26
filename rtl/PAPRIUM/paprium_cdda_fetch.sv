@@ -120,7 +120,12 @@ module paprium_cdda_fetch #(
 
 	// From the LATCHED track, not the live input: APF reads the struct while the
 	// openfile command runs, and the path must not shift under it.
-	wire [7:0] pt = current_track;
+	// DIAG_MODE forces track 5 regardless of what the game asked for. That separates
+	// two hypotheses the symptoms cannot: if openfile works, track 5 plays and the
+	// fault is that track_num never varies; if track 1 still plays, openfile is the
+	// fault. cue track 05 is "31 Bad Dudes vs Paprium", unmistakable against
+	// track 1 which is "02 90's Acid Dub Character Select".
+	wire [7:0] pt = DIAG_MODE ? 8'd5 : current_track;
 	wire [3:0] tens = (pt >= 8'd60) ? 4'd6 :
 	                  (pt >= 8'd50) ? 4'd5 :
 	                  (pt >= 8'd40) ? 4'd4 :
