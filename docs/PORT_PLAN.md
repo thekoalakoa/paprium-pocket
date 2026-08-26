@@ -290,3 +290,35 @@ RAM almost exactly replace the 64 KB cart SRAM that was removed).
 Hardware testing is reasonable now. The core is no further outside timing than
 the base core that already works on real Pockets, so a bring-up attempt will tell
 us something real rather than just re-measuring a known violation.
+
+## Correction: there are two dumps, and the earlier analysis used the wrong one
+
+The "Findings from the actual ROM dump" section above analysed
+`Paprium (JUE) v1.0.zip`. That is not the cartridge dump. The correct one ships
+inside the ROM+Core+OST archive as `src/paprium/paprium.bin`:
+
+| | `Paprium (JUE) v1.0.bin` | `src/paprium/paprium.bin` |
+|---|---|---|
+| Size | 8,231,927 | **8,388,608 (exactly 8 MiB)** |
+| 0x110 | `(C) WM  2020.JUN` | `(c)T574 2018.DEC` |
+| 0x180 serial | `GM MK-12056-00` | **`GM T-574120-00`** |
+| 0x1B0 | no marker | **`RA`** |
+
+So both earlier claims were wrong **about the right file**:
+
+- The serial **does** match what MiSTer's quirk table looks for
+  (`cart_id[87:0] == "GM T-574120"`). Serial detection would work fine.
+- The header **does** declare battery RAM, so `sram_present` would be set
+  normally.
+
+The two code changes those findings motivated are still correct, but for weaker
+reasons than stated. Hard-wiring `paprium_quirk` to the `PAPRIUM` parameter is
+still right for a dedicated bitstream - it drops the whole quirk table, `cart_id`
+and `crc`, which is area we need - and forcing `sram_present` is harmless when
+the header sets it anyway. Neither is load-bearing on the bad analysis.
+
+The size difference is the substantive part: the MCU expects a full 8 MiB
+writable ROM image in SDRAM, with the decompression workspace starting at byte
+0x800000 immediately above it (`paprium_cart.sv`: `stream_addr = 24'h400000 +
+...`, a word address). The 8,231,927-byte file is not that image. **Use
+`src/paprium/paprium.bin`.**
