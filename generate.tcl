@@ -18,12 +18,13 @@ set variant [expr {$argc > 0 ? [lindex $argv 0] : "ntsc"}]
 # is pinned to the 53.693 MHz NTSC master clock - and never SVP, since both the SVP and
 # the Paprium MCU want SDRAM port 2
 switch -- $variant {
-    ntsc     { set pal_param '0; set svp_param '0; set paprium_param '0 }
-    pal      { set pal_param '1; set svp_param '0; set paprium_param '0 }
-    ntsc_svp { set pal_param '0; set svp_param '1; set paprium_param '0 }
-    pal_svp  { set pal_param '1; set svp_param '1; set paprium_param '0 }
-    paprium  { set pal_param '0; set svp_param '0; set paprium_param '1 }
-    default { error "unknown variant \"$variant\", expected ntsc, pal, ntsc_svp, pal_svp or paprium" }
+    ntsc     { set pal_param '0; set svp_param '0; set paprium_param '0 ; set paprium_sfx_param '1 }
+    pal      { set pal_param '1; set svp_param '0; set paprium_param '0 ; set paprium_sfx_param '1 }
+    ntsc_svp { set pal_param '0; set svp_param '1; set paprium_param '0 ; set paprium_sfx_param '1 }
+    pal_svp  { set pal_param '1; set svp_param '1; set paprium_param '0 ; set paprium_sfx_param '1 }
+    paprium  { set pal_param '0; set svp_param '0; set paprium_param '1 ; set paprium_sfx_param '1 }
+    paprium_nosfx { set pal_param '0; set svp_param '0; set paprium_param '1; set paprium_sfx_param '0 }
+    default { error "unknown variant \"$variant\", expected ntsc, pal, ntsc_svp, pal_svp, paprium or paprium_nosfx" }
 }
 
 # Quartus re-stamps QUARTUS_VERSION / LAST_QUARTUS_VERSION into these on open and
@@ -51,6 +52,7 @@ set build_status [catch {
     set_parameter -name PAL -entity core_top $pal_param
     set_parameter -name SVP -entity core_top $svp_param
     set_parameter -name PAPRIUM -entity core_top $paprium_param
+    set_parameter -name PAPRIUM_SFX -entity core_top $paprium_sfx_param
     execute_flow -compile
     project_close
 
