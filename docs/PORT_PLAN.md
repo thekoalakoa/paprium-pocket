@@ -322,3 +322,44 @@ writable ROM image in SDRAM, with the decompression workspace starting at byte
 0x800000 immediately above it (`paprium_cart.sv`: `stream_addr = 24'h400000 +
 ...`, a word address). The 8,231,927-byte file is not that image. **Use
 `src/paprium/paprium.bin`.**
+
+## Hardware test log
+
+### Test 1 - first bitstream (OE bug present)
+
+Boots, boot minigame playable, reset into the real game works. Heavy tile
+glitching; sprites present and positioned correctly, gameplay and collision
+working, but their pixel data was garbage. English text clean, Japanese text
+blurry. Identical on two different dumps.
+
+Everything broken was data that reaches VRAM through the decompression stream
+window; everything clean was data that does not. The control path - object
+lists, SAT writes, positions - was correct throughout, which ruled out the
+sprite-attribute priority bug in the MiSTer KNOWN_ISSUES (that misorders
+sprites, it does not garble pixels).
+
+### Diagnosis
+
+`md_board` exposes two output-enable strobes: the real cartridge OE (`~CAS0`)
+and `vdp_dma_oe_early`, issued a cycle earlier to hide SDRAM latency. The Pocket
+shell wired the early one to `cart_oe` and left the real one dangling - correct
+for ordinary ROM reads. Paprium's `$C000-$FFFF` window is not an ordinary read:
+every accepted one advances the cart's private stream pointer, so a speculative
+DMA phase that never delivers a word still consumes one. MiSTer handles this at
+`MegaDrive.sv:466`; the hook was missed when the top-level wiring was ported.
+
+### Test 2 - `paprium_nosfx` (OE fixed)
+
+**Clean backgrounds and sprites.** The fix is confirmed.
+
+This build dropped `audio_sfx` to fit, which also showed the TNS regression was
+density rather than logic:
+
+| | worst slack | TNS |
+|---|---|---|
+| Baseline `ntsc` | -2.612 | -717.7 |
+| `paprium` (SFX, pre-fix) | -2.277 | -1590.9 |
+| `paprium_nosfx` | **-2.135** | **-562.8** |
+
+With placement room the Paprium build is better than the untouched base core on
+both figures.
