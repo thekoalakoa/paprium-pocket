@@ -27,6 +27,17 @@
         ],
         "address": "0x20000000",
         "size_maximum": "0x10000"
+      },
+      {
+        "name": "Paprium CDDA",
+        "id": 300,
+        "required": false,
+        "parameters": "0x00000008",
+        "deferload": true,
+        "filename": "Paprium/track01.pcm",
+        "extensions": [
+          "pcm"
+        ]
       }
     ]
   }

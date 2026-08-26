@@ -443,21 +443,22 @@ module core_top (
   wire        osnotify_inmenu;
 
   // No saves and nothing else to write back, so no target dataslot commands
-  wire        target_dataslot_read = 0;
+  // paprium: driven by paprium_cdda_fetch in the Paprium builds, 0 elsewhere
+  wire        target_dataslot_read;
   wire        target_dataslot_write = 0;
   wire        target_dataslot_getfile = 0;
-  wire        target_dataslot_openfile = 0;
+  wire        target_dataslot_openfile;
 
   wire        target_dataslot_ack;
   wire        target_dataslot_done;
   wire [ 2:0] target_dataslot_err;
 
-  wire [15:0] target_dataslot_id = 0;
-  wire [31:0] target_dataslot_slotoffset = 0;
-  wire [31:0] target_dataslot_bridgeaddr = 0;
-  wire [31:0] target_dataslot_length = 0;
+  wire [15:0] target_dataslot_id;
+  wire [31:0] target_dataslot_slotoffset;
+  wire [31:0] target_dataslot_bridgeaddr;
+  wire [31:0] target_dataslot_length;
 
-  wire [31:0] target_buffer_param_struct = 0;
+  wire [31:0] target_buffer_param_struct;
   wire [31:0] target_buffer_resp_struct = 0;
 
   // pocket: APF creates a .sav for every game unless the slot size reads back 0, so
@@ -563,11 +564,18 @@ module core_top (
   //
 
   wire [31:0] save_rd_data;
+  // paprium: declared here rather than beside the CDDA block so it precedes the
+  // bridge read mux below
+  wire [31:0] cdda_param_rd_data;
 
   always @(*) begin
     casex (bridge_addr)
       32'h2xxxxxxx: begin
         bridge_rd_data <= save_rd_data;
+      end
+      32'h4xxxxxxx: begin
+        // paprium: APF reads the openfile parameter struct from here
+        bridge_rd_data <= cdda_param_rd_data;
       end
       32'hF8xxxxxx: begin
         bridge_rd_data <= cmd_bridge_rd_data;
@@ -968,6 +976,188 @@ module core_top (
 
   // Paprium reads the real cartridge OE; everything else keeps the early DMA strobe
   assign      cart_oe = paprium_active ? cart_oe_raw : cart_oe_early;
+
+  // ==========================================================================
+  // paprium: CDDA background music. Replaces MiSTer's HPS-fed DDR3 ring with an
+  // APF data slot the core drives itself - see docs/CDDA_DESIGN.md.
+  //
+  //   fetch (clk_74a)  openfile + chunked reads -> BRIDGE 0x3xxxxxxx
+  //   data_loader      catches those writes, crosses to clk_sys
+  //   buf              ring, 16-bit in / 32-bit out, chunk flow control
+  //   play (clk_sys)   48 kHz consume, fade, volume, pause
+  // ==========================================================================
+  wire signed [15:0] cdda_l;
+  wire signed [15:0] cdda_r;
+  wire        [15:0] cdda_underruns;
+  wire               mdp_playing;
+  wire        [7:0]  mdp_current_track;
+
+  generate
+  if(PAPRIUM) begin : cdda
+
+    localparam CDDA_CHUNK  = 4096;
+    localparam CDDA_CHUNKS = 4;      // 16 KB, ~85 ms at 48 kHz
+
+    // ---- command channel across to the bridge domain -------------------
+    // mdp_track_request and mdp_stop_request are single clk_sys pulses. A
+    // toggle survives the crossing where a pulse would not; synch_3 hands back
+    // both edges, so either one is a request.
+    reg  trk_toggle = 0, stop_toggle = 0;
+    always @(posedge clk_sys_53_69) begin
+      if(mdp_track_request) trk_toggle  <= ~trk_toggle;
+      if(mdp_stop_request)  stop_toggle <= ~stop_toggle;
+    end
+
+    wire trk_rise, trk_fall, stop_rise, stop_fall;
+    synch_3 trk_synch (.i(trk_toggle),  .o(), .clk(clk_74a), .rise(trk_rise),  .fall(trk_fall));
+    synch_3 stop_synch(.i(stop_toggle), .o(), .clk(clk_74a), .rise(stop_rise), .fall(stop_fall));
+
+    // track_num and track_loop are written alongside the request and held until
+    // the next one, so they are stable long before the toggle lands.
+    wire [7:0] trk_num_s;
+    wire       trk_loop_s;
+    synch_3 #(.WIDTH(8)) trk_num_synch (.i(mdp_track_num), .o(trk_num_s), .clk(clk_74a));
+    synch_3            trk_loop_synch(.i(mdp_track_loop), .o(trk_loop_s), .clk(clk_74a));
+
+    wire [15:0] wr_chunk_gray, rd_chunk_gray;
+    wire        fetch_playing;
+    wire  [7:0] fetch_track;
+
+    paprium_cdda_fetch #(
+        .CHUNK_BYTES(CDDA_CHUNK),
+        .NUM_CHUNKS (CDDA_CHUNKS)
+    ) cdda_fetch (
+        .clk_74a(clk_74a),
+        .reset  (~pll_core_locked_s),
+
+        .track_request(trk_rise | trk_fall),
+        .track_num    (trk_num_s),
+        .track_loop   (trk_loop_s),
+        .stop_request (stop_rise | stop_fall),
+
+        .dataslot_update     (dataslot_update),
+        .dataslot_update_id  (dataslot_update_id),
+        .dataslot_update_size(dataslot_update_size),
+
+        .target_dataslot_read      (target_dataslot_read),
+        .target_dataslot_openfile  (target_dataslot_openfile),
+        .target_dataslot_ack       (target_dataslot_ack),
+        .target_dataslot_done      (target_dataslot_done),
+        .target_dataslot_err       (target_dataslot_err),
+        .target_dataslot_id        (target_dataslot_id),
+        .target_dataslot_slotoffset(target_dataslot_slotoffset),
+        .target_dataslot_bridgeaddr(target_dataslot_bridgeaddr),
+        .target_dataslot_length    (target_dataslot_length),
+        .target_buffer_param_struct(target_buffer_param_struct),
+
+        .bridge_rd    (bridge_rd),
+        .bridge_addr  (bridge_addr),
+        .param_rd_data(cdda_param_rd_data),
+
+        .rd_chunk_gray(rd_chunk_gray[2:0]),
+        .wr_chunk_gray(wr_chunk_gray[2:0]),
+
+        .playing      (fetch_playing),
+        .current_track(fetch_track)
+    );
+
+    // ---- landing buffer ------------------------------------------------
+    wire        cdda_wr_en;
+    wire [13:0] cdda_wr_addr;
+    wire [15:0] cdda_wr_data;
+
+    data_loader #(
+        .ADDRESS_MASK_UPPER_4 (4'h3),
+        .ADDRESS_SIZE         (14),     // 16 KB ring
+        .OUTPUT_WORD_SIZE     (2),
+        .WRITE_MEM_CLOCK_DELAY(24)
+    ) cdda_data_loader (
+        .clk_74a   (clk_74a),
+        .clk_memory(clk_sys_53_69),
+
+        .bridge_wr           (bridge_wr),
+        .bridge_endian_little(bridge_endian_little),
+        .bridge_addr         (bridge_addr),
+        .bridge_wr_data      (bridge_wr_data),
+
+        .write_en  (cdda_wr_en),
+        .write_addr(cdda_wr_addr),
+        .write_data(cdda_wr_data)
+    );
+
+    wire [12:0] ring_rd_ptr;
+    wire [31:0] ring_rd_data;
+    wire [12:0] ring_fill;
+    wire        ring_consumed;
+
+    paprium_cdda_buf #(
+        .CHUNK_BYTES(CDDA_CHUNK),
+        .NUM_CHUNKS (CDDA_CHUNKS)
+    ) cdda_buf (
+        .clk  (clk_sys_53_69),
+        .reset(sys_reset),
+
+        .wr_en  (cdda_wr_en),
+        .wr_addr(cdda_wr_addr[13:1]),   // data_loader gives a byte address
+        .wr_data(cdda_wr_data),
+
+        .wr_chunk_gray(wr_chunk_gray[2:0]),
+        .rd_chunk_gray(rd_chunk_gray[2:0]),
+
+        .rd_ptr         (ring_rd_ptr),
+        .rd_data        (ring_rd_data),
+        .sample_consumed(ring_consumed),
+        .fill_level     (ring_fill),
+
+        .flush(mdp_track_request)
+    );
+
+    paprium_cdda_play #(
+        .RING_SAMPLES(CDDA_CHUNK * CDDA_CHUNKS / 4)
+    ) cdda_play (
+        .clk  (clk_sys_53_69),
+        .reset(sys_reset),
+
+        .active        (mdp_active),
+        .track_start   (mdp_track_request),
+        .stop_request  (mdp_stop_request),
+        .fade_sectors  (mdp_fade_sectors),
+        .volume        (mdp_volume),
+        .resume_request(mdp_resume_request),
+        .osd_pause     (1'b0),
+
+        .rd_ptr         (ring_rd_ptr),
+        .rd_data        (ring_rd_data),
+        .fill_level     (ring_fill),
+        .sample_consumed(ring_consumed),
+
+        .underruns(cdda_underruns),
+        .audio_l  (cdda_l),
+        .audio_r  (cdda_r)
+    );
+
+    // ---- status back to the MCU ----------------------------------------
+    synch_3            playing_synch(.i(fetch_playing), .o(mdp_playing), .clk(clk_sys_53_69));
+    synch_3 #(.WIDTH(8)) track_synch(.i(fetch_track), .o(mdp_current_track), .clk(clk_sys_53_69));
+
+  end
+  else begin : no_cdda
+    assign target_dataslot_read       = 0;
+    assign target_dataslot_openfile   = 0;
+    assign target_dataslot_id         = 0;
+    assign target_dataslot_slotoffset = 0;
+    assign target_dataslot_bridgeaddr = 0;
+    assign target_dataslot_length     = 0;
+    assign target_buffer_param_struct = 0;
+    assign cdda_param_rd_data         = 0;
+    assign cdda_l                     = 0;
+    assign cdda_r                     = 0;
+    assign cdda_underruns             = 0;
+    assign mdp_playing                = 0;
+    assign mdp_current_track          = 0;
+  end
+  endgenerate
+  // paprium-end
   // paprium-end
 
   cartridge #(
@@ -1038,8 +1228,8 @@ module core_top (
       .mdp_volume        (mdp_volume),
       .mdp_volume_request(mdp_volume_request),
       .mdp_active        (mdp_active),
-      .mdp_playing       (1'b0),
-      .mdp_current_track (8'd0),
+      .mdp_playing       (mdp_playing),
+      .mdp_current_track (mdp_current_track),
       // paprium-end
 
       .md_addr()                    // MiSTer's cheat engine watches the bus, this port has none
@@ -1548,10 +1738,19 @@ module core_top (
   // paprium: the cartridge's own PCM sound-effect engine is a second stereo pair that
   // has to be summed with FM/PSG. Both are full-scale 16-bit, so the sum needs headroom
   // and a hard clip - without one, loud effects over loud music wrap and click. Three
-  // guard bits cover this sum and leave room for the CDDA term when the streamer lands.
+  // guard bits cover FM/PSG plus cart SFX plus the boosted CDDA term.
   // In the other builds paprium_sfx_* is a constant 0 and this folds to a pass-through
-  wire signed [18:0] mix_l = $signed(base_audio_l) + $signed(paprium_sfx_l);
-  wire signed [18:0] mix_r = $signed(base_audio_r) + $signed(paprium_sfx_r);
+  // CDDA gain. MisterPezz82 set this by A/B recording against real hardware: Paprium
+  // mixes its music against its own loud cart SFX and needs ~+10 dB (294/256) where
+  // ordinary MD+ content takes 93/256. Carried over rather than rediscovered.
+  wire signed  [9:0] cdda_mult     = 10'sd294;
+  wire signed [25:0] cdda_scaled_l = $signed(cdda_l) * cdda_mult;
+  wire signed [25:0] cdda_scaled_r = $signed(cdda_r) * cdda_mult;
+  wire signed [17:0] cdda_att_l    = cdda_scaled_l >>> 8;
+  wire signed [17:0] cdda_att_r    = cdda_scaled_r >>> 8;
+
+  wire signed [18:0] mix_l = $signed(base_audio_l) + $signed(paprium_sfx_l) + $signed(cdda_att_l);
+  wire signed [18:0] mix_r = $signed(base_audio_r) + $signed(paprium_sfx_r) + $signed(cdda_att_r);
 
   wire mix_l_ov = (mix_l[18:15] != 4'b0000) && (mix_l[18:15] != 4'b1111);
   wire mix_r_ov = (mix_r[18:15] != 4'b0000) && (mix_r[18:15] != 4'b1111);
