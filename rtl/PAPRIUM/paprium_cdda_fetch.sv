@@ -169,7 +169,11 @@ module paprium_cdda_fetch #(
 			track_bytes_valid <= 0;
 		end
 		else if(track_request) track_bytes_valid <= 0;   // new file, size unknown again
-		else if(dataslot_update && dataslot_update_id == SLOT_ID) begin
+		// Only a non-zero size counts. A deferload slot that is not loaded can report
+		// 0, and taking that as gospel made the first S_ADVANCE evaluate
+		// 0 + CHUNK >= 0 as end-of-track: one chunk fetched, playing dropped, silence.
+		else if(dataslot_update && dataslot_update_id == SLOT_ID
+		        && dataslot_update_size != 0) begin
 			track_bytes       <= dataslot_update_size;
 			track_bytes_valid <= 1;
 		end
@@ -295,20 +299,13 @@ module paprium_cdda_fetch #(
 				else if(&wait_timer)     begin wait_timer <= 0; playing <= 1; state <= S_READ; end
 			end
 
+			// openfile has finished. Whatever it reported, stream the slot as it now
+			// stands rather than going quiet: the bypass build proved reads work
+			// without openfile, so a failure stays audible and which track plays says
+			// plainly whether openfile did anything at all.
 			S_OPEN_WAIT: if(target_dataslot_done) begin
-				// err 3 = file not found. A missing track is silence, not a
-				// hang: the MCU polls mdp_playing and would wait forever.
-				// err 0 = opened, err 1 = created and opened. Both are success;
-				// only 2 (slot undefined), 3 (not found), 4 (malformed) and
-				// 5 (general) are failures.
-				if(target_dataslot_err > 3'd1) begin
-					playing <= 0;
-					state   <= S_IDLE;
-				end
-				else begin
-					playing <= 1;
-					state   <= S_READ;
-				end
+				playing <= 1;
+				state   <= S_READ;
 			end
 
 			S_READ: if(ring_has_room) begin
