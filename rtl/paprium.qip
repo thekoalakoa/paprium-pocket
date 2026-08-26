@@ -29,6 +29,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "
 # The CDDA path. Listed before it is instantiated so synthesis elaborates and
 # syntax-checks it; an unreachable module costs no area.
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_play.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_fetch.sv"]
 
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_package.vhd"]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_top_stdlogic.vhd"]
