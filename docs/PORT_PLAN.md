@@ -210,3 +210,48 @@ numbered up to at least 42. The local OST folder holds **26 MP3s** numbered
 not cover the cue — several referenced files (e.g. `42 1988 Commercial`) are
 simply absent. Sourcing the full 52-file WAV set is a prerequisite for music,
 independent of any RTL work.
+
+## Measured: it fits
+
+Quartus Prime Lite 21.1.1 Build 850, device `5CEBA4F23C8`.
+
+| | ALMs | of 18,480 | Memory bits | of 3,153,920 | Fitter |
+|---|---|---|---|---|---|
+| First attempt, nothing stripped | 18,733 | **101%** | 2,258,194 | 72% | **Failed** |
+| After the three dead-hardware cuts | 18,314 | **99%** | 1,733,903 | 55% | **Successful** |
+
+The cuts bought 419 ALMs and 524,291 memory bits. Final: 230/308 RAM blocks (75%),
+33/66 DSP (50%), 2/4 PLLs, and an `.rbf` is produced.
+
+**The block-RAM worry in the Phase 1 plan above was wrong.** Memory is at 55%,
+never close to the wall. ALMs are the binding constraint, at 99% with 166 spare.
+That inverts the CDDA buffer decision: `2 x 8 KB` of block RAM is affordable, and
+reaching for `cram0`/`cram1` would trade plentiful memory for scarce logic. Build
+the ring in BRAM.
+
+The 166 spare ALMs are not much to build a CDDA streamer in. Levers not yet
+pulled, cheapest first: NEORV32 `FAST_SHIFT_EN` off (barrel shifter to serial -
+costs shift performance, nothing else), then its unused peripherals (UART, GPIO,
+WDT are all tied off at the `paprium_cart` instantiation, but `mega-ppm` may poll
+them, so that carries firmware risk).
+
+## Measured: timing does not close
+
+```
+Slow 1100mV 85C Model Setup 'ic|mp1|...general[1]...divclk'
+Slack : -2.277    TNS : -1590.865
+```
+
+`general[1]` is `clk_md_107_39`. It is constrained at 107.39 MHz and achieves
+**86.29 MHz**. Every other clock passes, `clk_sys_53_69` among them at +0.520.
+
+All 80 of the worst setup paths are inside `md_board` - `ym7101` (the VDP) into
+its line buffer and sprite output, and `mclk_clk3_l` into the Z80. **Not one
+Paprium path appears.** That points at a pre-existing property of the gate-level
+Nuked-MD core rather than anything this port added, but that has to be confirmed
+by fitting the untouched baseline and comparing, not assumed - see below.
+
+Two things worth keeping in view. The failing model is the worst-case corner
+(1100 mV, 85 C); a Pocket does not run at 85 C. And the base core ships as a
+declared beta. Neither makes a violation acceptable, but both bear on whether
+this is a regression or the status quo.

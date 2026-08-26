@@ -102,4 +102,4 @@ set_global_assignment -name SEED 1
 
 set_parameter -name PAL '0 -entity core_top
 set_parameter -name SVP '0 -entity core_top
-set_parameter -name PAPRIUM '1 -entity core_top
+set_parameter -name PAPRIUM '0 -entity core_top
