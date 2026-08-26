@@ -64,6 +64,7 @@ module paprium_cdda_fetch #(
 
 	// Param struct readback to the bridge (same clock domain)
 	input  wire        bridge_rd,
+	input  wire        bridge_endian_little,
 	input  wire [31:0] bridge_addr,
 	output wire [31:0] param_rd_data,
 
@@ -340,6 +341,12 @@ module paprium_cdda_fetch #(
 	// core_top only selects this into bridge_rd_data for PARAM_ADDR, so there is
 	// nothing to gate here.
 	// ---------------------------------------------------------------------
-	assign param_rd_data = param_q;
+	// The bridge is big-endian unless bridge_endian_little says otherwise, and every
+	// other read path in this shell swaps for it - data_unloader.sv:200 is the
+	// reference. Returning raw words reversed each group of four path bytes, which is
+	// a garbled path and an openfile that always answers "file not found".
+	assign param_rd_data = bridge_endian_little
+	                     ? param_q
+	                     : {param_q[7:0], param_q[15:8], param_q[23:16], param_q[31:24]};
 
 endmodule
