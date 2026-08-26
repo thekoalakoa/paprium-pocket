@@ -34,7 +34,7 @@
         "required": false,
         "parameters": "0x00000008",
         "deferload": true,
-        "filename": "Paprium/track01.pcm",
+        "filename": "Paprium/paprium.pcm",
         "extensions": [
           "pcm"
         ]
