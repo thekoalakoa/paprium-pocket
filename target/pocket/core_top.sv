@@ -318,6 +318,8 @@ module core_top (
   parameter PAPRIUM = 1'b0;
   // Diagnostic switch: drop the cartridge PCM engine to buy ~700 ALMs. Shipping is 1
   parameter PAPRIUM_SFX = 1'b1;
+  // Diagnostic build: bypass the CDDA openfile step. Shipping is 0.
+  parameter PAPRIUM_CDDA_DBG = 1'b0;
 // paprium-end
 
 
@@ -997,6 +999,9 @@ module core_top (
 
     localparam CDDA_CHUNK  = 4096;
     localparam CDDA_CHUNKS = 4;      // 16 KB, ~85 ms at 48 kHz
+    // PAPRIUM_CDDA_DBG builds the openfile bypass - see the parameter comment in
+    // paprium_cdda_fetch.sv. Shipping is 0.
+    localparam CDDA_SKIP   = PAPRIUM_CDDA_DBG;
 
     // ---- command channel across to the bridge domain -------------------
     // mdp_track_request and mdp_stop_request are single clk_sys pulses. A
@@ -1025,7 +1030,8 @@ module core_top (
 
     paprium_cdda_fetch #(
         .CHUNK_BYTES(CDDA_CHUNK),
-        .NUM_CHUNKS (CDDA_CHUNKS)
+        .NUM_CHUNKS (CDDA_CHUNKS),
+        .SKIP_OPENFILE(CDDA_SKIP)
     ) cdda_fetch (
         .clk_74a(clk_74a),
         .reset  (~pll_core_locked_s),

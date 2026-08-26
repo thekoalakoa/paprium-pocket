@@ -15,12 +15,13 @@ set base_dir [pwd]
 set variant [expr {$argc > 0 ? [lindex $argv 0] : "paprium"}]
 
 switch -- $variant {
-    ntsc     { set pal_param '0; set svp_param '0; set paprium_param '0 ; set paprium_sfx_param '1 }
-    pal      { set pal_param '1; set svp_param '0; set paprium_param '0 ; set paprium_sfx_param '1 }
-    ntsc_svp { set pal_param '0; set svp_param '1; set paprium_param '0 ; set paprium_sfx_param '1 }
-    pal_svp  { set pal_param '1; set svp_param '1; set paprium_param '0 ; set paprium_sfx_param '1 }
-    paprium  { set pal_param '0; set svp_param '0; set paprium_param '1 ; set paprium_sfx_param '1 }
-    paprium_nosfx { set pal_param '0; set svp_param '0; set paprium_param '1; set paprium_sfx_param '0 }
+    ntsc     { set pal_param '0; set svp_param '0; set paprium_param '0 ; set paprium_sfx_param '1 ; set cdda_dbg_param '0 }
+    pal      { set pal_param '1; set svp_param '0; set paprium_param '0 ; set paprium_sfx_param '1 ; set cdda_dbg_param '0 }
+    ntsc_svp { set pal_param '0; set svp_param '1; set paprium_param '0 ; set paprium_sfx_param '1 ; set cdda_dbg_param '0 }
+    pal_svp  { set pal_param '1; set svp_param '1; set paprium_param '0 ; set paprium_sfx_param '1 ; set cdda_dbg_param '0 }
+    paprium  { set pal_param '0; set svp_param '0; set paprium_param '1 ; set paprium_sfx_param '1 ; set cdda_dbg_param '0 }
+    paprium_nosfx { set pal_param '0; set svp_param '0; set paprium_param '1; set paprium_sfx_param '0 ; set cdda_dbg_param '0 }
+    paprium_cddadbg { set pal_param '0; set svp_param '0; set paprium_param '1; set paprium_sfx_param '1; set cdda_dbg_param '1 }
     default { error "unknown variant \"$variant\"" }
 }
 
@@ -39,6 +40,7 @@ set status [catch {
     set_parameter -name SVP -entity core_top $svp_param
     set_parameter -name PAPRIUM -entity core_top $paprium_param
     set_parameter -name PAPRIUM_SFX -entity core_top $paprium_sfx_param
+    set_parameter -name PAPRIUM_CDDA_DBG -entity core_top $cdda_dbg_param
     execute_module -tool map
     project_close
     cd $base_dir
