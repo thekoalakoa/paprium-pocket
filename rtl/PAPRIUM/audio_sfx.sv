@@ -57,6 +57,20 @@ module audio_sfx
 endmodule
 
 //****************************************************************** audio clocks
+// paprium: rewritten for area. Upstream gives each channel rate its own dac_clocker,
+// and every one of those carries a 32-bit fractional divider (clk_dvp comparing a
+// 32-bit accumulator against ck_base = 53,693,175) plus a 9-bit phase counter - about
+// 65 ALUTs each, ~334 for the bank. On the Pocket that is unaffordable: the device
+// fits at 99% ALM and this is Paprium's own logic, not the console's.
+//
+// Every rate the bank produces is a sub-multiple of the 48 kHz tick the engine already
+// has, so they come free from counters that never exceed 9:
+//
+//   24000 = 48000/2   12000 = 48000/4   9600 = 48000/5   6000 = 48000/8
+//   5333 -> 48000/9 = 5333.33 Hz, 0.006% fast and inaudible
+//
+// The divided rates are now phase-locked to the 48 kHz tick rather than free-running.
+// For per-channel PCM pacing that is harmless, and deterministic rather than not.
 module aclk_bank
 (
 	input  McuBus mcu,
@@ -68,14 +82,29 @@ module aclk_bank
 	assign aclk[6] = aclk[0];
 	assign aclk[7] = aclk[0];
 
-	// dac_clocker (audio_clock.sv): generates next_sample at `rate` Hz.
-	dac_clocker aclk1(.clk(mcu.clk), .rst(1'b0), .rate(16'd24000), .ck_base(`CLK_FREQ), .dac_clk(), .next_sample(aclk[1]), .phase());
-	dac_clocker aclk2(.clk(mcu.clk), .rst(1'b0), .rate(16'd12000), .ck_base(`CLK_FREQ), .dac_clk(), .next_sample(aclk[2]), .phase());
-	dac_clocker aclk3(.clk(mcu.clk), .rst(1'b0), .rate(16'd9600),  .ck_base(`CLK_FREQ), .dac_clk(), .next_sample(aclk[3]), .phase());
-	dac_clocker aclk4(.clk(mcu.clk), .rst(1'b0), .rate(16'd6000),  .ck_base(`CLK_FREQ), .dac_clk(), .next_sample(aclk[4]), .phase());
-	dac_clocker aclk5(.clk(mcu.clk), .rst(1'b0), .rate(16'd5333),  .ck_base(`CLK_FREQ), .dac_clk(), .next_sample(aclk[5]), .phase());
+	reg [1:0] div2  = 0;   // /2  -> 24000
+	reg [2:0] div4  = 0;   // /4  -> 12000
+	reg [2:0] div5  = 0;   // /5  ->  9600
+	reg [3:0] div8  = 0;   // /8  ->  6000
+	reg [3:0] div9  = 0;   // /9  ->  5333.33
+
+	always @(posedge mcu.clk) if(dac_next_sample) begin
+		div2 <= (div2 == 2'd1) ? 2'd0 : div2 + 1'd1;
+		div4 <= (div4 == 3'd3) ? 3'd0 : div4 + 1'd1;
+		div5 <= (div5 == 3'd4) ? 3'd0 : div5 + 1'd1;
+		div8 <= (div8 == 4'd7) ? 4'd0 : div8 + 1'd1;
+		div9 <= (div9 == 4'd8) ? 4'd0 : div9 + 1'd1;
+	end
+
+	// One 48 kHz tick wide, exactly like dac_clocker's next_sample
+	assign aclk[1] = dac_next_sample & (div2 == 2'd0);
+	assign aclk[2] = dac_next_sample & (div4 == 3'd0);
+	assign aclk[3] = dac_next_sample & (div5 == 3'd0);
+	assign aclk[4] = dac_next_sample & (div8 == 4'd0);
+	assign aclk[5] = dac_next_sample & (div9 == 4'd0);
 
 endmodule
+// paprium-end
 
 //****************************************************************** sfx channels
 module sfx_bank
