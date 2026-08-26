@@ -97,50 +97,37 @@ module paprium_cdda_fetch #(
 	// size at 0x104. APF reads it when openfile starts. Held in a small block
 	// RAM rather than registers - 264 bytes of flops would be absurd.
 	// ---------------------------------------------------------------------
-	// Instantiated rather than inferred. An inferred array here did NOT become
-	// block RAM - the write sits inside the main sequencer's always block, which
-	// is enough to defeat inference - and 66 words of flops plus a 66-way 32-bit
-	// read mux cost over 500 ALMs on a device that had 743 spare. dpram_dif is the
-	// same primitive paprium_backup uses, so this is guaranteed M10K.
-	localparam PARAM_WORDS = 66;                 // 0x108 bytes
-	localparam PARAM_AW    = 7;                  // 128 words, covers the struct
-
-	wire [31:0] param_q;
-	reg  [31:0] param_wdata;
-	reg         param_we;
-	reg   [6:0] param_idx;   // declared here: the RAM instance below uses it
-	// param_we and param_wdata register on the same edge that param_idx advances,
-	// so the write address has to be captured with them or it lands one word late
-	reg   [6:0] param_waddr;
-
-	dpram_dif #(PARAM_AW, 32, PARAM_AW, 32) param_ram
-	(
-		.clock(clk_74a),
-
-		.address_a(param_waddr[PARAM_AW-1:0]),
-		.data_a(param_wdata),
-		.wren_a(param_we),
-		.q_a(),
-
-		.address_b(bridge_addr[PARAM_AW+1:2]),
-		.data_b(32'd0),
-		.wren_b(1'b0),
-		.q_b(param_q)
-	);
+	// No storage at all. The struct is a pure function of the track number and the
+	// word index, so it is computed on demand.
+	//
+	// This started as an inferred array (which did not infer, costing ~500 ALMs in
+	// flops), then a dpram_dif (correct area, M10K). Both were wrong for a subtler
+	// reason: M10K registers its address, so data arrives a cycle after APF presents
+	// bridge_addr. data_unloader gets away with a slow path because it PRE-FETCHES
+	// and has the word waiting; a plain RAM read does not. APF therefore sampled the
+	// previous word and saw "ts/genesis/..." - no leading slash - which is exactly
+	// the "malformed path" (err 4) the hardware reported.
+	//
+	// Computing it combinationally is zero-latency, zero-storage, and cannot drift
+	// out of step with the requested track.
+	localparam PARAM_WORDS = 11;                 // 43-byte path rounds to 11 words
+	localparam PARAM_AW    = 7;                  // struct spans 0x108 bytes
 
 	// "/Assets/genesis/common/Paprium/track" - 35 bytes, then NN, ".pcm", NUL.
-	// Held as a constant and written into param_ram a word at a time on a track
-	// change; only the two digit bytes ever differ between tracks.
+	// Held as a constant; only the two digit bytes differ between tracks.
 	localparam [8*36-1:0] PATH_PREFIX =
 		"/Assets/genesis/common/Paprium/track";
 
-	wire [3:0] tens = (track_num >= 8'd60) ? 4'd6 :
-	                  (track_num >= 8'd50) ? 4'd5 :
-	                  (track_num >= 8'd40) ? 4'd4 :
-	                  (track_num >= 8'd30) ? 4'd3 :
-	                  (track_num >= 8'd20) ? 4'd2 :
-	                  (track_num >= 8'd10) ? 4'd1 : 4'd0;
-	wire [7:0] ones = track_num - (tens * 8'd10);
+	// From the LATCHED track, not the live input: APF reads the struct while the
+	// openfile command runs, and the path must not shift under it.
+	wire [7:0] pt = current_track;
+	wire [3:0] tens = (pt >= 8'd60) ? 4'd6 :
+	                  (pt >= 8'd50) ? 4'd5 :
+	                  (pt >= 8'd40) ? 4'd4 :
+	                  (pt >= 8'd30) ? 4'd3 :
+	                  (pt >= 8'd20) ? 4'd2 :
+	                  (pt >= 8'd10) ? 4'd1 : 4'd0;
+	wire [7:0] ones = pt - (tens * 8'd10);
 
 	// Byte i of the path, counting from the start of the string. Verilog packs a
 	// string literal with its FIRST character in the MOST significant bits, so
@@ -262,7 +249,6 @@ module paprium_cdda_fetch #(
 
 	always @(posedge clk_74a) begin
 		target_dataslot_read     <= 0;
-		param_we                 <= 0;
 		target_dataslot_openfile <= 0;
 
 		if(reset) begin
@@ -271,7 +257,6 @@ module paprium_cdda_fetch #(
 			cursor        <= 0;
 			playing       <= 0;
 			current_track <= 0;
-			param_idx     <= 0;
 			wait_timer    <= 0;
 		end
 		else begin
@@ -286,7 +271,6 @@ module paprium_cdda_fetch #(
 				loop_this_track <= track_loop;
 				cursor          <= 0;
 				wr_chunk        <= 0;
-				param_idx       <= 0;
 				saw_ack         <= 0;
 				open_err        <= 0;
 				chunks_done     <= 0;
@@ -298,19 +282,9 @@ module paprium_cdda_fetch #(
 
 			// Write the path, then flags = 0 and size = 0: the file must exist
 			// already, so neither create nor resize is wanted.
-			S_PARAM: begin
-				param_we    <= 1;
-				param_waddr <= param_idx;
-				param_wdata <= (param_idx < 7'd11)
-				                        ? path_word(param_idx)
-				                        : 32'd0;
-				if(param_idx == PARAM_WORDS-1) begin
-
-					param_idx <= 0;
-					state     <= S_OPEN;
-				end
-				else param_idx <= param_idx + 1'd1;
-			end
+			// Nothing to stage any more - the struct is computed on demand. One
+			// cycle here lets current_track settle before openfile reads the path.
+			S_PARAM: state <= S_OPEN;
 
 			S_OPEN: begin
 				target_dataslot_openfile <= 1;
@@ -401,6 +375,11 @@ module paprium_cdda_fetch #(
 	// other read path in this shell swaps for it - data_unloader.sv:200 is the
 	// reference. Returning raw words reversed each group of four path bytes, which is
 	// a garbled path and an openfile that always answers "file not found".
+	// Word of the struct APF is currently addressing, computed on the spot.
+	wire [6:0]  param_widx = bridge_addr[PARAM_AW+1:2];
+	wire [31:0] param_q    = (param_widx < PARAM_WORDS[6:0]) ? path_word(param_widx)
+	                                                         : 32'd0;
+
 	assign param_rd_data = bridge_endian_little
 	                     ? param_q
 	                     : {param_q[7:0], param_q[15:8], param_q[23:16], param_q[31:24]};
