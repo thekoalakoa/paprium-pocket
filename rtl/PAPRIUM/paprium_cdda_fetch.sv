@@ -28,7 +28,13 @@ module paprium_cdda_fetch #(
 	parameter [31:0] PARAM_ADDR   = 32'h40000000, // BRIDGE address of the param struct
 	parameter        CHUNK_BYTES  = 4096,
 	parameter        NUM_CHUNKS   = 4,
-	parameter        CHUNK_W      = $clog2(NUM_CHUNKS)
+	parameter        CHUNK_W      = $clog2(NUM_CHUNKS),
+	// Diagnostic: skip the openfile step and stream whatever file data.json already
+	// names for the slot. A deferload slot is declared to the core with its file, just
+	// not preloaded, so target reads should work against it untouched. Hearing track 01
+	// over everything proves reads, ring, player and mix all work and isolates the
+	// fault to openfile; still-silence rules openfile out entirely.
+	parameter        SKIP_OPENFILE = 1'b0
 ) (
 	input  wire        clk_74a,
 	input  wire        reset,
@@ -256,8 +262,9 @@ module paprium_cdda_fetch #(
 				                        ? path_word(param_idx)
 				                        : 32'd0;
 				if(param_idx == PARAM_WORDS-1) begin
+					if(SKIP_OPENFILE) playing <= 1;
 					param_idx <= 0;
-					state     <= S_OPEN;
+					state     <= SKIP_OPENFILE ? S_READ : S_OPEN;
 				end
 				else param_idx <= param_idx + 1'd1;
 			end
