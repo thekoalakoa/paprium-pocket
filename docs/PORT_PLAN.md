@@ -1235,3 +1235,82 @@ available to us. There is exactly **one** CRT mode (`0x10`, CRT Trinitron) and
 The core declared only `0x10` and `0x40`. It now declares all 22 valid IDs, which
 costs nothing and needs no rebuild - it is metadata. Source:
 <https://www.analogue.co/developer/docs/core-definition-files/video-json>
+
+
+---
+
+## The MCU firmware is open source - and ours is not the published build
+
+`krikzz/mega-ppm` is cloned to `repos/mega-ppm`. `mcu/` holds real C source -
+`main.c`, `paprium.c/h`, `mame.c/h`, `mdp.c/h`, **`sfx.c/h`**, `everdrive.c/h`,
+`cfg.h` and a `Makefile` that produces the `mcu.txt` we load with `$readmemh`.
+
+**This corrects an earlier claim in this document.** The elevator corruption, boss
+sprite priority and the SFX faults were repeatedly filed as "upstream firmware,
+needs the undumped STM32/MAX 10". The chips are indeed undumped and that remains
+irrelevant: the firmware this core actually runs has published source.
+
+### But our image is not krikzz's
+
+    repos/mega-ppm/mcu/mcu.txt         35,615 bytes   245 lines   ec08f761...
+    paprium-pocket/.../mcu.txt         35,906 bytes   248 lines   0f1a2b90...
+
+Byte-identical to MiSTer's, and **different from krikzz's from line 1** - line 2
+alone changes the stack-pointer setup (`130101FC` vs `130101F8`), so it is a
+different compile rather than a patch. `mcu.txt` has a single "init" commit
+upstream, so there is no older revision that matches.
+
+MisterPezz82's `docs/KNOWN_ISSUES.md` says "our firmware" throughout and cites
+line numbers (`mame.c:544`), so our image is **their modified build**. Their repo
+publishes no `.c` files, so we hold krikzz's source and MisterPezz82's binary,
+and not the source that produced what we run.
+
+**Consequence: rebuilding from krikzz's source does not reproduce our firmware.**
+It would produce upstream's, silently dropping whatever MisterPezz82 changed.
+Before any firmware work:
+
+1. Build krikzz's source unmodified and check it reproduces *their* `mcu.txt`.
+   That validates the toolchain against a known target before anything is changed.
+2. Ask MisterPezz82 for their source, or reconstruct their changes from
+   `KNOWN_ISSUES.md`, which documents several of them.
+3. Only then patch, and keep the diff minimal.
+
+Also worth weighing: our `mcu.txt` currently matches MiSTer's exactly, so any bug
+we hit is reproducible against a second implementation. Diverging gives that up.
+
+### What their engineering record already tells us
+
+`repos/paprium-mister/docs/KNOWN_ISSUES.md`, 258 lines. Highlights that change
+what is worth trying here:
+
+- **The sprite-attribute fix was already built and tested on hardware, and did NOT
+  fix the elevator** (2026-06-25). The hypothesis - that elevator sprites set both
+  tile and object priority bits, so `mame.c:544`'s whole-word XOR cancels them -
+  was wrong. It was kept in V.04 as harmless but is explicitly not an elevator
+  fix. **Do not spend a build re-deriving this.**
+- **Elevator root cause is recorded as shared-SDRAM port starvation**, with the
+  MCU clock ruled out (NEORV32 runs at 50 MHz).
+- **Confirmed broken on EverDrive Pro too**, so it is firmware, not the core or VDP.
+- **Decompression is ruled out** - the `0x80`/`0x81` decoders match GPGX exactly.
+
+### The lead worth taking: command 0x88 is muted in our firmware
+
+`KNOWN_ISSUES.md` lists `0xB0 paprium_sprite_init` and **`0x88
+paprium_audio_setting`** as "muted in our firmware but real in GPGX".
+
+`0x88` is small, fully specified by GPGX (`paprium.h:2006`), and is exactly the
+command behind the in-game **VM DAC** checkbox:
+
+    paprium_s.audio_flags = flags;
+    paprium_s.ram[0x1801] = flags & 0x01;                    /* dac  */
+    paprium_s.ram[0x1800]  = (flags & 0x01) ? 0x80 : 0x00;   /* dac  */
+    paprium_s.ram[0x1800] += (flags & 0x02) ? 0x40 : 0x00;   /* ntsc */
+
+If our firmware ignores it, the game's audio configuration is never stored and it
+reads back stale values from `0x1800`/`0x1801`. That is a plausible contributor to
+SFX behaving differently from hardware - including the boss/large-enemy death
+playing an ordinary enemy's sound - and it is a handful of lines to implement.
+
+Sequence: confirm the toolchain first, then `0x88`, then re-test. One change at a
+time, since we have just spent a session learning how easily a plausible
+explanation survives an untested build.
