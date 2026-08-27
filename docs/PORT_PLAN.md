@@ -551,7 +551,7 @@ and one-shot behaviour.
 
 | Issue | Owner | Status |
 |---|---|---|
-| Punk-TV cue silent | **CLOSED - works on hardware** | SFX `0x4A` plays loud and clear with the audio options set as recorded below. Not a bug in the port |
+| Punk-TV cue silent | **CLOSED - works in both regions** | SFX `0x4A` plays loud and clear. Not a bug in the port, and not region-dependent |
 | SFX inaudible while music plays | **CLOSED - settings, not headroom** | Refuted: at the same 294 gain the effects are clear once the game's own audio options are right |
 | Elevator corruption + priority | upstream firmware | Open, issue C |
 | Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
@@ -1103,3 +1103,65 @@ the two attenuations compound. The "VM DAC" checkbox picks between the YM2612 DA
 (FM path, via `audio_cond`) and the DT128VALT DAC (our `audio_sfx`), which are two
 entirely different paths through this core - a useful bisection tool for any
 future "which chip is this sound coming from" question.
+
+
+---
+
+## Testing protocol: Reset Core is NOT a clean start
+
+The single most important process finding of this project, and it invalidates an
+unknown amount of earlier testing.
+
+**Reset Core does not clear SDRAM.** `sys_reset` restarts the 68000 and the MCU
+(`cartridge.sv:543` takes `.reset(reset)`), but nothing wipes memory - the
+`reset_sdram` signal only initialises the controller. After a reset, SDRAM still
+holds the ROM *plus everything the MCU decompressed and wrote there during the
+previous session*.
+
+Only quitting the core and relaunching gives a clean slate: the FPGA is
+reconfigured, every register returns to its initial value, and the ROM is
+re-downloaded from the card.
+
+This matters more than usual here because the documented way to reach the game is
+"play the mini-game, **reset the core**, play the real game." Every test done that
+way ran on carried-over state.
+
+### What it already explained
+
+The punk-TV cue appeared to be region-dependent - working on Export, silent on
+Auto and Japan. It is not. **It works in both regions.** The apparent link was
+carried-over state from the previous session, because region changes were tested
+with a reset rather than a full reload.
+
+That also resolves a discrepancy worth recording: the RTL says Auto and Export
+must be *identical* for this core. The Paprium package's `core.json` lists one
+entry and no loader, so nothing ever writes bridge address `0x18`, `detected_jap`
+stays 0, and `cfg_jap` is 0 for both. The header is `JUE` and the loader's
+priority is US > EU > JP, so even with a loader it would resolve to Export. The
+code reading was right; the observation was confounded.
+
+### Protocol from here
+
+1. **Quit the core and relaunch between every test.** Never use Reset Core to set
+   up a measurement.
+2. Region, and anything else latched at boot, only takes effect on a full reload.
+3. When a result looks like it depends on a setting, re-confirm it with a clean
+   reload before believing it.
+
+### Worth retesting under this protocol
+
+Results obtained with resets are now suspect and cheap to re-check:
+
+- **Elevator corruption** (issue 2 on the list). Currently attributed to upstream
+  firmware. If it turns out to need a stale-SDRAM session to reproduce, that
+  attribution is wrong and the bug is ours.
+- **The intermittent single-pixel flicker** during the intro.
+- **Boss-fight sprite priority.**
+
+### Should the reset be made to clear SDRAM?
+
+Not obviously. A console reset does not wipe the real cartridge's memory either,
+so the current behaviour is arguably faithful - the difference is that our MCU is
+a ~16 KB reimplementation and may not re-initialise as thoroughly as the real
+STM32 does. Worth knowing before treating this as a defect to fix. The protocol
+above costs nothing and removes the variable either way.
