@@ -618,6 +618,14 @@ module core_top (
   // bit picks a scaler slot here and video_cond's own port stays tied off
   reg cfg_arcorr = 0;
 
+  // paprium: music level, adjustable from the core menu. The mix below sums three
+  // full-scale terms into a hard clip, so a loud CDDA term can pin the output and
+  // take the cart's own sound effects with it. Whether that is what happens in
+  // practice has never been measured, and it needs real hardware to measure, so the
+  // gain is exposed rather than guessed at. 0 keeps the shipping value.
+  reg [2:0] cfg_musicvol = 0;
+  // paprium-end
+
   localparam [13:0] RESET_PULSE = 14'd8000;  // ~108 us at 74.25 MHz
 
   reg  [13:0] reset_counter = 0;
@@ -657,6 +665,11 @@ module core_top (
         32'h00000028: begin
           cfg_arcorr <= bridge_wr_data[0];
         end
+        // paprium: music level
+        32'h0000002C: begin
+          cfg_musicvol <= bridge_wr_data[2:0];
+        end
+        // paprium-end
         32'hF0000000: begin
           reset_counter <= RESET_PULSE;
         end
@@ -671,11 +684,13 @@ module core_top (
   wire       cfg_fm_s;
   wire       cfg_6btn_s;
   wire       inmenu_sys_s;
+  wire [2:0] cfg_musicvol_s;  // paprium
 
   synch_3 #(
-      .WIDTH(8)
+      .WIDTH(11)
   ) settings_sync (
-      .i({reset_n, core_reset, dataslot_allcomplete, cfg_lpf, cfg_fm, cfg_6btn, osnotify_inmenu}),
+      .i({reset_n, core_reset, dataslot_allcomplete, cfg_lpf, cfg_fm, cfg_6btn, osnotify_inmenu,
+          cfg_musicvol}),
       .o({
         reset_n_s,
         core_reset_s,
@@ -683,7 +698,8 @@ module core_top (
         cfg_lpf_s,
         cfg_fm_s,
         cfg_6btn_s,
-        inmenu_sys_s
+        inmenu_sys_s,
+        cfg_musicvol_s
       }),
       .clk(clk_sys_53_69)
   );
@@ -1764,11 +1780,34 @@ module core_top (
   // has to be summed with FM/PSG. Both are full-scale 16-bit, so the sum needs headroom
   // and a hard clip - without one, loud effects over loud music wrap and click. Three
   // guard bits cover FM/PSG plus cart SFX plus the boosted CDDA term.
-  // In the other builds paprium_sfx_* is a constant 0 and this folds to a pass-through
-  // CDDA gain. MisterPezz82 set this by A/B recording against real hardware: Paprium
+  // MisterPezz82 set the Paprium gain by A/B recording against real hardware: Paprium
   // mixes its music against its own loud cart SFX and needs ~+10 dB (294/256) where
   // ordinary MD+ content takes 93/256. Carried over rather than rediscovered.
-  wire signed  [9:0] cdda_mult     = 10'sd294;
+  //
+  // The non-Paprium arm was previously 294 as well, which is wrong for plain MD+ CDDA
+  // by about 10 dB - MiSTer selects on paprium_active and only Paprium gets the boost.
+  // PAPRIUM is a localparam, so the unused arm folds away.
+  //
+  // Menu-selectable, because the sum below hard-clips. 294 + full-scale FM + full-scale
+  // cart SFX overflows a 16-bit output roughly three times over, and under a clip the
+  // loudest term survives and the quiet ones do not. Index 0 is the shipping value, so
+  // the default is unchanged; the rest step down in ~3 dB increments to silence.
+  wire signed [9:0] cdda_mult_default = PAPRIUM ? 10'sd294 : 10'sd93;
+
+  reg signed [9:0] cdda_mult;
+  always @(*) begin
+    case (cfg_musicvol_s)
+      3'd0: cdda_mult = cdda_mult_default;  // shipping
+      3'd1: cdda_mult = 10'sd208;           // -3 dB
+      3'd2: cdda_mult = 10'sd147;           // -6 dB
+      3'd3: cdda_mult = 10'sd104;           // -9 dB
+      3'd4: cdda_mult = 10'sd93;            // MD+ standard, ~-10 dB
+      3'd5: cdda_mult = 10'sd52;            // -15 dB
+      3'd6: cdda_mult = 10'sd26;            // -21 dB
+      3'd7: cdda_mult = 10'sd0;             // music off - the A/B against no music
+      default: cdda_mult = cdda_mult_default;
+    endcase
+  end
   wire signed [25:0] cdda_scaled_l = $signed(cdda_l) * cdda_mult;
   wire signed [25:0] cdda_scaled_r = $signed(cdda_r) * cdda_mult;
   wire signed [17:0] cdda_att_l    = cdda_scaled_l >>> 8;

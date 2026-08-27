@@ -551,7 +551,8 @@ and one-shot behaviour.
 
 | Issue | Owner | Status |
 |---|---|---|
-| Punk-TV cue silent | **misdiagnosed - not music at all** | It is SFX `0x4A`, present in ROM. Music is correctly silent there. Confirm whether the effect actually fails before treating it as a bug |
+| Punk-TV cue silent | **CLOSED - was never a bug** | Confirmed on hardware: SFX `0x4A` plays. Music is correctly silent there |
+| SFX inaudible while music plays | **open, new** | Hardware: the "lost" effects all return when music stops. Mix headroom is the suspect - see below |
 | Elevator corruption + priority | upstream firmware | Open, issue C |
 | Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
 | "Saxophone guy" never appears | probably upstream | Candidate: issues A/B |
@@ -895,3 +896,131 @@ from "the scene never asked for a track at all".
 Always check the fit summary timestamp AND the .rbf size against the previous
 build before flashing. Several builds have failed silently and left stale
 artifacts, which produce believable wrong answers on hardware.
+
+
+---
+
+## Hardware result: punk-TV closed, and a new lead
+
+Tested on the diagnostic build. **The punk-TV sound effect plays** - and so do
+all the other effects that had been written off as missing or wrong.
+
+That closes the punk-TV issue outright. It was never a bug: the audio is SFX
+`0x4A`, it has always been in the ROM, and the music being silent in that scene
+is the correct response to a null pointer. No fix is needed and none should be
+applied. In particular **do not** add `sfx_074_punktv_48k_stereo.pcm` to the
+blob - the SFX path already delivers it and the blob copy would double it.
+
+### But "all the lost effects came back" is a finding of its own
+
+The effects were never lost. They were inaudible, and they became audible under a
+build whose only behavioural difference is that **music stops after ~17 seconds**.
+
+`CDDA_DIAG` changes the fetcher's source track, its looping, its stop handling and
+its burst counting, and gates `mdp_stop_request`. None of that is anywhere near
+the SFX path - `audio_sfx.sv` is fed by the MCU and shares no resource with the
+CDDA fetcher, which streams from the APF bridge into block RAM and never touches
+the MCU's SDRAM port. The one audio-path consequence of the diagnostic build is
+that the music term is absent for most of a level.
+
+So the correlation points at the mix, and the mix has a real headroom problem:
+
+    mix = base_audio (16-bit FS) + paprium_sfx (16-bit FS) + cdda * 294/256
+
+The CDDA term alone reaches ~1.15x full scale. All three together reach about
+**3.15x** what the 16-bit output can carry, and the clip is hard. Under a hard
+clip the loudest term is what survives; a quiet effect over loud music does not
+attenuate, it *disappears*. That also fits the earlier report that "the boss
+getting hit isn't the same sound" - clipping distortion, not a wrong sample.
+
+**This is not a Pocket regression.** MiSTer's `MegaDrive.sv:999-1012` is the same
+expression with the same `294` and the same clip, carried over deliberately. If
+the diagnosis holds, it is an upstream property that this port inherited, and it
+would be audible on MiSTer too.
+
+### Measuring it instead of guessing
+
+The fix depends on a number that only real hardware can supply, and guessing it
+costs a 40-minute build per guess. So the gain is now **menu-selectable**:
+Music Volume, id 9 at `0x0000002C`, eight steps from the shipping value down to
+Off. Default is index 0 = 294, so shipping behaviour is unchanged for anyone who
+never opens the menu.
+
+The measurement is then a single build and a few minutes with the menu:
+
+| Setting | If the effects are audible | If they are still missing |
+|---|---|---|
+| Default (294) | nothing to fix; it was masking, not clipping | - |
+| Off (0) | confirms the music term is responsible | the cause is not the mix at all |
+| somewhere between | that step is the answer | - |
+
+The useful outcome is the **highest** setting at which the effects stay audible -
+that is the real headroom figure, and it is worth reporting upstream either way.
+
+If the answer turns out to be "the mix needs restructuring rather than turning
+down", the next step is a proper limiter or a duck on the CDDA term keyed off SFX
+activity, rather than a fixed attenuation. Do not build that until the number
+above says it is needed.
+
+### Fixed in passing: MD+ CDDA gain in the non-Paprium builds
+
+`cdda_mult` was hard-coded `294` for every variant. MiSTer selects on
+`paprium_active` and gives ordinary MD+ content `93/256`; only Paprium gets the
+boost. So the MegaDrive core in this repo was playing MD+ CDDA about **10 dB
+hot**. Now `PAPRIUM ? 294 : 93`, which folds away at elaboration since `PAPRIUM`
+is a localparam. Unrelated to the Paprium work, found while reading the mix.
+
+
+### Build: menu-selectable music level
+
+| | ALMs | RAM blocks | DSP | worst slack | TNS |
+|---|---|---|---|---|---|
+| shipping, as tested on hardware | 18,133 (98%) | 247 (80%) | 41 | (not recorded) | (not recorded) |
+| earlier "+ CDDA" reference row | 18,100 (98%) | 249 (81%) | 39 | -3.040 | -1347.5 |
+| **+ Music Volume menu** | **18,158 (98%)** | 247 (80%) | 39 | **-3.030** | **-2991.1** |
+
+Fit succeeded with 322 ALMs spare. Making the multiplier variable cost **25 ALMs**
+and no DSP - the concern that it would tip the fit did not materialise, so the
+power-of-two fallback was not needed.
+
+**Worst-case slack is unchanged** (-3.030 against the -3.040 reference), and the
+failing paths are the same inherited `m68kcpu` ones this core has always had - no
+audio path appears. **TNS more than doubled** though, -2991 against -1347, which
+is more failing paths rather than a worse one, consistent with congestion at 98%.
+
+Two caveats on that comparison, stated because they limit what it proves: the
+-1347.5 figure is from an earlier tree than the bitstream actually tested on
+hardware, and no TNS was recorded for the tested build itself. So this is a
+doubling against an approximate baseline, not against the known-good one. Record
+TNS for every build from here.
+
+The practical read: worst-case slack predicts failure better than TNS, and it did
+not move. Flash it, and if new glitching appears that the previous build did not
+show, suspect this rather than the audio change. `build_output/paprium_SHIPPING.rbf_r`
+is the rollback.
+
+### What removing menu options would actually buy
+
+Asked during this session; answered with fitter data rather than estimates.
+
+Deleting entries from `interact.json` frees **zero** ALMs - it is metadata, the
+config register keeps its default and the logic behind it is still synthesised.
+Saving area means hard-wiring the setting to a `localparam` so Quartus can
+constant-fold the unselected paths, and only then removing the menu entry so the
+UI does not offer a control that does nothing.
+
+Per-entity ALMs from `megadrive_pocket.fit.rpt`:
+
+| Option | Logic behind it | Realistic saving |
+|---|---|---|
+| Audio Filter | `audio_cond` **378** (FM LPF 70, Genesis LPF 50, PSG IIR 136, CE gen 28) | ~150-250 pinned to one mode |
+| FM Chip | `fc1004` **7,862** - but both modes are the same core with a ladder-DAC switch | tens; not a lever |
+| Composite Blend | small video-path filter | ~50-150 |
+| CRAM Dots / 6-Button / Region / Aspect | a few muxes each | negligible |
+
+`audio_mixer` (497) is APF's output stage, not a setting.
+
+Ceiling is roughly **200-400 ALMs**, nearly all of it Audio Filter, at the cost of
+a real feature. Not worth spending on a diagnostic: once the music level is
+measured the shipping build gets a constant and the multiplier folds away by
+itself.
