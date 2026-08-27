@@ -1165,3 +1165,73 @@ so the current behaviour is arguably faithful - the difference is that our MCU i
 a ~16 KB reimplementation and may not re-initialise as thoroughly as the real
 STM32 does. Worth knowing before treating this as a defect to fix. The protocol
 above costs nothing and removes the variable either way.
+
+
+---
+
+## Menu reduction: trading options for ALMs
+
+The core carried the base MegaDrive core's full option set. Most of it is not wanted
+for a single-game core, and at 98% ALM the logic behind it was worth more than the
+choices. Removing a menu entry frees nothing on its own - the saving comes from
+hard-wiring the setting to a `localparam` so Quartus can constant-fold the
+unselected paths, which is what was done in each case.
+
+### Removed, and why
+
+| Option | Now | Rationale |
+|---|---|---|
+| Audio Filter | `localparam CFG_LPF = 2'd3` (No Filter) | **Measured on hardware: any other mode stops the punk-TV cue being audible.** Also the cheapest arm - see below |
+| FM Chip | `CFG_FM = 1'b0` (YM2612) | The YM3438 option was never wanted here |
+| CRAM Dots | `CFG_CRAMDOT = 1'b0` | Mega Drive artefact, not wanted |
+| Composite Blend | `CFG_BLEND = 1'b0` | Lets the fitter drop `cofi` entirely |
+| Music Volume | gain is a constant again | Served its purpose; it is how the masking was measured |
+| Region: Auto | removed from the menu | It never worked - see below |
+
+Region is now an explicit **Japan (default) / Export**, labelled
+"Region (hard restart req'd)" because it is latched at boot. Reset Core is renamed
+**Soft Reset (mini game)**. A menu hard-reset that clears SDRAM was considered and
+dropped: the Pocket already provides exactly that by exiting the core, and building
+it would have meant re-reading an 8 MiB data slot mid-session, which is untested
+and would have *added* logic to a change meant to remove it.
+
+### Auto never did anything
+
+Worth recording because the RTL said so before hardware did. This core's
+`core.json` lists a single bitstream and no loader, so nothing ever wrote bridge
+address `0x18`, `detected_jap` stayed 0, and Auto resolved to Export every time.
+Even with a loader the header is `JUE` and the loader's priority is US > EU > JP,
+so Auto would still have meant Export. The register is gone.
+
+### The audio filter arithmetic, which came out backwards
+
+Hard-wiring to *No Filter* saves considerably more than hard-wiring to Model 1 -
+the opposite of the intuition that "no filter" simply removes a filter.
+
+    al <= ((lpf_mode == 1) ? md_fm_lpf_l : md_fm_l) + sms_fm
+                                         + ((lpf_mode == 3) ? psg_amp : psg);
+
+`psg_amp` is `PSG + PSG[15:1]`, one adder. Every mode *except* 3 routes the PSG
+through `psg_iir`, which costs **146 ALMs** on its own. So mode 3 drops `psg_iir`
+(146), `genesis_lpf` (50, bypassed at mode 3) and `genesis_fm_lpf` (66, mode 1
+only) - about **262 ALMs** plus the muxes. Model 1 would have kept the first two.
+
+The user's preference and the cheapest option coincided, which is luck rather than
+design. The cost is real though: No Filter is **less authentic** than the low-pass
+a real Mega Drive has. A deliberate trade for one game.
+
+One loose end: `paprium_sfx_l/r` is summed in `core_top` *after* `audio_cond`, so
+the LPF should not touch the cart's SFX at all. Hardware says it does. Either the
+cue has a PSG component or the filter attenuates enough to mask it. The action is
+the same either way, so this was noted rather than chased.
+
+### Display modes: free, and capped by firmware
+
+`video.json` `display_modes` are Analogue's own - the schema is just `{"id": ...}`
+with **no core-side customisation**, so scanline/mask/curvature parameters are not
+available to us. There is exactly **one** CRT mode (`0x10`, CRT Trinitron) and
+**no BVM mode at all**; more CRT variants would need Analogue to ship them.
+
+The core declared only `0x10` and `0x40`. It now declares all 22 valid IDs, which
+costs nothing and needs no rebuild - it is metadata. Source:
+<https://www.analogue.co/developer/docs/core-definition-files/video-json>

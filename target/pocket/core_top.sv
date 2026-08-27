@@ -581,50 +581,49 @@ module core_top (
     endcase
   end
 
-  // pocket: one register per interact.json option this core exposes, plus the loader's
-  // download flag and the region byte it reads out of the cart header. detected_jap
-  // keeps a register of its own so a loader write and a menu write cannot race, and the
-  // CDC below carries only what the console actually needs on its own clocks.
-  // rom_download is held by the loader around the cartridge loadf and has to end before
-  // the save slot lands, because the cartridge clears its save SRAM over that window
+  // pocket: one register per interact.json option this core exposes, plus the download
+  // flag, with the CDC below carrying only what the console actually needs on its own
+  // clocks. rom_download has to end before the save slot lands, because the cartridge
+  // clears its save SRAM over that window.
+  // paprium: most options are gone - the ones that remain are Region, 6 Button Pad and
+  // Aspect Ratio. Everything else is a localparam so the fitter can drop its logic.
   reg rom_download = 0;
 
-  // 0 auto, 1 Japan, 2 export
-  reg [1:0] cfg_region = 0;
-  // Region the loader read out of the header, only consulted in auto. It lives in
-  // its own register rather than sharing cfg_region's, so the loader write and the
-  // menu write cannot race
-  reg detected_jap = 0;
+  // 1 Japan, otherwise export. Menu default is Japan; Auto no longer offered
+  reg [1:0] cfg_region = 2'd1;
+  // paprium: Auto is gone from the menu. This core ships no loader (core.json lists a
+  // single bitstream), so nothing ever wrote detected_jap and Auto was silently Export
+  // anyway. Region is now an explicit Japan/Export choice, and the encoding is
+  // unchanged so a persisted setting still means what it did: 1 = Japan, anything
+  // else = Export.
+  wire cfg_jap = (cfg_region == 2'd1);
 
-  wire cfg_jap = (cfg_region == 2'd0) ? detected_jap : (cfg_region == 2'd1);
-
-  // 0 Model 1, 1 Model 2, 2 minimal, 3 none
-  reg [1:0] cfg_lpf = 0;
-  // 0 YM2612 ladder DAC, 1 YM3438
-  reg cfg_fm = 0;
+  // paprium: the audio filter menu is gone and the mode is hard-wired to 3 (No Filter).
+  // Measured on hardware: any other mode stops the punk-TV cue being audible. It is
+  // also the cheapest arm by a wide margin - every other mode routes the PSG through
+  // psg_iir (146 ALMs), while mode 3 takes psg_amp, a single adder. Hard-wiring it
+  // drops psg_iir, genesis_lpf (bypassed at mode 3) and genesis_fm_lpf (mode 1 only).
+  // Cost: less authentic than a real Mega Drive's low-pass. Deliberate, for one game.
+  localparam [1:0] CFG_LPF = 2'd3;
+  // paprium: YM2612 only - the YM3438 option is gone
+  localparam       CFG_FM  = 1'b0;
 
   // Defaults to 6-button because that is what this core has always presented, and
   // the Pocket has the face buttons for it. A handful of games misread the pad
   reg cfg_6btn = 1;
 
-  // The dot the VDP puts in the left column when CRAM is written mid-line
-  reg cfg_cramdot = 0;
-
-  // Composite-style horizontal blend (cofi), the MiSTer Composite Blend option
-  reg cfg_blend = 0;
+  // paprium: CRAM Dots and Composite Blend menus removed and both tied off. The dot is
+  // a Mega Drive artefact the VDP produces when CRAM is written mid-line; cofi is a
+  // composite-style horizontal blur. Neither is wanted for this core, and tying them
+  // off lets the fitter drop cofi and the VDP's dot path entirely.
+  localparam CFG_CRAMDOT = 1'b0;
+  localparam CFG_BLEND   = 1'b0;
 
   // MiSTer's h40corr. video_cond takes it as an input, but there it only picks a row of
   // the arx/ary table, and the Pocket reads its aspect out of video.json instead. So the
   // bit picks a scaler slot here and video_cond's own port stays tied off
   reg cfg_arcorr = 0;
 
-  // paprium: music level, adjustable from the core menu. The mix below sums three
-  // full-scale terms into a hard clip, so a loud CDDA term can pin the output and
-  // take the cart's own sound effects with it. Whether that is what happens in
-  // practice has never been measured, and it needs real hardware to measure, so the
-  // gain is exposed rather than guessed at. 0 keeps the shipping value.
-  reg [2:0] cfg_musicvol = 0;
-  // paprium-end
 
   localparam [13:0] RESET_PULSE = 14'd8000;  // ~108 us at 74.25 MHz
 
@@ -644,32 +643,12 @@ module core_top (
         32'h0000000C: begin
           cfg_region <= bridge_wr_data[1:0];
         end
-        32'h00000018: begin
-          detected_jap <= bridge_wr_data[0];
-        end
-        32'h00000010: begin
-          cfg_lpf <= bridge_wr_data[1:0];
-        end
-        32'h00000014: begin
-          cfg_fm <= bridge_wr_data[0];
-        end
         32'h0000001C: begin
           cfg_6btn <= bridge_wr_data[0];
-        end
-        32'h00000020: begin
-          cfg_cramdot <= bridge_wr_data[0];
-        end
-        32'h00000024: begin
-          cfg_blend <= bridge_wr_data[0];
         end
         32'h00000028: begin
           cfg_arcorr <= bridge_wr_data[0];
         end
-        // paprium: music level
-        32'h0000002C: begin
-          cfg_musicvol <= bridge_wr_data[2:0];
-        end
-        // paprium-end
         32'hF0000000: begin
           reset_counter <= RESET_PULSE;
         end
@@ -680,26 +659,19 @@ module core_top (
   wire       reset_n_s;
   wire       core_reset_s;
   wire       dataslot_allcomplete_s;
-  wire [1:0] cfg_lpf_s;
-  wire       cfg_fm_s;
   wire       cfg_6btn_s;
   wire       inmenu_sys_s;
-  wire [2:0] cfg_musicvol_s;  // paprium
 
   synch_3 #(
-      .WIDTH(11)
+      .WIDTH(5)
   ) settings_sync (
-      .i({reset_n, core_reset, dataslot_allcomplete, cfg_lpf, cfg_fm, cfg_6btn, osnotify_inmenu,
-          cfg_musicvol}),
+      .i({reset_n, core_reset, dataslot_allcomplete, cfg_6btn, osnotify_inmenu}),
       .o({
         reset_n_s,
         core_reset_s,
         dataslot_allcomplete_s,
-        cfg_lpf_s,
-        cfg_fm_s,
         cfg_6btn_s,
-        inmenu_sys_s,
-        cfg_musicvol_s
+        inmenu_sys_s
       }),
       .clk(clk_sys_53_69)
   );
@@ -725,23 +697,17 @@ module core_top (
   wire md_reset_req_s;
   wire cfg_jap_s;
   wire rom_download_s;
-  wire cfg_cramdot_s;
-  wire cfg_blend_s;
   wire inmenu_md_s;
 
   synch_3 #(
-      .WIDTH(7)
+      .WIDTH(5)
   ) md_settings_sync (
-      .i({
-        loading_74a, reset_req_74a, cfg_jap, rom_download, cfg_cramdot, cfg_blend, osnotify_inmenu
-      }),
+      .i({loading_74a, reset_req_74a, cfg_jap, rom_download, osnotify_inmenu}),
       .o({
         loading_s,
         md_reset_req_s,
         cfg_jap_s,
         rom_download_s,
-        cfg_cramdot_s,
-        cfg_blend_s,
         inmenu_md_s
       }),
       .clk(clk_md_107_39)
@@ -1567,7 +1533,7 @@ module core_top (
       .vdp_m2         (vdp_m2),
       .vdp_lcb        (),
       .vdp_psg_clk1   (),
-      .vdp_cramdot_dis(~cfg_cramdot_s),
+      .vdp_cramdot_dis(~CFG_CRAMDOT),   // paprium: menu removed, tied off
       .vdp_hsync2     (),
 
       .ym2612_status_enable(ym2612_quirk),
@@ -1627,7 +1593,7 @@ module core_top (
       .pal      (PAL),
       .border_en(1'b0),
       .h40corr  (1'b0),
-      .blender  (cfg_blend_s),
+      .blender  (CFG_BLEND),  // paprium: menu removed, tied off
 
       .arx(),  // MiSTer aspect ratio hints, unused on Pocket
       .ary(),
@@ -1758,8 +1724,8 @@ module core_top (
       .reset(sys_reset),
       .mute (inmenu_sys_s),
 
-      .lpf_mode(cfg_lpf_s),
-      .fm_mode (cfg_fm_s),
+      .lpf_mode(CFG_LPF),   // paprium: hard-wired to No Filter
+      .fm_mode (CFG_FM),    // paprium: YM2612 only
 
       .fm_clk1 (md_fm_clk1),
       .fm_sel23(md_fm_sel23),
@@ -1792,25 +1758,13 @@ module core_top (
   // by about 10 dB - MiSTer selects on paprium_active and only Paprium gets the boost.
   // PAPRIUM is a localparam, so the unused arm folds away.
   //
-  // The menu stays: the sum below hard-clips (294 plus full-scale FM plus full-scale
-  // cart SFX overflows a 16-bit output about threefold), so being able to pull music
-  // down is a real diagnostic - it is how the masking above was measured.
+  // The adjustable menu that measured the masking has served its purpose and is gone;
+  // the gain is a constant again, so the multiplier folds back to shift-adds. The mix
+  // below still hard-clips (294 plus full-scale FM plus full-scale cart SFX overflows a
+  // 16-bit output about threefold) - that is inherited from MiSTer and left alone.
   localparam signed [9:0] CDDA_MULT_DEFAULT = PAPRIUM ? 10'sd294 : 10'sd93;
 
-  reg signed [9:0] cdda_mult;
-  always @(*) begin
-    case (cfg_musicvol_s)
-      3'd0: cdda_mult = CDDA_MULT_DEFAULT;  // shipping
-      3'd1: cdda_mult = 10'sd208;           // -3 dB
-      3'd2: cdda_mult = 10'sd147;           // -6 dB
-      3'd3: cdda_mult = 10'sd104;           // -9 dB
-      3'd4: cdda_mult = 10'sd93;            // MD+ standard, ~-10 dB
-      3'd5: cdda_mult = 10'sd52;            // -15 dB
-      3'd6: cdda_mult = 10'sd26;            // -21 dB
-      3'd7: cdda_mult = 10'sd0;             // off - the A/B against no music
-      default: cdda_mult = CDDA_MULT_DEFAULT;
-    endcase
-  end
+  wire signed [9:0] cdda_mult = CDDA_MULT_DEFAULT;
 
   wire signed [25:0] cdda_scaled_l = $signed(cdda_l) * cdda_mult;
   wire signed [25:0] cdda_scaled_r = $signed(cdda_r) * cdda_mult;
