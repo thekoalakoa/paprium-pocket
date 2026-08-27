@@ -551,8 +551,8 @@ and one-shot behaviour.
 
 | Issue | Owner | Status |
 |---|---|---|
-| Punk-TV cue silent | **CLOSED - was never a bug** | Confirmed on hardware: SFX `0x4A` plays. Music is correctly silent there |
-| SFX inaudible while music plays | **open, new** | Hardware: the "lost" effects all return when music stops. Mix headroom is the suspect - see below |
+| Punk-TV cue silent | **CLOSED - works on hardware** | SFX `0x4A` plays loud and clear with the audio options set as recorded below. Not a bug in the port |
+| SFX inaudible while music plays | **CLOSED - settings, not headroom** | Refuted: at the same 294 gain the effects are clear once the game's own audio options are right |
 | Elevator corruption + priority | upstream firmware | Open, issue C |
 | Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
 | "Saxophone guy" never appears | probably upstream | Candidate: issues A/B |
@@ -1024,3 +1024,82 @@ Ceiling is roughly **200-400 ALMs**, nearly all of it Audio Filter, at the cost 
 a real feature. Not worth spending on a diagnostic: once the music level is
 measured the shipping build gets a constant and the multiplier folds away by
 itself.
+
+
+---
+
+## Hardware: the punk-TV cue works
+
+Reported working **loud and clear**, with this exact configuration:
+
+| Where | Setting |
+|---|---|
+| Core menu | Music Volume = **Default** (i.e. 294, the shipping gain) |
+| Core menu | Audio Filter = **No Filter** |
+| Core menu | Region = **Export** (changed from Auto) |
+| Game menu | Background FX slider = **max** |
+| Game menu | Music slider = **max** |
+| Game menu | +6 dB gain = **checked** |
+| Game menu | VM DAC = **unchecked** (using the DT128VALT DAC) |
+
+The cue was never missing, never mis-decoded, and never lost to the mixer. `0x4A`
+is the working-TV sound, it is in the ROM, the firmware triggers it and the RTL
+plays it.
+
+### Four theories this refutes
+
+Recording these because each was argued from real evidence and each was wrong.
+The pattern is the same every time: a plausible mechanism, reasoned confidently,
+overturned the moment hardware was asked.
+
+1. **"The audio was never released."** Wrong subsystem entirely - it is an SFX,
+   not a music track.
+2. **"`0x4A` is TV static, so silence is correct."** Broadband noise with an
+   envelope is equally what crowd noise or a broadcast bed looks like. The
+   spectrum measurement did not support the specific conclusion drawn from it.
+3. **"The mix clips and swallows the effects."** The clip arithmetic is real -
+   294/256 plus two full-scale terms overflows a 16-bit output about threefold -
+   but it is **not the operative cause**. At the *same* 294 gain the effects are
+   clear once the game's own options are right. A correct mechanism can still be
+   the wrong explanation.
+4. **"It is a gap in the substitute `mega-ppm` firmware, so it is unfixable."**
+   The firmware framing is accurate - the NEORV32 image really is a ~16 KB
+   reimplementation and the STM32/MAX 10 really are undumped - but it was applied
+   to a cue that works. Reaching for the unfixable explanation is the most
+   expensive mistake available, because it stops the search.
+
+A default change to `cdda_mult = 93` had been written and had passed synthesis on
+the strength of theory 3. Hardware refuted it before the build shipped. **It was
+reverted; the default stays 294.** Had that gone out it would have made things
+worse while appearing to be a fix.
+
+### Still worth knowing: which setting was load-bearing?
+
+Seven things changed at once, so the cause is not isolated. Cheap to narrow, no
+build required - revert one at a time and see if the cue disappears:
+
+- **Audio Filter** back to Model 1. The strongest candidate: the cue is a 6 kHz
+  sample and the Genesis low-pass models attenuate exactly that region. If this
+  is it, our LPF may be more aggressive than hardware and worth comparing.
+- **Region** back to Auto. If Auto is detecting Japan for a `T-574120-00` cart
+  the detection is wrong (`detected_jap`, written by the loader at bridge address
+  `0x18`, consumed at `core_top.sv:599`), and that is a real bug affecting more
+  than audio.
+- **+6 dB gain** unchecked, and the sliders down from max.
+
+If Region turns out to matter, chase `detected_jap` first - a mis-detected region
+would explain far more than one sound effect.
+
+### Note: the in-game audio options exist and are wired through
+
+Easy to forget the game has its own mixer. The background-music slider reaches us
+as the MD+ volume command and **is** honoured - `paprium_cdda_play.sv:126`:
+
+    wire [15:0] vol_product = {8'd0, volume} * {8'd0, fade_vol};
+    wire  [7:0] eff_volume  = vol_product[15:8];
+
+So any RTL gain calibration must be done with that slider at a known position, or
+the two attenuations compound. The "VM DAC" checkbox picks between the YM2612 DAC
+(FM path, via `audio_cond`) and the DT128VALT DAC (our `audio_sfx`), which are two
+entirely different paths through this core - a useful bisection tool for any
+future "which chip is this sound coming from" question.
