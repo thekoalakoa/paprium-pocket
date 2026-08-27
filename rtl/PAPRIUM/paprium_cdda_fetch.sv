@@ -72,7 +72,26 @@ module paprium_cdda_fetch #(
 
 	assign target_dataslot_id = SLOT_ID;
 
-	wire [7:0] req_track = DIAG_MODE ? 8'd5 : track_num;
+	wire [7:0] req_track = track_num;
+
+	// DIAG_MODE reports the REQUESTED track number as two audible bursts: tens
+	// seconds, a pause, then units seconds. Track 41 plays 4s, pauses, plays 1s.
+	// Counting two small numbers beats counting up to 62 seconds, and the whole
+	// point is to learn which index a scene asks for - nobody has measured it.
+	// 192000 bytes/s over 4096-byte chunks is 46.875 chunks per second.
+	localparam [15:0] DIAG_CPS = 16'd47;
+	wire  [3:0] diag_tens = (current_track >= 8'd60) ? 4'd6 :
+	                        (current_track >= 8'd50) ? 4'd5 :
+	                        (current_track >= 8'd40) ? 4'd4 :
+	                        (current_track >= 8'd30) ? 4'd3 :
+	                        (current_track >= 8'd20) ? 4'd2 :
+	                        (current_track >= 8'd10) ? 4'd1 : 4'd0;
+	wire  [7:0] diag_ones = current_track - (diag_tens * 8'd10);
+	reg   [1:0] diag_phase;
+	reg  [15:0] diag_chunks;
+	reg  [26:0] diag_gap;
+	wire [15:0] diag_target = (diag_phase == 2'd0) ? ({12'd0, diag_tens} * DIAG_CPS)
+	                                               : ({8'd0,  diag_ones} * DIAG_CPS);
 
 	// ---------------------------------------------------------------------
 	// Header entry capture. data_loader delivers 16-bit words at byte addresses

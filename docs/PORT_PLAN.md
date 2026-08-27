@@ -643,3 +643,51 @@ bug with a trivial fix and none of the above matters. Only if it is one of the
 ten blanks does the audio genuinely not exist. The audible-readout trick already
 used for the openfile error code applies directly: play the requested track
 number as N seconds and count.
+
+## Resume here
+
+### State
+
+Working on hardware: MCU boot, decompression, graphics streaming, saves,
+cartridge PCM sound effects, and music with correct per-scene track selection and
+one-shot behaviour. Standalone core packaged as `Koala_Koa.Paprium`, platform
+`paprium`, category Others. Fits at 98% ALM.
+
+Everything needed to rebuild is committed. `docs/PORT_PLAN.md` (this file) is the
+whole history and reasoning.
+
+### In flight: the TV track-number diagnostic
+
+`paprium_cdda_fetch.sv` is **half-edited** and needs finishing before it does
+anything useful. The idea: `DIAG_MODE` reports the REQUESTED track number as two
+audible bursts - tens seconds, a pause, then units - so the punk-TV scene names
+its own index. If that index turns out to be one of the 52 mapped ones, punk-TV
+is a mapping bug with a trivial fix; only if it is one of the ten blanks
+(8 9 10 13 26 31 41 44 45 48) is the audio genuinely absent.
+
+Done so far: `DIAG_CPS`, `diag_tens`, `diag_ones`, `diag_phase`, `diag_chunks`,
+`diag_gap`, `diag_target` declared; `req_track` no longer forces track 5.
+
+Still to do:
+1. Add `S_DIAG_GAP = 4'd9` to the state list.
+2. In `S_ADVANCE`, when `DIAG_MODE`: count `diag_chunks`; on reaching
+   `diag_target`, if `diag_phase == 0` go to `S_DIAG_GAP`, else `S_DONE`.
+3. Add `S_DIAG_GAP`: run `diag_gap` up (2^27 cycles is ~1.8 s at 74.25 MHz),
+   then `diag_phase <= 2`, `diag_chunks <= 0`, back to `S_READ`. Keep `playing`
+   high so the game does not think the track ended; the ring drains to silence
+   on its own, which is the pause.
+4. Reset `diag_phase`/`diag_chunks`/`diag_gap` on `track_request`.
+5. Do not loop in `DIAG_MODE` - `S_DONE` should stop.
+6. Build `paprium_cddadbg`, verify size and timestamp differ from the shipping
+   build, install, reach the TV scene and count the two bursts.
+
+### Build commands
+
+    quartus_sh -t scripts/syn_check.tcl paprium        # fast, synthesis only
+    quartus_sh -t generate.tcl paprium                 # full, shipping build
+    quartus_sh -t generate.tcl paprium_cddadbg         # diagnostic build
+    python scripts/reverse_bitstream.py <in.rbf> <out.rbf_r>
+
+Always check the fit summary timestamp AND the .rbf size against the previous
+build before flashing. Several builds have failed silently and left stale
+artifacts, which produce believable wrong answers on hardware.
