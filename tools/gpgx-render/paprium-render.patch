@@ -1,0 +1,159 @@
+--- "../src/Full Source/core/cart_hw/paprium.h"	2025-07-05 23:16:37.249963800 -0400
++++ ../gpgx-build/core/cart_hw/paprium.h	2026-08-26 22:19:11.517513300 -0400
+@@ -454,7 +454,7 @@
+ 	int l = 0, r = 0;
+ 
+ 
+-#if 1
++#if 0   /* render: fall through to the 26-voice synth instead of returning MP3 */
+ 	if( paprium_s.music_track ) {
+ 		if( paprium_s.music_track == PAPRIUM_BOSS1 ) {
+ 			l = paprium_mp3d_info_boss1.buffer[paprium_s.mp3_ptr];
+@@ -1800,7 +1800,7 @@
+ #endif
+ 
+ 
+-#if 1
++#if 0   /* render: do not load MP3s at all */
+ 	paprium_load_mp3(track, 1);
+ #endif
+ }
+@@ -2717,6 +2717,107 @@
+ }
+ 
+ 
++/* ------------------------------------------------------------------------
++ * render: offline dump of the cartridge's own music.
++ *
++ * The cart synthesises its music from sequence data and samples in ROM - it is
++ * not CD audio. This walks the same path paprium_audio() does, per sample, but
++ * writes to a WAV instead of the emulator's blip buffers, so a track can be
++ * rendered without running the game or reaching the scene that plays it.
++ *
++ * Driven by the PAPRIUM_RENDER environment variable: "track:seconds:outfile".
++ * ------------------------------------------------------------------------ */
++static void paprium_render_wav(int track, int seconds, const char *path)
++{
++	FILE *f = fopen(path, "wb");
++	if(!f) return;
++
++	const int RATE = 48000, FPS = 60, SPF = RATE / FPS;
++	int total = seconds * RATE;
++	unsigned int data_bytes = (unsigned int)total * 4;
++
++	/* 44-byte canonical WAV header, 48 kHz stereo 16-bit */
++	unsigned char h[44] = {
++		'R','I','F','F', 0,0,0,0, 'W','A','V','E', 'f','m','t',' ',
++		16,0,0,0, 1,0, 2,0, 0x80,0xBB,0,0, 0,0xEE,2,0, 4,0, 16,0,
++		'd','a','t','a', 0,0,0,0
++	};
++	unsigned int riff = data_bytes + 36;
++	h[4]=riff&255; h[5]=riff>>8&255; h[6]=riff>>16&255; h[7]=riff>>24&255;
++	h[40]=data_bytes&255; h[41]=data_bytes>>8&255;
++	h[42]=data_bytes>>16&255; h[43]=data_bytes>>24&255;
++	fwrite(h, 1, 44, f);
++
++	/* paprium_init memsets the state, so the master volume the final mix scales by
++	 * is 0 and everything renders silent. The game sets it with command 0xCA at
++	 * run time; offline there is nobody to do it. 0x100 is unity. */
++	paprium_s.sfx_volume = 0x100;
++	paprium_s.music_volume = 0x100;
++	paprium_s.audio_flags = 0;
++	paprium_music(track);
++	/* paprium_music() never sets this itself - it relied on paprium_load_mp3() to do
++	 * it as a side effect, and the MP3 path is disabled for rendering. Without it the
++	 * sequencer steps but emits no notes. */
++	paprium_s.music_track = track;
++	/* render diagnostic: dump the inputs the synth depends on, so a silent
++	 * output can be traced to which stage produced nothing. */
++	{
++		FILE *dbg = fopen("C:/Users/Profe/gpgxbuild/render_state.bin", "wb");
++		if(dbg) {
++			fwrite(&paprium_music_ptr, 4, 1, dbg);
++			fwrite(&paprium_wave_ptr, 4, 1, dbg);
++			fwrite(paprium_wave_ram, 1, 4096, dbg);       /* instrument table + start */
++			fwrite(paprium_s.music_ram, 1, 4096, dbg);    /* decompressed sequence */
++			fwrite(paprium_s.music, sizeof(paprium_s.music), 1, dbg);  /* 26 voices */
++			fclose(dbg);
++		}
++	}
++
++	for(int frame = 0; frame < seconds * FPS; frame++) {
++		paprium_s.audio_tick++;
++
++		for(int i = 0; i < SPF; i++) {
++			int l = 0, r = 0;
++
++			paprium_s.echo_l[paprium_s.echo_ptr] = 0;
++			paprium_s.echo_r[paprium_s.echo_ptr] = 0;
++
++			paprium_music_synth(&l, &r);
++			paprium_sfx_voice(&l, &r);
++
++			paprium_s.echo_ptr = (paprium_s.echo_ptr + 1) % (48000/6);
++
++			l += paprium_s.echo_l[paprium_s.echo_ptr];
++			r += paprium_s.echo_r[paprium_s.echo_ptr];
++
++			l = (l * paprium_s.sfx_volume) / 0x100;
++			r = (r * paprium_s.sfx_volume) / 0x100;
++
++			if(paprium_s.audio_flags & 0x08) { l = l * 4 / 2; r = r * 4 / 2; }
++
++			if(l >  32767) l =  32767; else if(l < -32768) l = -32768;
++			if(r >  32767) r =  32767; else if(r < -32768) r = -32768;
++
++			unsigned char s[4] = { l&255, (l>>8)&255, r&255, (r>>8)&255 };
++			fwrite(s, 1, 4, f);
++		}
++
++		paprium_music_sheet();
++	}
++
++	fclose(f);
++	{	/* render diagnostic: voice state AFTER the loop - did the sequencer emit notes? */
++		FILE *d2 = fopen("C:/Users/Profe/gpgxbuild/render_voices.bin", "wb");
++		if(d2) {
++			fwrite(&paprium_s.music_section, 4, 1, d2);
++			fwrite(&paprium_s.music_segment, 4, 1, d2);
++			fwrite(&paprium_s.music_track, 4, 1, d2);
++			fwrite(paprium_s.music, sizeof(paprium_s.music), 1, d2);
++			fclose(d2);
++		}
++	}
++}
++
+ static void paprium_init()
+ {
+ 	int ptr;
+@@ -2743,7 +2844,7 @@
+ 	paprium_s.decoder_size = 0;
+ 
+ 
+-	if(0) {  /* www.wavpack.com */
++	if(1) {  /* www.wavpack.com */   /* render: load the sample bank */
+ 		/* warn: adding payload after 8MB ROM breaks Mega CD */
+ 
+ 		FILE *fp;
+@@ -2841,6 +2942,21 @@
+ 
+ 
+ 	paprium_s.music_segment = -1;
++
++	/* render: PAPRIUM_RENDER="track:seconds:outfile" dumps one track and stops.
++	 * Sits at the end of init because the fast-loadstate block above has already
++	 * read music_ptr and wave_ptr straight from ROM, so nothing needs to boot. */
++	{
++		const char *spec = getenv("PAPRIUM_RENDER");
++		if(spec) {
++			int trk = 0, secs = 0;
++			char out[512];
++			if(sscanf(spec, "%d:%d:%511s", &trk, &secs, out) == 3) {
++				paprium_render_wav(trk, secs, out);
++			}
++			exit(0);
++		}
++	}
+ }
+ 
+ 
