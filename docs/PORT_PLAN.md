@@ -460,3 +460,68 @@ The lesson: silence is a terrible diagnostic, because every failure in a streame
 looks identical. What broke the deadlock was making failures *audible* - falling
 back to streaming the slot untouched rather than going quiet turned "no music"
 into "wrong track", which named the remaining fault immediately.
+
+## To do, in order
+
+### 1. Music selects the right track (in progress)
+
+The seek-by-offset redesign is built and waiting on hardware. `openfile` is out of
+the picture; a track request reads its 8-byte header entry from `paprium.pcm` and
+streams from that offset.
+
+**Numbering is confirmed from two independent sources.** GPGX's
+`paprium_load_mp3` (`src/Full Source/core/cart_hw/paprium.h`) is the authoritative
+game-index -> song table, and it agrees with the cue: `idx 0x35 -> "12 Stage
+Clear"`, and 0x35 is 53 decimal, the cue's TRACK 53. So blob entry N = game
+index N.
+
+### 2. The punk-TV cue - a missing asset, not a bug
+
+GPGX's mapping covers 52 indices and references **all 52** OST files, none spare.
+The ten indices it does NOT map are exactly the `Blank.wav` slots:
+**8, 9, 10, 13, 26, 31, 41, 44, 45, 48**.
+
+So that audio was never released. Genesis Plus GX is silent in those scenes too,
+for want of a file. Upstream's "track number TBD" is unresolved because there is
+nothing to resolve it against.
+
+What would actually fix it:
+
+- **Decode the cartridge's own wave ROM.** The DATENMEISTER chipset holds the
+  real music compressed; nobody has decoded that format, which is why every
+  implementation substitutes an external OST. A reverse-engineering project in
+  its own right.
+- **Record the scene from a real cartridge**, trim and convert to `trackNN.pcm`.
+  Crude but sufficient - the blob makes dropping it in trivial.
+- **Identify which index the TV requests** - cheap and worth doing regardless. A
+  diagnostic build can log `mdp_track_num` into the save RAM (`paprium_backup`
+  port B is the APF save slot), then the `.sav` read offline names the index.
+
+### 3. Boss fight: player sprite drops behind the background
+
+**Symptom (hardware, this port):** during one phase of a boss fight the player
+falls behind the background plane, stays controllable, and pops back when the
+phase ends.
+
+**Cause, per upstream:** `mega-ppm` composes each sprite's attribute word by
+XORing it whole (`ppm_obj_render`, `mame.c:544`), where GPGX composes field-wise
+with tile precedence - `priority = tileP ? tileP : objP`. The two agree only
+while the object's priority bits are 0. When both the tile and the object set
+priority, XOR cancels them to 0 and the sprite drops behind the BG.
+
+**Not ours.** Confirmed by upstream as *"also broken on EverDrive Pro -> firmware,
+not core/VDP"*. It happens on real cartridge hardware running the same
+replacement firmware.
+
+**Difficulty is real.** The obvious fix - field-wise composition - was built and
+hardware-tested in V.04 and logged as *"superseded: had NO observable effect on
+HW"* for the elevator case. It was kept because it did no harm, but it is not the
+fix. Upstream's remaining leads are the muted `0xB0` `paprium_sprite_init` and
+`0x88` setup commands, or a different decode path.
+
+**What attempting it needs:** the firmware is `mcu.txt`, a compiled image. Changing
+it means building krikzz's `mega-ppm` source with a RISC-V toolchain and
+regenerating the image, then hardware-testing for regressions across normal scenes
+(the all-XOR path works everywhere else, so anything that relies on it would
+break). Our boss fight may be a different instance of the same class from the
+elevator, which would make it a fresh data point upstream does not have.
