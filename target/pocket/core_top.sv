@@ -996,6 +996,16 @@ module core_top (
     // parameter comment in paprium_cdda_fetch.sv. Shipping is 0.
     localparam CDDA_DIAG   = PAPRIUM_CDDA_DBG;
 
+    // The diagnostic readout must not be truncated. A $13xx stop carrying
+    // fade_sectors == 0 latches `paused` in paprium_cdda_play and hard-mutes it
+    // until the next track, so a scene-change stop would cut a burst short and
+    // read as a SMALLER number - a believable wrong answer, the one failure mode
+    // this diagnostic cannot afford. While a readout is in progress (mdp_playing,
+    // which DIAG_MODE holds from the request through the last burst) the stop is
+    // dropped for both consumers. Shipping builds are untouched.
+    wire mdp_stop_gated = CDDA_DIAG ? (mdp_stop_request & ~mdp_playing)
+                                    : mdp_stop_request;
+
     // The 8-byte header entry lands in its own tiny bridge region so it cannot be
     // confused with audio arriving in the ring.
     wire        cdda_hdr_wr_en;
@@ -1028,7 +1038,7 @@ module core_top (
     reg  trk_toggle = 0, stop_toggle = 0;
     always @(posedge clk_sys_53_69) begin
       if(mdp_track_request) trk_toggle  <= ~trk_toggle;
-      if(mdp_stop_request)  stop_toggle <= ~stop_toggle;
+      if(mdp_stop_gated)    stop_toggle <= ~stop_toggle;
     end
 
     wire trk_rise, trk_fall, stop_rise, stop_fall;
@@ -1138,7 +1148,7 @@ module core_top (
 
         .active        (mdp_active),
         .track_start   (mdp_track_request),
-        .stop_request  (mdp_stop_request),
+        .stop_request  (mdp_stop_gated),
         .fade_sectors  (mdp_fade_sectors),
         .volume        (mdp_volume),
         .resume_request(mdp_resume_request),
