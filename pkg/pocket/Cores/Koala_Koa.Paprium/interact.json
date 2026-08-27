@@ -134,6 +134,50 @@
             "value": 1
           }
         ]
+      },
+      {
+        "name": "Music Volume",
+        "id": 9,
+        "type": "list",
+        "enabled": true,
+        "address": "0x0000002C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Default",
+            "value": 0
+          },
+          {
+            "name": "-3 dB",
+            "value": 1
+          },
+          {
+            "name": "-6 dB",
+            "value": 2
+          },
+          {
+            "name": "-9 dB",
+            "value": 3
+          },
+          {
+            "name": "-10 dB (MD+)",
+            "value": 4
+          },
+          {
+            "name": "-15 dB",
+            "value": 5
+          },
+          {
+            "name": "-21 dB",
+            "value": 6
+          },
+          {
+            "name": "Off",
+            "value": 7
+          }
+        ]
       }
     ],
     "messages": []
