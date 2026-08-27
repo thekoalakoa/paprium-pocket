@@ -1314,3 +1314,36 @@ playing an ordinary enemy's sound - and it is a handful of lines to implement.
 Sequence: confirm the toolchain first, then `0x88`, then re-test. One change at a
 time, since we have just spent a session learning how easily a plausible
 explanation survives an untested build.
+
+
+## Build: menu reduction measured
+
+| | ALMs | Registers | RAM blocks | DSP | worst slack | TNS |
+|---|---|---|---|---|---|---|
+| before (full menu) | 18,158 (98%) | 30,399 | 247 (80%) | 39 | -3.030 | -2991.1 |
+| **after (menu stripped)** | **16,753 (91%)** | 30,071 | 246 (80%) | **21** | **-2.856** | **-2034.8** |
+| delta | **-1,405** | -328 | -1 | **-18** | +0.174 | +956 |
+
+**The estimate was 250-470 ALMs. The actual figure is 1,405 - low by about 3x.**
+
+The error was method, not arithmetic. The estimate summed the named leaf entities
+in the fit report and assumed everything else was fixed cost. What it missed is
+that constant-folding **cascades**: tying an option off removes not just its
+filter chain but the control logic feeding it, its CDC path through `synch_3`, the
+muxes selecting between arms, and - the big one - the **DSP multipliers** those
+filters inferred. DSP usage fell 39 -> 21, which no ALM-only reckoning would catch.
+
+Confirmed gone from the fit report: `psg_iir`, `genesis_lpf`, `genesis_fm_lpf`,
+`cofi`. `audio_cond` survives at **67.7 ALMs**, down from 383.
+
+The timing prediction, by contrast, was about right: "-2.7 to -2.9, maybe 0.1-0.3
+ns, with TNS improving more than worst-case slack." Actual: **-2.856** (+0.174)
+with **TNS down 32%**. Still the same inherited `m68kcpu` critical paths, and
+timing still does not close - this buys margin, not correctness.
+
+Lesson for future estimates on this device: **entity-level ALM figures are a
+lower bound**, because they attribute nothing to the glue that disappears with
+them, and nothing at all to DSP.
+
+1,727 ALMs are now free. That is real headroom for firmware-adjacent RTL work -
+a mailbox snooper, deeper SFX FIFOs - none of which was affordable at 98%.
