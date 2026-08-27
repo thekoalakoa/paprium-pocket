@@ -1,0 +1,141 @@
+{
+  "interact": {
+    "magic": "APF_VER_1",
+    "variables": [
+      {
+        "name": "Reset Core",
+        "id": 10,
+        "type": "action",
+        "enabled": true,
+        "address": "0xF0000000",
+        "value": 1
+      },
+      {
+        "name": "Region",
+        "id": 2,
+        "type": "list",
+        "enabled": true,
+        "address": "0x0000000C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Auto",
+            "value": 0
+          },
+          {
+            "name": "Japan",
+            "value": 1
+          },
+          {
+            "name": "Export",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Audio Filter",
+        "id": 3,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000010",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Model 1",
+            "value": 0
+          },
+          {
+            "name": "Model 2",
+            "value": 1
+          },
+          {
+            "name": "Minimal",
+            "value": 2
+          },
+          {
+            "name": "No Filter",
+            "value": 3
+          }
+        ]
+      },
+      {
+        "name": "FM Chip",
+        "id": 4,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000014",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "YM2612",
+            "value": 0
+          },
+          {
+            "name": "YM3438",
+            "value": 1
+          }
+        ]
+      },
+      {
+        "name": "6 Button Pad",
+        "id": 5,
+        "type": "check",
+        "enabled": true,
+        "address": "0x0000001C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 1,
+        "value": 1
+      },
+      {
+        "name": "CRAM Dots",
+        "id": 6,
+        "type": "check",
+        "enabled": true,
+        "address": "0x00000020",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "value": 1
+      },
+      {
+        "name": "Composite Blend",
+        "id": 7,
+        "type": "check",
+        "enabled": true,
+        "address": "0x00000024",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "value": 1
+      },
+      {
+        "name": "Aspect Ratio",
+        "id": 8,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000028",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Original",
+            "value": 0
+          },
+          {
+            "name": "Corrected",
+            "value": 1
+          }
+        ]
+      }
+    ],
+    "messages": []
+  }
+}
