@@ -576,3 +576,70 @@ The useful distinction is *what* it differs from:
   (0.006%, inaudible), but the channels are now phase-locked to a common tick
   rather than drifting independently. Reverting it is one file and costs ~290
   ALUTs, which the area budget can absorb at 98%.
+
+## Rendering the cart's own music: how far it got
+
+The cartridge does not play CD audio. It **synthesises** music from sequence data
+and samples in ROM, through a 26-voice engine. The OST substitution used by this
+port and by MiSTer is the workaround, not the original. Genesis Plus GX contains
+that synth, so rendering the ten tracks with no OST file - punk-TV among them -
+looked tractable.
+
+### What was built (`tools/gpgx-render/`)
+
+- MSYS2 + gcc 16.2 + make installed; the GPGX core builds.
+- Three source gates flipped in `paprium.h`: `if(0)` -> `if(1)` on the WavPack
+  sample-bank loader, and the two `#if 1` guards that make `paprium_music_synth`
+  return MP3 audio and `paprium_music` load MP3s at all.
+- `paprium_render_wav()` added: walks the same per-sample path `paprium_audio()`
+  does - synth, SFX voice, echo, master volume, clip - and writes a 48 kHz stereo
+  WAV. Driven by `PAPRIUM_RENDER="track:seconds:outfile"`.
+- Hooked at the end of `paprium_init()`, which works because the *fast loadstate*
+  block there reads `music_ptr`, `wave_ptr` and the rest **straight from fixed ROM
+  offsets** - so no booting and no navigating to a scene.
+- `render_host.c`: a minimal libretro host, enough to make the core load a ROM.
+
+### What works
+
+The harness runs end to end and writes a correctly-formed WAV of exactly the
+right length. State dumped from inside the renderer confirms the data path:
+
+| | |
+|---|---|
+| `music_ptr` | `0x001400B0`, read from ROM `0x10054` |
+| `music_ram` | decompresses to a valid module - magic `4D 57 4D 4D` (`"MWMM"`) |
+| `wave_ram` | instrument table present: program 0 at `0x10`, size `0x8B0B` |
+| sequencer | advances correctly - `music_section` reached 75 in 5 s, exactly 60fps/4 |
+
+### What does not
+
+**Every render is digital silence**, and `0/26` voices ever receive a note.
+
+Two targeted fixes were tried and neither changed it: setting the master volume
+(`paprium_init` memsets it to 0, and the final mix scales by it), and setting
+`paprium_s.music_track`, which `paprium_music()` never sets itself - it relied on
+`paprium_load_mp3()` doing it as a side effect.
+
+So everything up to and including the sequencer stepping works; **note emission
+does not**.
+
+### Assessment
+
+Probably incomplete upstream rather than misconfigured. Three separate
+disablements point the same way: `paprium_wave_unpack()` (the in-ROM unpacker)
+was never written at all, the external sample-bank loader is `if(0)`, and the
+synth is bypassed by an early `return`. That reads as abandoned mid-development,
+not superseded once MP3s worked.
+
+Finishing it means reverse-engineering the `MWMM` module format against the ROM
+and completing someone else's half-written parser. That is a project in its own
+right, not a debugging session.
+
+### Cheaper thing to do first
+
+**Confirm which index the TV actually requests.** It has never been measured. If
+it turns out to be one of the 52 *mapped* indices, this is a mapping or ordering
+bug with a trivial fix and none of the above matters. Only if it is one of the
+ten blanks does the audio genuinely not exist. The audible-readout trick already
+used for the openfile error code applies directly: play the requested track
+number as N seconds and count.
