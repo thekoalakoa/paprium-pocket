@@ -525,3 +525,54 @@ regenerating the image, then hardware-testing for regressions across normal scen
 (the all-XOR path works everywhere else, so anything that relies on it would
 break). Our boss fight may be a different instance of the same class from the
 elevator, which would make it a fresh data point upstream does not have.
+
+## Music works (hardware confirmed)
+
+Correct track per scene, and the one-shots - Continue, Game Over, High Score,
+Stage Clear - play once and stop instead of looping. **MiSTer cannot do that**:
+Main_MiSTer's player ignores the play command's loop flag and takes looping from
+cue directives, which is why that project ships `REM NOLOOP` entries. Reading
+`$11xx` vs `$12xx` directly, with a definite length from the blob header, is a
+capability the reference implementation does not have.
+
+Working on hardware: MCU boot, decompression, graphics streaming, saves,
+cartridge PCM sound effects, and CD-quality music with correct selection, looping
+and one-shot behaviour.
+
+### Remaining issues, and who owns them
+
+| Issue | Owner | Status |
+|---|---|---|
+| Punk-TV cue silent | asset | Audio was never released - see above |
+| Elevator corruption + priority | upstream firmware | Open, issue C |
+| Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
+| "Saxophone guy" never appears | probably upstream | Candidate: issues A/B |
+| Some SFX differ from real hardware | expected, partly | See below |
+
+**Elevator** is upstream issue C verbatim: *"Lots of graphical corruption in the
+elevator, and background priority problems."* Narrowed there to a
+**decompression/decode** fault, not sprites. They implemented full GPGX page
+semantics for the `0xC000` window to try to fix it; the elevator was unchanged
+and it **regressed boss animations**, so it was rolled back.
+
+**"Saxophone guy" never appearing** looks like upstream issues A/B - the MCU
+falling behind on SDRAM port 2 and missing a spawn trigger, which they describe
+as *"enemies stop appearing"* and suspect shares a root cause with the subway
+stall. Worth checking whether it is reproducible or occasional: theirs is
+occasional, which is what makes it a race.
+
+**Sound effects differing from a real cartridge is expected in part.** Neither
+this port nor MiSTer reproduces the DATENMEISTER chipset - upstream's own README
+opens by saying so. `audio_sfx` is a port of the mega-ppm PCM engine, an
+EverDrive-Pro-style workaround, not the cartridge's real sound hardware.
+
+The useful distinction is *what* it differs from:
+
+- **Differs from a real cart, matches MiSTer** - inherent to the approach, not
+  fixable without decoding the cartridge's own audio path.
+- **Differs from MiSTer too** - then it is ours, and the first suspect is the
+  `aclk_bank` rewrite. That replaced five free-running fractional dividers with
+  counters off the 48 kHz tick: rates are identical except 5333 -> 5333.33 Hz
+  (0.006%, inaudible), but the channels are now phase-locked to a common tick
+  rather than drifting independently. Reverting it is one file and costs ~290
+  ALUTs, which the area budget can absorb at 98%.
