@@ -485,6 +485,14 @@ So that audio was never released. Genesis Plus GX is silent in those scenes too,
 for want of a file. Upstream's "track number TBD" is unresolved because there is
 nothing to resolve it against.
 
+> **Superseded - this whole section is the wrong subsystem.** The punk-TV audio
+> is **SFX `0x4A`**, raw PCM sitting in the cart ROM, confirmed by ear from
+> `scripts/dump_sfx.py`. It is not a music track and was never missing. The cart's
+> music pointer table is additionally **null at all ten of these indices**, so
+> music is correctly silent in those scenes. Every option listed below - decoding
+> the wave ROM, rendering with the synth, recording from a real cartridge - is
+> aimed at a track that does not exist. See "The SFX bank is readable" below.
+
 What would actually fix it:
 
 - **Decode the cartridge's own wave ROM.** The DATENMEISTER chipset holds the
@@ -493,9 +501,9 @@ What would actually fix it:
   its own right.
 - **Record the scene from a real cartridge**, trim and convert to `trackNN.pcm`.
   Crude but sufficient - the blob makes dropping it in trivial.
-- **Identify which index the TV requests** - cheap and worth doing regardless. A
-  diagnostic build can log `mdp_track_num` into the save RAM (`paprium_backup`
-  port B is the APF save slot), then the `.sav` read offline names the index.
+- **Identify which index the TV requests** - cheap and worth doing regardless.
+  Built: `DIAG_MODE` plays the requested number back as two counted bursts, no
+  save-file round trip needed. See "The TV track-number diagnostic" below.
 
 ### 3. Boss fight: player sprite drops behind the background
 
@@ -543,7 +551,7 @@ and one-shot behaviour.
 
 | Issue | Owner | Status |
 |---|---|---|
-| Punk-TV cue silent | asset | Audio was never released - see above |
+| Punk-TV cue silent | **misdiagnosed - not music at all** | It is SFX `0x4A`, present in ROM. Music is correctly silent there. Confirm whether the effect actually fails before treating it as a bug |
 | Elevator corruption + priority | upstream firmware | Open, issue C |
 | Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
 | "Saxophone guy" never appears | probably upstream | Candidate: issues A/B |
@@ -635,6 +643,11 @@ Finishing it means reverse-engineering the `MWMM` module format against the ROM
 and completing someone else's half-written parser. That is a project in its own
 right, not a debugging session.
 
+**And it would not fix punk-TV.** The cart's music pointer table is null at all
+ten unmapped indices, so there is no module there to render however good the
+synth gets. Finishing this work would be for its own sake - rendering the 52
+tracks that *do* exist without the OST - not for the missing ten.
+
 ### Cheaper thing to do first
 
 **Confirm which index the TV actually requests.** It has never been measured. If
@@ -656,30 +669,221 @@ one-shot behaviour. Standalone core packaged as `Koala_Koa.Paprium`, platform
 Everything needed to rebuild is committed. `docs/PORT_PLAN.md` (this file) is the
 whole history and reasoning.
 
-### In flight: the TV track-number diagnostic
+### The TV track-number diagnostic
 
-`paprium_cdda_fetch.sv` is **half-edited** and needs finishing before it does
-anything useful. The idea: `DIAG_MODE` reports the REQUESTED track number as two
-audible bursts - tens seconds, a pause, then units - so the punk-TV scene names
-its own index. If that index turns out to be one of the 52 mapped ones, punk-TV
-is a mapping bug with a trivial fix; only if it is one of the ten blanks
-(8 9 10 13 26 31 41 44 45 48) is the audio genuinely absent.
+`DIAG_MODE` reports the REQUESTED track number as two audible bursts - tens
+seconds, a pause, then units - so the punk-TV scene names its own index. Track 41
+plays 4 s, pauses ~1.8 s, plays 1 s. If the index turns out to be one of the 52
+mapped ones, punk-TV is a mapping bug with a trivial fix; only if it is one of
+the ten unmapped slots (8 9 10 13 26 31 41 44 45 48) is the audio genuinely
+absent.
 
-Done so far: `DIAG_CPS`, `diag_tens`, `diag_ones`, `diag_phase`, `diag_chunks`,
-`diag_gap`, `diag_target` declared; `req_track` no longer forces track 5.
+Reading it: an index below 10 has a tens digit of 0, so the first burst is a
+single chunk - a ~21 ms tick rather than a silent gap. That is deliberate: a tick
+confirms the readout ran and the tens digit is zero, where nothing at all would
+leave "0 tens" and "the scene never asked" looking identical. So tick-pause-8 s
+reads as index 8, and 4 s-pause-1 s reads as 41.
 
-Still to do:
-1. Add `S_DIAG_GAP = 4'd9` to the state list.
-2. In `S_ADVANCE`, when `DIAG_MODE`: count `diag_chunks`; on reaching
-   `diag_target`, if `diag_phase == 0` go to `S_DIAG_GAP`, else `S_DONE`.
-3. Add `S_DIAG_GAP`: run `diag_gap` up (2^27 cycles is ~1.8 s at 74.25 MHz),
-   then `diag_phase <= 2`, `diag_chunks <= 0`, back to `S_READ`. Keep `playing`
-   high so the game does not think the track ended; the ring drains to silence
-   on its own, which is the pause.
-4. Reset `diag_phase`/`diag_chunks`/`diag_gap` on `track_request`.
-5. Do not loop in `DIAG_MODE` - `S_DONE` should stop.
-6. Build `paprium_cddadbg`, verify size and timestamp differ from the shipping
-   build, install, reach the TV scene and count the two bursts.
+**RTL is complete and synthesises clean** (`paprium_cdda_fetch.sv`,
+`target/pocket/core_top.sv`). `S_DIAG_GAP` added; `S_ADVANCE` counts
+`diag_chunks` against `diag_target` and hands off to the gap after the tens
+burst, `S_DONE` after the units; `diag_phase`/`diag_chunks`/`diag_gap` reset on
+`track_request`; `DIAG_MODE` never loops.
+
+Two things had to be handled that the original step list did not anticipate.
+Both are gated on `DIAG_MODE`, so shipping behaviour is untouched.
+
+**The bursts stream from a fixed source track, not the requested one**
+(`DIAG_SRC = 5`). Measuring the blob header settled why - see below. The reported
+number is still the requested one; only the bytes fed to the ring are borrowed.
+
+**A stop arriving mid-readout is deferred.** `$13xx` with `fade_sectors == 0`
+latches `paused` in `paprium_cdda_play` and hard-mutes it until the next track.
+A scene-change stop would therefore cut a burst short and read as a *smaller
+number* - a believable wrong answer, the one failure mode this diagnostic cannot
+afford. `mdp_stop_gated` in `core_top.sv` drops the stop for both the fetcher and
+the player while `mdp_playing` is high, and `DIAG_MODE` raises `playing` at the
+request rather than after the header lands so the mask spans the whole readout.
+The readout ends itself after ~17 s at worst, and a new `track_request` always
+restarts it.
+
+Remaining: build `paprium_cddadbg`, verify size and timestamp differ from the
+shipping build, install, reach the TV scene and count the two bursts.
+
+### The cartridge has no music for those ten indices either
+
+Tested directly against the ROM. This settles a question the plan had only been
+reasoning about circumstantially.
+
+`paprium_music()` locates a track's module through a **pointer table in the cart
+ROM** (`paprium.h:1774`): base `paprium_music_ptr` = `0x001400B0`, read from ROM
+`0x10054`; one big-endian u32 per track at `base + track*4`. The word at entry 0
+is `0x0000003E` - 62, the track count.
+
+Dumping that table:
+
+- **52 live entries, 52 distinct offsets, exactly 10 nulls.**
+- The ten nulls are indices **8, 9, 10, 13, 26, 31, 41, 44, 45, 48** - the same
+  ten, reached independently of GPGX's file mapping and of the cue.
+- The 52 live offsets sort into a clean ascending run, no overlaps, sensible
+  module sizes (~0x300-0x1E00 bytes), and all 52 share the 8-byte prologue
+  `81 0E 57 4D 4D 4D 00 01`. The parse is sound.
+- Identical in two independent dumps: `hw-test/Paprium.md` and
+  `src/paprium/paprium.bin`.
+
+**So the cartridge itself has no music for those ten indices.** Not "the OST
+omitted them" - the game's own data has nothing there, and the 26-voice synth
+has nothing to render for them either.
+
+That rules out the idea that a blank slot is the game yielding to its internal
+synth. (No implementation has such a fallback in any case: GPGX's
+`paprium_music_synth` hits an unconditional `return` placed *outside* the
+`if(music_track)`, so the 26-voice loop below it is dead code in every build, for
+every track.)
+
+What survives of that reading is narrower but still open: a null may be a
+deliberate "go quiet" marker the DATENMEISTER firmware special-cases. It cannot
+be a *used* pointer - `paprium_decoder_type(paprium_music_ptr + 0, ...)` would
+decode the pointer table itself as a module, which is garbage, not silence. So
+either the firmware null-checks, or the game never requests these ten at all.
+
+#### What this changes
+
+**The expensive option is off the table.** "Decode the cartridge's own wave ROM"
+and "finish `tools/gpgx-render/` to render the missing ten" cannot produce
+punk-TV audio *even if they completely succeed* - there is no module for index 8,
+9, 10, 13, 26, 31, 41, 44, 45 or 48 to render. The same goes for "record the
+scene from a real cartridge": a real cartridge has no music module there either.
+
+**The diagnostic's answer is now cleanly binary:**
+
+| Diagnostic reports | Meaning | Action |
+|---|---|---|
+| one of the 52 live indices | mapping or ordering bug; the music exists | trivial fix |
+| one of the 10 null indices | the game has no music there, hardware included | close it - silence is correct |
+
+The first is now the likelier outcome, because shipping a request for a
+null-pointer track would have real hardware decode its own pointer table as a
+module. That is a real prediction the diagnostic will confirm or refute.
+
+### The SFX bank is readable, and is where a non-music cue would live
+
+If the punk-TV audio exists on original hardware - and it is reported to - then
+given the null music pointers it cannot be a music module. The only other audio
+in the cartridge is the SFX bank, and unlike the music that bank is **raw PCM in
+ROM**, so it can be read offline without the DATENMEISTER decoder.
+
+`scripts/dump_sfx.py` does that. Layout, from GPGX's `sfx_play` /
+`paprium_sfx_voice`:
+
+    sfx_ptr = be32(rom + be32(rom + 0xAF77C) + 0x778)   = 0x0025ECA4
+    entry N = 8 bytes at sfx_ptr + N*8
+        +0 u32 sample offset (relative to sfx_ptr)
+        +4 u8  type      +5 u8 size hi      +6 u16 size lo
+    type >> 4 -> rate index into {1,2,4,5,8,9} = 48000/N Hz
+    type &  3 -> depth: 1 = 8-bit unsigned, 2 = 4-bit packed, high nibble first
+    size counts SAMPLES, not bytes
+
+What it contains: **127 usable entries, 552,746 bytes at ROM 0x25ECA4-0x2E5BCE**,
+5333-48000 Hz, durations 0.03 s to **4.99 s**. 48 entries are 8-bit, 79 are 4-bit.
+Nothing in the bank is music-length, but a few-second diegetic TV cue fits it
+comfortably - the longest entries are `0x4A` (4.99 s), `0x4B` (4.55 s), `0x2F`
+(3.51 s), `0x4C` (3.29 s), `0x3D` (3.07 s), `0x2E` (2.99 s).
+
+**Byte order is the trap here, and it is a silent one.** GPGX keeps `cart.rom`
+byte-swapped against the file, so a `*(uint16*)` read gives the big-endian value
+directly while a plain byte read lands on the neighbour. The table's u8 fields are
+read *without* `^1` in GPGX and so need one here; the sample read already carries
+an explicit `^1` (`cart.rom + sfx_ptr + (voice->ptr^1)`) and so must NOT be
+swapped again. Getting either backwards still yields plausible output - the first
+pass here decoded sane-looking waveforms while reading the wrong byte throughout.
+
+Three checks catch it, and `--verify` re-runs them:
+
+1. **Contiguity** - entries must pack end to end. 114 exact joins, 12 padded to a
+   word boundary, 0 unexplained. This also confirms `size` is in samples and that
+   the depth field is read correctly.
+2. **Range** - the whole bank must land inside the 8 MB ROM. It does.
+3. **Nibble order** - GPGX specifies high-nibble-first; an independent smoothness
+   metric must agree. With the byte access wrong it voted low-first 64/79; with it
+   right it votes high-first 63/79. That flip is what exposed the bug.
+
+#### Confirmed: the punk-TV audio is SFX 0x4A
+
+Identified by ear from the dump. **`sfx_074` / index `0x4A`** - the longest entry
+in the bank: 29,920 samples, 6000 Hz, 4-bit packed, 4.99 s, 14,960 bytes at ROM
+`0x2B6...` (`sfx_ptr + 0x0584CA`).
+
+That closes the question this section opened, and it **reclassifies the issue
+entirely**:
+
+- The punk-TV cue is **not a music track**, so "the audio was never released" was
+  the wrong diagnosis. Nothing is missing - the audio has been in the ROM all
+  along, 900 KB from the music the project has been substituting.
+- Music being silent in that scene is **correct behaviour**, consistent with the
+  null pointer at whichever index the scene requests.
+- Neither the OST pack, the cue, the blob, nor `paprium_cdda_fetch` was ever
+  involved. Three of the four "what would actually fix it" options listed earlier
+  - decode the wave ROM, render with the synth, record from a real cart - were
+  aimed at the wrong subsystem.
+
+#### Why it is silent here, and what is not the cause
+
+Our SFX engine is **not** the suspect. `sfx_chan` (`audio_sfx.sv`) is a pure
+streaming FIFO: the MCU firmware reads the ROM, unpacks the 4-bit nibbles and
+pushes 16-bit samples; the RTL only paces them at `srate` and mixes. There is no
+`ptr` or `size` in the RTL, so nothing there caps sample length, and a 4.99 s clip
+is just a longer stream. 6000 Hz is 3 KB/s against a 256-entry FIFO holding 42 ms
+- not a bandwidth problem either.
+
+So if it is genuinely silent on hardware, the cause is upstream of the RTL: the
+firmware not receiving or not acting on the trigger. That puts it in the same
+family as issues A/B (the MCU falling behind on SDRAM port 2 and missing events),
+not in a family of its own.
+
+One mechanism worth noting because it is inherent rather than a bug: `sfx_play`
+allocates a free channel, and failing that **evicts the channel with the largest
+`time`** - the longest-running one. At 4.99 s, `0x4A` is by a wide margin the
+longest sample in the bank, so any later effect sharing its channel mask will
+steal it. That happens on real hardware too, so it is a design property, but it
+does mean the cue can be cut short legitimately.
+
+**The first thing to establish is whether it is actually silent at all.** The
+original "punk-TV cue silent" report was about music, and music is *supposed* to
+be silent there. It is entirely possible the SFX already plays and there is no bug
+left to fix.
+
+#### A cheap fix that needs no firmware work
+
+If the SFX path does turn out not to deliver it, this port can serve the cue
+through the music path instead, because we now hold the sample:
+
+`sfx-dump/sfx_074_punktv_48k_stereo.pcm` - the same audio resampled 6000 -> 48000
+Hz with linear interpolation and duplicated to stereo, 957,440 bytes, already in
+the blob's track format. Drop it in at whichever index the track-number diagnostic
+reports and the scene plays its own sound, with no `mcu.txt` rebuild and no
+reverse engineering.
+
+That is the payoff from the two findings meeting: the diagnostic names the index,
+and the SFX dump supplies the audio to put there. **Do not do both** - if the SFX
+path already plays `0x4A`, adding it to the blob doubles it.
+
+### Note: the 1.000 s "silences" in the blob are our own tooling
+
+Recorded so it is not mistaken for evidence. `scripts/build_cdda.sh` runs
+`dd if=/dev/zero bs=192000 count=1` for any cue entry pointing at `Blank.wav`, so
+`cdda/track08.pcm` and its nine siblings are exactly one second of zeros because
+*our script made them that way*. The length says nothing about the game, and the
+real `Blank.wav` has never been read by anything here.
+
+The cue does **name** `Blank.wav` for those ten rather than omitting them - an
+authored decision, and consistent with the null pointers above.
+
+This is also why `DIAG_MODE` streams from a fixed `DIAG_SRC` rather than the
+requested track: the `hdr_len == 0` silence path never fires for these entries,
+so the fetcher would stream one second of digital silence and the readout would
+be **silent for exactly the ten cases it exists to name** - indistinguishable
+from "the scene never asked for a track at all".
 
 ### Build commands
 

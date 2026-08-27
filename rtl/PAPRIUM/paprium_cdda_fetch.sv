@@ -74,6 +74,15 @@ module paprium_cdda_fetch #(
 
 	wire [7:0] req_track = track_num;
 
+	// In DIAG_MODE the AUDIO comes from a fixed known-good track, not from the
+	// requested one. The ten indices the scene might be asking for are exactly the
+	// ones whose header length is 0, and a zero-length entry streams nothing - so
+	// sourcing the bursts from the requested track would answer "silence" for
+	// precisely the cases the diagnostic exists to name. The reported number stays
+	// the REQUESTED one; only the bytes fed to the ring come from here.
+	localparam [7:0] DIAG_SRC = 8'd5;
+	wire [7:0] hdr_track = DIAG_MODE ? DIAG_SRC : current_track;
+
 	// DIAG_MODE reports the REQUESTED track number as two audible bursts: tens
 	// seconds, a pause, then units seconds. Track 41 plays 4s, pauses, plays 1s.
 	// Counting two small numbers beats counting up to 62 seconds, and the whole
@@ -157,7 +166,8 @@ module paprium_cdda_fetch #(
 	           S_READ_ACK  = 4'd5,
 	           S_READ_WAIT = 4'd6,
 	           S_ADVANCE   = 4'd7,
-	           S_DONE      = 4'd8;
+	           S_DONE      = 4'd8,
+	           S_DIAG_GAP  = 4'd9;
 
 	reg  [3:0] state;
 	reg        loop_this_track;
@@ -179,9 +189,16 @@ module paprium_cdda_fetch #(
 			playing       <= 0;
 			current_track <= 0;
 			wait_timer    <= 0;
+			diag_phase    <= 0;
+			diag_chunks   <= 0;
+			diag_gap      <= 0;
 		end
 		else begin
-			if(stop_request) begin
+			// A stop arriving mid-readout would truncate a burst and give a
+			// believable wrong count, so DIAG_MODE defers it until the two bursts
+			// have finished. They stop themselves after ~17 s at worst, and a new
+			// track_request restarts the readout regardless.
+			if(stop_request && !(DIAG_MODE && (state != S_IDLE))) begin
 				state   <= S_IDLE;
 				playing <= 0;
 			end
@@ -191,6 +208,13 @@ module paprium_cdda_fetch #(
 				loop_this_track <= track_loop;
 				wr_chunk        <= 0;
 				wait_timer      <= 0;
+				diag_phase      <= 0;
+				diag_chunks     <= 0;
+				diag_gap        <= 0;
+				// Raised here rather than after the header lands, so it spans the
+				// WHOLE readout. core_top uses it to suppress a stop that would
+				// otherwise mute the player mid-burst.
+				if(DIAG_MODE) playing <= 1;
 				state           <= S_HDR;
 			end
 			else case(state)
@@ -199,7 +223,7 @@ module paprium_cdda_fetch #(
 
 			// Fetch this track's 8-byte header entry: entry N at file offset N*8
 			S_HDR: begin
-				target_dataslot_slotoffset <= {21'd0, current_track, 3'd0};
+				target_dataslot_slotoffset <= {21'd0, hdr_track, 3'd0};
 				target_dataslot_bridgeaddr <= HDR_ADDR;
 				target_dataslot_length     <= 32'd8;
 				target_dataslot_read       <= 1;
@@ -251,12 +275,45 @@ module paprium_cdda_fetch #(
 
 			S_ADVANCE: begin
 				wr_chunk <= wr_chunk + 1'd1;
-				cursor   <= cursor + CHUNK_BYTES[31:0];
 
-				if((cursor + CHUNK_BYTES[31:0]) >= (track_start + track_len))
-					state <= S_DONE;
-				else
-					state <= S_READ;
+				if(DIAG_MODE) begin
+					diag_chunks <= diag_chunks + 1'd1;
+
+					// What is being measured is the length of the burst, not the
+					// length of the source, so a short source wraps rather than
+					// ending the burst early.
+					if((cursor + CHUNK_BYTES[31:0]) >= (track_start + track_len))
+						cursor <= track_start;
+					else
+						cursor <= cursor + CHUNK_BYTES[31:0];
+
+					if((diag_chunks + 1'd1) >= diag_target) begin
+						if(diag_phase == 2'd0) state <= S_DIAG_GAP;
+						else                   state <= S_DONE;
+					end
+					else state <= S_READ;
+				end
+				else begin
+					cursor <= cursor + CHUNK_BYTES[31:0];
+
+					if((cursor + CHUNK_BYTES[31:0]) >= (track_start + track_len))
+						state <= S_DONE;
+					else
+						state <= S_READ;
+				end
+			end
+
+			// The pause between the two bursts. Producing nothing for ~1.8 s at
+			// 74.25 MHz; the ring drains in about 85 ms and the rest is silence.
+			// playing stays high so the MCU does not see the track end mid-readout.
+			S_DIAG_GAP: begin
+				diag_gap <= diag_gap + 1'd1;
+				if(&diag_gap) begin
+					diag_gap    <= 0;
+					diag_phase  <= 2'd2;
+					diag_chunks <= 0;
+					state       <= S_READ;
+				end
 			end
 
 			// Honours the play command's own loop flag ($11xx one-shot, $12xx
@@ -264,7 +321,8 @@ module paprium_cdda_fetch #(
 			// looping from cue directives, which is why that project needs
 			// REM NOLOOP on tracks 12, 29, 36 and 53.
 			S_DONE: begin
-				if(loop_this_track) begin
+				// DIAG_MODE never loops: the readout is two bursts, then quiet.
+				if(loop_this_track && !DIAG_MODE) begin
 					cursor <= track_start;
 					state  <= S_READ;
 				end
