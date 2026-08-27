@@ -3,7 +3,7 @@
     "magic": "APF_VER_1",
     "variables": [
       {
-        "name": "Reset Core",
+        "name": "Soft Reset (mini game)",
         "id": 10,
         "type": "action",
         "enabled": true,
@@ -11,19 +11,15 @@
         "value": 1
       },
       {
-        "name": "Region",
+        "name": "Region (hard restart req'd)",
         "id": 2,
         "type": "list",
         "enabled": true,
         "address": "0x0000000C",
         "persist": true,
         "writeonly": true,
-        "defaultval": 0,
+        "defaultval": 1,
         "options": [
-          {
-            "name": "Auto",
-            "value": 0
-          },
           {
             "name": "Japan",
             "value": 1
@@ -31,54 +27,6 @@
           {
             "name": "Export",
             "value": 2
-          }
-        ]
-      },
-      {
-        "name": "Audio Filter",
-        "id": 3,
-        "type": "list",
-        "enabled": true,
-        "address": "0x00000010",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 0,
-        "options": [
-          {
-            "name": "Model 1",
-            "value": 0
-          },
-          {
-            "name": "Model 2",
-            "value": 1
-          },
-          {
-            "name": "Minimal",
-            "value": 2
-          },
-          {
-            "name": "No Filter",
-            "value": 3
-          }
-        ]
-      },
-      {
-        "name": "FM Chip",
-        "id": 4,
-        "type": "list",
-        "enabled": true,
-        "address": "0x00000014",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 0,
-        "options": [
-          {
-            "name": "YM2612",
-            "value": 0
-          },
-          {
-            "name": "YM3438",
-            "value": 1
           }
         ]
       },
@@ -91,28 +39,6 @@
         "persist": true,
         "writeonly": true,
         "defaultval": 1,
-        "value": 1
-      },
-      {
-        "name": "CRAM Dots",
-        "id": 6,
-        "type": "check",
-        "enabled": true,
-        "address": "0x00000020",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 0,
-        "value": 1
-      },
-      {
-        "name": "Composite Blend",
-        "id": 7,
-        "type": "check",
-        "enabled": true,
-        "address": "0x00000024",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 0,
         "value": 1
       },
       {
@@ -132,50 +58,6 @@
           {
             "name": "Corrected",
             "value": 1
-          }
-        ]
-      },
-      {
-        "name": "Music Volume",
-        "id": 9,
-        "type": "list",
-        "enabled": true,
-        "address": "0x0000002C",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 0,
-        "options": [
-          {
-            "name": "Default",
-            "value": 0
-          },
-          {
-            "name": "-3 dB",
-            "value": 1
-          },
-          {
-            "name": "-6 dB",
-            "value": 2
-          },
-          {
-            "name": "-9 dB",
-            "value": 3
-          },
-          {
-            "name": "-10 dB (MD+)",
-            "value": 4
-          },
-          {
-            "name": "-15 dB",
-            "value": 5
-          },
-          {
-            "name": "-21 dB",
-            "value": 6
-          },
-          {
-            "name": "Off",
-            "value": 7
           }
         ]
       }
