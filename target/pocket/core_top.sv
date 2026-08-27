@@ -1782,32 +1782,36 @@ module core_top (
   // guard bits cover FM/PSG plus cart SFX plus the boosted CDDA term.
   // MisterPezz82 set the Paprium gain by A/B recording against real hardware: Paprium
   // mixes its music against its own loud cart SFX and needs ~+10 dB (294/256) where
-  // ordinary MD+ content takes 93/256. Carried over rather than rediscovered.
+  // ordinary MD+ content takes 93/256. Carried over rather than rediscovered, and
+  // confirmed on hardware here - with the game's own audio options set correctly the
+  // cart effects are loud and clear at 294, so the boost is right and the mix is not
+  // the limiting factor. An earlier reading of "SFX inaudible under music" led to a
+  // plan to drop this to 93; hardware refuted it before the build shipped.
   //
   // The non-Paprium arm was previously 294 as well, which is wrong for plain MD+ CDDA
   // by about 10 dB - MiSTer selects on paprium_active and only Paprium gets the boost.
   // PAPRIUM is a localparam, so the unused arm folds away.
   //
-  // Menu-selectable, because the sum below hard-clips. 294 + full-scale FM + full-scale
-  // cart SFX overflows a 16-bit output roughly three times over, and under a clip the
-  // loudest term survives and the quiet ones do not. Index 0 is the shipping value, so
-  // the default is unchanged; the rest step down in ~3 dB increments to silence.
-  wire signed [9:0] cdda_mult_default = PAPRIUM ? 10'sd294 : 10'sd93;
+  // The menu stays: the sum below hard-clips (294 plus full-scale FM plus full-scale
+  // cart SFX overflows a 16-bit output about threefold), so being able to pull music
+  // down is a real diagnostic - it is how the masking above was measured.
+  localparam signed [9:0] CDDA_MULT_DEFAULT = PAPRIUM ? 10'sd294 : 10'sd93;
 
   reg signed [9:0] cdda_mult;
   always @(*) begin
     case (cfg_musicvol_s)
-      3'd0: cdda_mult = cdda_mult_default;  // shipping
+      3'd0: cdda_mult = CDDA_MULT_DEFAULT;  // shipping
       3'd1: cdda_mult = 10'sd208;           // -3 dB
       3'd2: cdda_mult = 10'sd147;           // -6 dB
       3'd3: cdda_mult = 10'sd104;           // -9 dB
       3'd4: cdda_mult = 10'sd93;            // MD+ standard, ~-10 dB
       3'd5: cdda_mult = 10'sd52;            // -15 dB
       3'd6: cdda_mult = 10'sd26;            // -21 dB
-      3'd7: cdda_mult = 10'sd0;             // music off - the A/B against no music
-      default: cdda_mult = cdda_mult_default;
+      3'd7: cdda_mult = 10'sd0;             // off - the A/B against no music
+      default: cdda_mult = CDDA_MULT_DEFAULT;
     endcase
   end
+
   wire signed [25:0] cdda_scaled_l = $signed(cdda_l) * cdda_mult;
   wire signed [25:0] cdda_scaled_r = $signed(cdda_r) * cdda_mult;
   wire signed [17:0] cdda_att_l    = cdda_scaled_l >>> 8;
