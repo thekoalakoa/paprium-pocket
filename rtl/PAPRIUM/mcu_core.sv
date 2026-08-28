@@ -255,22 +255,29 @@ endmodule
 
 //************************************************************************************* mcu rom (optional)
 
+// paprium: grown from 16 KB to 32 KB. The 16 KB ceiling was imposed HERE, not by
+// the toolchain - neorv32.ld already allows 256 KB and mcu.map.wrom decodes a
+// 16 MB region. It mattered because GCC 15 at -O2 builds krikzz's source to
+// 16,344 bytes, 40 short of fitting, and -Os would have been the wrong answer:
+// the MCU services the 68000 in real time and upstream attributes the elevator
+// corruption to MCU starvation, so trading its speed for space aims at the part
+// already suspected of missing deadlines. 32 KB costs ~13 more M10K of 62 free.
 module mcu_irom(
 
 	input  clk,
-	input  [13:0]addr,
+	input  [14:0]addr,
 	output [31:0]dato
 );
 
 	assign dato = {di[7:0], di[15:8], di[23:16], di[31:24]};
 
-	reg[31:0]rom[16384/4];
+	reg[31:0]rom[32768/4];
 	
 	reg [31:0]di;
 	
 	always @(posedge clk)
 	begin
-		di		<= rom[addr[13:2]];
+		di		<= rom[addr[14:2]];
 	end
 	
 	initial
