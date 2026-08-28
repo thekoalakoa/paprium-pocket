@@ -22,7 +22,15 @@ linked. Paprium is still sold by WaterMelon.
 
 ## Install
 
-Copy these onto the root of the SD card, merging with the folders already there:
+The easiest way, which force-copies everything and then prints the menu the card
+will actually show:
+
+```bash
+./scripts/deploy_to_sd.sh /d          # your card's drive letter
+```
+
+Doing it by hand instead, copy these onto the root of the SD card, merging with
+the folders already there:
 
 ```
 /Cores/Koala_Koa.Paprium/     the core itself
@@ -44,6 +52,11 @@ Eject the card, put it in the Pocket, and the core appears under
 
 > The platform has no artwork, so it shows as a plain entry. If you want an image,
 > drop a 521×165 `paprium.bin` into `/Platforms/_images/`. Purely cosmetic.
+
+> **Copy the whole `Cores/Koala_Koa.Paprium/` directory, not just the bitstream.**
+> The menu lives in `interact.json` and the display modes in `video.json`. Copying
+> only `paprium.rbf_r` leaves a stale menu that looks exactly like the update
+> failed to take - removed options still listed, new ones missing.
 
 ---
 
