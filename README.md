@@ -10,7 +10,7 @@ ROMs into it.
 
 > [!IMPORTANT]
 > **You must supply your own cartridge dump.** None is included, and none will be
-> linked. Paprium is still sold by [WaterMelon](https://www.watermelon.gg/).
+> linked. Paprium is still Owned by [WaterMelon](https://www.watermelon.gg/).
 >
 > The music is likewise not included — see [Music](#music).
 
@@ -29,10 +29,10 @@ logic of the MiSTer board this was ported from.
 
 ## What this is not
 
-Not a faithful reproduction of the cartridge. Paprium's "DATENMEISTER" chipset —
+Not a faithful reproduction of the cartridge but an  attempt with what we have. Paprium's "DATENMEISTER" chipset —
 in reality an Intel MAX 10 FPGA, an STM32F446 and a flash die — decompresses the
 graphics and synthesises the music. **Neither the MAX 10 bitstream nor the STM32
-firmware has ever been dumped.**
+firmware has ever been dumped....yet**
 
 So this takes the same approach as the EverDrive Pro: it runs krikzz's
 [`mega-ppm`](https://github.com/krikzz/mega-ppm) replacement MCU firmware and
@@ -48,7 +48,7 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 | Issue | Status |
 |---|---|
 | Elevator level: palette corruption, sprite priority | Open — upstream firmware |
-| Boss fight: player sprite drops behind the background | Open — upstream firmware |
+| Roof top Boss fight: player sprite drops behind the background during bombing phase | Open — upstream firmware |
 | Boss / large-enemy death plays the wrong sound effect | Under investigation |
 | Punk-TV cue silent outside Arcade/Easy | Under investigation |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
