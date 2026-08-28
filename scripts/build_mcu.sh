@@ -85,12 +85,12 @@ rm -f "$OUT/text.bin" "$OUT/rodata.bin" "$OUT/data.bin"
 BYTES=$(wc -c < "$OUT/mcu.bin")
 echo
 echo "mcu.bin : $BYTES bytes"
-echo "IMEM    : 16384 bytes (rtl/PAPRIUM/mcu_core.sv)"
-if [ "$BYTES" -gt 16384 ]; then
+echo "IMEM    : 32768 bytes (rtl/PAPRIUM/mcu_core.sv, grown from 16 KB)"
+if [ "$BYTES" -gt 32768 ]; then
     echo "*** OVERFLOWS the current IMEM by $((BYTES - 16384)) bytes."
     echo "    Retry with -Os, or grow rom[]/addr[] in mcu_core.sv (32 KB = ~13 more M10K)."
 else
-    echo "fits, $((16384 - BYTES)) bytes spare"
+    echo "fits, $((32768 - BYTES)) bytes spare"
 fi
 
 echo
