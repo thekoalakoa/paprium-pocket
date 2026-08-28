@@ -19,7 +19,15 @@ module audio_sfx
 
 	output [31:0]mcu_dati_sfx,
 	output signed [15:0]snd_l,
-	output signed [15:0]snd_r
+	output signed [15:0]snd_r,
+
+	// paprium: channel-7 state for the diagnostic logger. Channel 7 is where the
+	// punk-TV cue lands (the game asks for it on mask 0x0080), and the mailbox
+	// capture has already shown the REQUEST is correct - volume ramps to 0xC0 and
+	// the pan sweeps - so the remaining question is what the channel does with it.
+	output [10:0]dbg_ch7_vol,
+	output       dbg_ch7_empty,
+	output       dbg_ch7_wr
 );
 
 	SfxBank bank0;
@@ -36,13 +44,23 @@ module audio_sfx
 	);
 
 	//****************************** sfx bank (8 channels)
+	wire [7:0]chan_wr;
+
 	sfx_bank sfx_bank0
 	(
 		.mcu(mcu),
 		.aclk(aclk),
 		.bank_idx(3'd0),
-		.bank(bank0)
+		.bank(bank0),
+		.chan_wr(chan_wr)
 	);
+
+	// paprium: channel 7 taps. dbg_ch7_wr pulses on every PCM word the MCU pushes,
+	// so a stalled count means the firmware stopped feeding the channel - which is
+	// what a sound that starts and then dies looks like from here.
+	assign dbg_ch7_vol   = bank0.sfx[7].vol;
+	assign dbg_ch7_empty = bank0.sfx[7].status[0];
+	assign dbg_ch7_wr    = chan_wr[7];
 
 	//****************************** mixer
 	mix_bank mix_bank0
@@ -112,17 +130,18 @@ module sfx_bank
 	input  McuBus mcu,
 	input  [7:0]aclk,
 	input  [2:0]bank_idx,
-	output SfxBank bank
+	output SfxBank bank,
+	output [7:0]chan_wr      // paprium: per-channel FIFO write pulses
 );
 
-	sfx_chan sfx_chan0(.mcu(mcu), .aclk(aclk), .chan_idx(6'd0 + {bank_idx,3'b000}), .sfx(bank.sfx[0]));
-	sfx_chan sfx_chan1(.mcu(mcu), .aclk(aclk), .chan_idx(6'd1 + {bank_idx,3'b000}), .sfx(bank.sfx[1]));
-	sfx_chan sfx_chan2(.mcu(mcu), .aclk(aclk), .chan_idx(6'd2 + {bank_idx,3'b000}), .sfx(bank.sfx[2]));
-	sfx_chan sfx_chan3(.mcu(mcu), .aclk(aclk), .chan_idx(6'd3 + {bank_idx,3'b000}), .sfx(bank.sfx[3]));
-	sfx_chan sfx_chan4(.mcu(mcu), .aclk(aclk), .chan_idx(6'd4 + {bank_idx,3'b000}), .sfx(bank.sfx[4]));
-	sfx_chan sfx_chan5(.mcu(mcu), .aclk(aclk), .chan_idx(6'd5 + {bank_idx,3'b000}), .sfx(bank.sfx[5]));
-	sfx_chan sfx_chan6(.mcu(mcu), .aclk(aclk), .chan_idx(6'd6 + {bank_idx,3'b000}), .sfx(bank.sfx[6]));
-	sfx_chan sfx_chan7(.mcu(mcu), .aclk(aclk), .chan_idx(6'd7 + {bank_idx,3'b000}), .sfx(bank.sfx[7]));
+	sfx_chan sfx_chan0(.mcu(mcu), .aclk(aclk), .chan_idx(6'd0 + {bank_idx,3'b000}), .sfx(bank.sfx[0]), .wr_pulse(chan_wr[0]));
+	sfx_chan sfx_chan1(.mcu(mcu), .aclk(aclk), .chan_idx(6'd1 + {bank_idx,3'b000}), .sfx(bank.sfx[1]), .wr_pulse(chan_wr[1]));
+	sfx_chan sfx_chan2(.mcu(mcu), .aclk(aclk), .chan_idx(6'd2 + {bank_idx,3'b000}), .sfx(bank.sfx[2]), .wr_pulse(chan_wr[2]));
+	sfx_chan sfx_chan3(.mcu(mcu), .aclk(aclk), .chan_idx(6'd3 + {bank_idx,3'b000}), .sfx(bank.sfx[3]), .wr_pulse(chan_wr[3]));
+	sfx_chan sfx_chan4(.mcu(mcu), .aclk(aclk), .chan_idx(6'd4 + {bank_idx,3'b000}), .sfx(bank.sfx[4]), .wr_pulse(chan_wr[4]));
+	sfx_chan sfx_chan5(.mcu(mcu), .aclk(aclk), .chan_idx(6'd5 + {bank_idx,3'b000}), .sfx(bank.sfx[5]), .wr_pulse(chan_wr[5]));
+	sfx_chan sfx_chan6(.mcu(mcu), .aclk(aclk), .chan_idx(6'd6 + {bank_idx,3'b000}), .sfx(bank.sfx[6]), .wr_pulse(chan_wr[6]));
+	sfx_chan sfx_chan7(.mcu(mcu), .aclk(aclk), .chan_idx(6'd7 + {bank_idx,3'b000}), .sfx(bank.sfx[7]), .wr_pulse(chan_wr[7]));
 
 endmodule
 
@@ -132,7 +151,8 @@ module sfx_chan
 	input  McuBus mcu,
 	input  [7:0]aclk,
 	input  [5:0]chan_idx,
-	output SfxOut sfx
+	output SfxOut sfx,
+	output wr_pulse          // paprium: one per PCM word accepted, for the logger
 );
 
 	localparam FIFO_SIZE = 8;   // 256-entry FIFO
@@ -203,6 +223,8 @@ module sfx_chan
 
 	end
 
+	assign wr_pulse = !fifo_full & ({pcm_we_st, pcm_we} == 2'b10);
+
 	wire [15:0]mem_dato;
 
 	sfx_fifo_ram pcm_buff
@@ -243,8 +265,18 @@ module mix_bank
 	localparam ECHO_LEN = 13'd8000;
 
 	reg [12:0] eptr = 0;
-	reg [31:0] echo_ram[8000];
+
+	// Read and write live in their own always blocks with an unconditional read -
+	// the only shape Quartus reliably maps to M10K here. An earlier version did
+	// both inside a case statement and synthesis fell back to registers, which
+	// blew past the device's register count entirely.
+	reg [31:0] echo_ram[8192];
 	reg [31:0] echo_rd;
+	reg        echo_we;
+	reg [31:0] echo_wdata;
+
+	always @(posedge clk) if(echo_we) echo_ram[eptr] <= echo_wdata;
+	always @(posedge clk) echo_rd <= echo_ram[eptr];
 
 	reg signed [15:0]dry_l, dry_r;
 	reg signed [15:0]send_l, send_r;
@@ -267,6 +299,7 @@ module mix_bank
 		mix_next <= 1;
 		mix_side <= 0;
 		tail     <= 0;
+		echo_we  <= 1'b0;
 	end
 	else if(mix_next) begin
 		mix_next <= 0;
@@ -289,15 +322,19 @@ module mix_bank
 
 	end
 	else if(tail != 0) begin
+		echo_we <= 1'b0;
 		case(tail)
-			// RAM read is registered, so give it a cycle before using it
-			2'd1: begin echo_rd <= echo_ram[eptr]; tail <= 2'd2; end
+			// echo_rd already holds echo_ram[eptr] - the read runs every cycle
+			2'd1: begin
+				snd_l      <= sat16($signed(dry_l) + $signed(echo_rd[31:16]));
+				snd_r      <= sat16($signed(dry_r) + $signed(echo_rd[15:0]));
+				echo_we    <= 1'b1;
+				echo_wdata <= {send_l, send_r};
+				tail       <= 2'd2;
+			end
 			2'd2: begin
-				snd_l <= sat16($signed(dry_l) + $signed(echo_rd[31:16]));
-				snd_r <= sat16($signed(dry_r) + $signed(echo_rd[15:0]));
-				echo_ram[eptr] <= {send_l, send_r};
-				eptr  <= (eptr == ECHO_LEN - 1'd1) ? 13'd0 : eptr + 1'd1;
-				tail  <= 2'd0;
+				eptr <= (eptr == ECHO_LEN - 1'd1) ? 13'd0 : eptr + 1'd1;
+				tail <= 2'd0;
 			end
 			default: tail <= 2'd0;
 		endcase
@@ -336,9 +373,14 @@ module mix_mono
 
 	wire [3:0]chan_idx = state[5:2];
 
-	wire signed [7:0]pan  = bank.sfx[chan_idx[2:0]].pan[side];
-	wire signed [10:0]vol = bank.sfx[chan_idx[2:0]].vol;
-	wire signed [15:0]pcm = bank.sfx[chan_idx[2:0]].pcm;
+	// paprium: pan and vol are UNSIGNED in the struct, and reading them as signed
+	// of the same width misreads their top value. pan runs 0..0x80, and 8'h80 as
+	// signed is -128, so the fully-open side of every non-centred effect was
+	// phase-INVERTED - audible as cancellation once summed to the Pocket's mono
+	// speaker. Zero-extending by one bit before the signed multiply fixes both.
+	wire signed [8:0] pan  = {1'b0, bank.sfx[chan_idx[2:0]].pan[side]};
+	wire signed [11:0]vol  = {1'b0, bank.sfx[chan_idx[2:0]].vol};
+	wire signed [15:0]pcm  = bank.sfx[chan_idx[2:0]].pcm;
 
 	// paprium: GPGX gives each echo-flagged voice ONE side, alternating as voices
 	// are allocated (`voice->echo = echo_pan++ & 1`). That counter lives in the

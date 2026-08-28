@@ -206,6 +206,12 @@ module paprium_cart
 	// localparam at the top level, so this whole block folds away in shipping.
 	wire cpu_wr_pulse;
 
+	// Channel-7 taps from audio_sfx, declared here because the logger below is
+	// elaborated before the sfx instance that drives them.
+	wire [10:0] ch7_vol;
+	wire        ch7_empty;
+	wire        ch7_wr;
+
 	generate
 		if(CMDLOG) begin : cmdlog_on
 			paprium_cmd_log cmdlog_inst
@@ -215,6 +221,9 @@ module paprium_cart
 				.cpu_wr(cpu_wr_pulse),
 				.cpu_addr(cpu.addr[12:0]),
 				.cpu_data(cpu.dato),
+				.ch7_vol(ch7_vol),
+				.ch7_empty(ch7_empty),
+				.ch7_wr(ch7_wr),
 				.read_addr(cmdlog_read_addr),
 				.read_data(cmdlog_read_data)
 			);
@@ -285,7 +294,10 @@ if(SFX) begin : sfx_on
 		.snd(snd),
 		.mcu_dati_sfx(mcu_dati_sfx),
 		.snd_l(sfx_l_raw),
-		.snd_r(sfx_r_raw)
+		.snd_r(sfx_r_raw),
+		.dbg_ch7_vol(ch7_vol),
+		.dbg_ch7_empty(ch7_empty),
+		.dbg_ch7_wr(ch7_wr)
 	);
 
 	always @(posedge clk) begin

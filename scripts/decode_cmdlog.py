@@ -47,6 +47,7 @@ CMDS = {
     0xD1: "SFX_PLAY",       0xD2: "sfx_off",        0xD3: "SFX_LOOP",
     0xD6: "music_special",  0xDA: "decoder",        0xDB: "decoder_copy",
     0xDF: "sram_read",      0xE0: "sram_write",
+    0xF7: "[ch7 snapshot]",   # synthetic, not a Paprium command
 }
 
 MUTED = {0x88, 0xB0}
@@ -120,15 +121,43 @@ def main():
           % ("word", "cmd", "name", "parm", "mask", "flags", "vol", "effects"))
 
     plays = []
+    snaps = []
     for idx, w0, w1 in entries:
         cmd, param, mask = (w0 >> 24) & 0xFF, (w0 >> 16) & 0xFF, w0 & 0xFFFF
         fl, vol = (w1 >> 16) & 0xFFFF, w1 & 0xFFFF
+
+        if cmd == 0xF7:
+            empty, ch_vol, wr = param & 1, mask & 0x7FF, w1 & 0xFFFF
+            snaps.append((idx, ch_vol, empty, wr))
+            print("%-6d --   ch7 state       vol=%03X  fifo=%s  pcm_words=%d"
+                  % (idx, ch_vol, "EMPTY" if empty else "fed ", wr))
+            continue
+
         note = "  <- muted in this firmware" if cmd in MUTED else ""
         print("%-6d %02X   %-15s %02X    %04X   %04X   %04X  %s%s"
               % (idx, cmd, CMDS.get(cmd, "?"), param, mask, fl, vol,
                  flag_names(fl), note))
         if cmd in (0xD1, 0xD3):
             plays.append((param, mask, fl))
+
+    if snaps:
+        vols = [v for _, v, _, _ in snaps]
+        starved = sum(1 for _, _, e, _ in snaps if e)
+        first_wr, last_wr = snaps[0][3], snaps[-1][3]
+        print()
+        print("channel 7 (the punk-TV cue lands here):")
+        print("  %d snapshots, volume %03X..%03X, FIFO seen empty %d time(s)"
+              % (len(snaps), min(vols), max(vols), starved))
+        print("  PCM words pushed across the window: %d" % (last_wr - first_wr))
+        if max(vols) == 0:
+            print("  Volume register NEVER left zero - the ramp is not reaching")
+            print("  the hardware. Firmware or the vol write path, not the game.")
+        elif last_wr == first_wr:
+            print("  Volume took the ramp but NO PCM arrived - the channel was")
+            print("  configured and never fed. The sample stopped and did not loop.")
+        else:
+            print("  Volume took the ramp AND samples kept arriving - the channel")
+            print("  was playing, so look at the mixer path rather than the source.")
 
     print()
     if not plays:
