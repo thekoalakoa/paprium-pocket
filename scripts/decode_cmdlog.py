@@ -15,11 +15,17 @@ high byte and its parameter in the low byte (GPGX paprium_w16 / paprium_cmd).
 Default output is the last 60 entries, oldest first, which is what you want after
 killing a boss. --all prints the whole ring; --sfx prints only sound commands.
 
-What to look for after a boss dies (the cue should be sample 0x1C):
+Two open cues, both reported on:
 
-    D1 1C   sfx_play 0x1C   -> requested correctly; we play the wrong sample
-    D1 nn   some other id   -> the game asked for the ordinary sound
-    no D1   at all          -> it arrives by a path this firmware mutes
+    0x1C  boss / large-enemy death - plays an ordinary enemy's sound instead
+    0x4A  punk-TV cue - the FIRST TV in the level works, the SECOND is silent
+
+The second is the cheaper capture: both TVs are in the first level, and "works
+once then not again" is the signature of a channel that never frees. sfx.c holds
+a channel busy while (size || !fifo_empty), and 0x4A is the longest sample in the
+bank at 4.99 s, so it is the likeliest to still look busy when the game asks
+again. If 0x4A is requested twice and only heard once, the loss is downstream of
+the game and therefore ours.
 """
 import struct
 import sys
@@ -88,17 +94,36 @@ def main():
 
     print()
     if not saw_play:
-        print("No sfx_play/sfx_loop in this window. If the boss died inside it, the")
-        print("cue never reached the mailbox - look at the muted commands above.")
-    else:
-        ids = sorted({p for _, p, _ in saw_play})
-        print("sfx ids requested: " + " ".join("%02X" % i for i in ids))
-        if 0x1C in ids:
-            print("0x1C WAS requested - the game asked for the right sound, so the")
-            print("wrong sample is being played. That is ours, and fixable.")
+        print("No sfx_play/sfx_loop in this window. If the event happened inside it,")
+        print("the cue never reached the mailbox - look at the muted commands above.")
+        return 0
+
+    ids = [p for _, p, _ in saw_play]
+    print("sfx ids requested: " + " ".join("%02X" % i for i in sorted(set(ids))))
+
+    for sid, what in ((0x1C, "boss / large-enemy death"), (0x4A, "punk-TV cue")):
+        n = ids.count(sid)
+        if not n:
+            continue
+        masks = ["%04X" % m for c, p, m in saw_play if p == sid]
+        print()
+        print("0x%02X (%s) requested %d time(s), mask(s): %s"
+              % (sid, what, n, " ".join(masks)))
+        if n == 1:
+            print("  Requested once. If the event happened twice in this window, the")
+            print("  second request never reached the mailbox - the game did not ask.")
         else:
-            print("0x1C was NOT requested. The game asked for something else, so the")
-            print("divergence is earlier than the audio path.")
+            print("  Requested every time. So the game asks correctly and the loss is")
+            print("  downstream, in the firmware or our RTL. Ours, and fixable.")
+            if len(set(masks)) > 1:
+                print("  NOTE: the channel masks differ between requests. sfx_play may")
+                print("  only allocate within the mask, so compare against which")
+                print("  channels were still busy from earlier long samples.")
+
+    if 0x1C not in ids and 0x4A not in ids:
+        print()
+        print("Neither 0x1C nor 0x4A appears. Whatever fired here, the game did not")
+        print("ask for those samples - the divergence is earlier than the audio path.")
     return 0
 
 
