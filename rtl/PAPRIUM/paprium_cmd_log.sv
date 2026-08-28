@@ -33,10 +33,18 @@
 // Layout, 4096 words of 32 bits = 16384 bytes, read back through its own APF data
 // slot (never the save slot - that is the player's progress):
 //
-//   word 0 .. 4094 : ring of commands, oldest overwritten
-//                    [31:16] the 16-bit command word written to 0x1FEA
-//                    [15: 0] the channel mask latched from 0x1E10
-//   word 4095      : {16'hC0DE, 4'd0, wr_idx} - where the newest entry landed
+//   TWO words per entry, 2047 entries:
+//     word 2n   : [31:16] the 16-bit command word written to 0x1FEA
+//                 [15: 0] the channel mask latched from 0x1E10
+//     word 2n+1 : [31:16] the flags latched from 0x1E16
+//                 [15: 0] the volume latched from 0x1E12
+//   word 4095   : {16'hC0DE, 4'd0, wr_idx} - where the newest entry landed
+//
+// The FLAGS are why this is two words. GPGX applies per-voice effects from them -
+// echo (0x4000), amplify (0x100) and two pitch shifts (0x8000, 0x2000) - and this
+// port implements only the pitch pair. A cue that is "close but not quite right"
+// is most likely the same sample without its echo, so knowing which flags the game
+// asks for is the difference between guessing and knowing.
 //
 // The mask matters because sfx_play takes it as the set of channels it may
 // allocate from, and sfx.c evicts the oldest channel within that mask.
@@ -65,6 +73,9 @@ module paprium_cmd_log (
 
 	wire [11:0] wr_word = cpu_addr[12:1];
 
+	localparam [11:0] A_VOL   = 12'hF09;  // 0x1E12 >> 1 - volume
+	localparam [11:0] A_FLAGS = 12'hF0B;  // 0x1E16 >> 1 - flags
+
 	// Audio-relevant commands, plus the two recorded as muted upstream
 	wire [7:0] cmd_hi = cpu_data[15:8];
 	wire keep =
@@ -79,12 +90,16 @@ module paprium_cmd_log (
 		|| (cmd_hi == 8'hD3)   // sfx_loop
 		|| (cmd_hi == 8'hD6);  // music_special
 
-	wire hit_cmd  = cpu_wr & (wr_word == A_CMD) & keep;
-	wire hit_mask = cpu_wr & (wr_word == A_MASK);
+	wire hit_cmd   = cpu_wr & (wr_word == A_CMD) & keep;
+	wire hit_mask  = cpu_wr & (wr_word == A_MASK);
+	wire hit_vol   = cpu_wr & (wr_word == A_VOL);
+	wire hit_flags = cpu_wr & (wr_word == A_FLAGS);
 
 	// The mask is written just before the command, so latching it and pairing it
 	// with the next command word is enough - no ordering games needed.
 	reg [15:0] last_mask;
+	reg [15:0] last_vol;
+	reg [15:0] last_flags;
 
 	reg [11:0] wr_idx;
 
@@ -96,32 +111,45 @@ module paprium_cmd_log (
 		mem_we <= 1'b0;
 
 		if(reset) begin
-			wr_idx    <= 12'd0;
-			last_mask <= 16'd0;
+			wr_idx     <= 12'd0;
+			last_mask  <= 16'd0;
+			last_vol   <= 16'd0;
+			last_flags <= 16'd0;
 		end
 		else begin
-			if(hit_mask) last_mask <= cpu_data;
+			if(hit_mask)  last_mask  <= cpu_data;
+			if(hit_vol)   last_vol   <= cpu_data;
+			if(hit_flags) last_flags <= cpu_data;
 
 			if(hit_cmd) begin
 				mem_we    <= 1'b1;
 				mem_waddr <= wr_idx;
 				mem_wdata <= {cpu_data, last_mask};
+				// second word follows on the next cycle
+				snd_wdata <= {last_flags, last_vol};
 
-				// 0..4094; word 4095 is the header
-				wr_idx <= (wr_idx == 12'd4094) ? 12'd0 : wr_idx + 1'd1;
+				// entries are two words; 0..4093, word 4095 is the header
+				wr_idx <= (wr_idx >= 12'd4092) ? 12'd0 : wr_idx + 2'd2;
 			end
 		end
 	end
 
-	// The header is rewritten on the cycle after each entry, so a capture taken at
-	// any moment names the newest entry. Costs one extra write per command, which
-	// is nothing at command rates.
-	reg        hdr_we;
-	always @(posedge clk) hdr_we <= mem_we;
+	// Cycle after the command word: the flags/volume word. Cycle after that: the
+	// header, so a capture taken at any moment names the newest entry.
+	reg [31:0] snd_wdata;
+	reg        snd_we, hdr_we;
+	always @(posedge clk) begin
+		snd_we <= mem_we;
+		hdr_we <= snd_we;
+	end
 
-	wire        ram_we    = mem_we | hdr_we;
-	wire [11:0] ram_waddr = hdr_we ? 12'd4095 : mem_waddr;
-	wire [31:0] ram_wdata = hdr_we ? {16'hC0DE, 4'd0, wr_idx} : mem_wdata;
+	wire        ram_we    = mem_we | snd_we | hdr_we;
+	wire [11:0] ram_waddr = hdr_we ? 12'd4095
+	                      : snd_we ? (mem_waddr + 1'd1)
+	                               : mem_waddr;
+	wire [31:0] ram_wdata = hdr_we ? {16'hC0DE, 4'd0, wr_idx}
+	                      : snd_we ? snd_wdata
+	                               : mem_wdata;
 
 	// Written as a plain inferred dual-port RAM: one write port, one registered
 	// read port, no read-during-write games. 4096 x 32 = 128 Kbit, affordable at
