@@ -38,7 +38,9 @@
 //                 [15: 0] the channel mask latched from 0x1E10
 //     word 2n+1 : [31:16] the flags latched from 0x1E16
 //                 [15: 0] the volume latched from 0x1E12
-//   word 4095   : {16'hC0DE, 4'd0, wr_idx} - where the newest entry landed
+//   word 4095   : {16'hC0DE, armed, frozen, 2'd0, wr_idx}
+//                 armed  - 0x1C or 0x4A was seen at least once
+//                 frozen - logging stopped after its tail, so the window is kept
 //
 // The FLAGS are why this is two words. GPGX applies per-voice effects from them -
 // echo (0x4000), amplify (0x100) and two pitch shifts (0x8000, 0x2000) - and this
@@ -90,7 +92,39 @@ module paprium_cmd_log (
 		|| (cmd_hi == 8'hD3)   // sfx_loop
 		|| (cmd_hi == 8'hD6);  // music_special
 
-	wire hit_cmd   = cpu_wr & (wr_word == A_CMD) & keep;
+	wire hit_raw   = cpu_wr & (wr_word == A_CMD) & keep;
+
+	// Two mechanisms, both learned the hard way from a capture that filled and
+	// flushed the events it was built to catch.
+	//
+	// 1. DEDUP against the last four logged commands. Paprium implements a volume
+	//    fade as one command PER STEP - D3/D6/D3 cycling continuously - which
+	//    buried both cues. It is compared on (cmd,param) ONLY: the volume changes
+	//    every step, and so does the mask (0025, 0024, 0023 ...), so including
+	//    either would defeat the dedup entirely. The first of each run keeps its
+	//    mask, which is what the eviction analysis needs.
+	//
+	// 2. FREEZE after the first cue of interest plus a long tail. Triggering on
+	//    EITHER 0x1C or 0x4A matters: the big enemy is killed early and the TV
+	//    comes later, so arming on the first of them and running on for 1024 more
+	//    entries captures the whole sequence between them. Freezing on the TV
+	//    alone would never fire in the case we most suspect - the cue never being
+	//    requested at all.
+	localparam [7:0] TRIG_A = 8'h1C;   // boss / large-enemy death
+	localparam [7:0] TRIG_B = 8'h4A;   // punk-TV cue
+	localparam [10:0] POST_ENTRIES = 11'd1024;
+
+	wire [7:0] cmd_par = cpu_data[7:0];
+	wire is_play = (cmd_hi == 8'hD1) || (cmd_hi == 8'hD3);
+
+	reg [15:0] prev0, prev1, prev2, prev3;
+	wire dup = (cpu_data == prev0) | (cpu_data == prev1)
+	         | (cpu_data == prev2) | (cpu_data == prev3);
+
+	reg        armed, frozen;
+	reg [10:0] post_cnt;
+
+	wire hit_cmd = hit_raw & ~dup & ~frozen;
 	wire hit_mask  = cpu_wr & (wr_word == A_MASK);
 	wire hit_vol   = cpu_wr & (wr_word == A_VOL);
 	wire hit_flags = cpu_wr & (wr_word == A_FLAGS);
@@ -115,6 +149,13 @@ module paprium_cmd_log (
 			last_mask  <= 16'd0;
 			last_vol   <= 16'd0;
 			last_flags <= 16'd0;
+			prev0      <= 16'hFFFF;
+			prev1      <= 16'hFFFF;
+			prev2      <= 16'hFFFF;
+			prev3      <= 16'hFFFF;
+			armed      <= 1'b0;
+			frozen     <= 1'b0;
+			post_cnt   <= 11'd0;
 		end
 		else begin
 			if(hit_mask)  last_mask  <= cpu_data;
@@ -122,6 +163,19 @@ module paprium_cmd_log (
 			if(hit_flags) last_flags <= cpu_data;
 
 			if(hit_cmd) begin
+				prev3 <= prev2;
+				prev2 <= prev1;
+				prev1 <= prev0;
+				prev0 <= cpu_data;
+
+				if(is_play & ((cmd_par == TRIG_A) | (cmd_par == TRIG_B)))
+					armed <= 1'b1;
+
+				if(armed) begin
+					if(post_cnt == POST_ENTRIES - 1'd1) frozen <= 1'b1;
+					else post_cnt <= post_cnt + 1'd1;
+				end
+
 				mem_we    <= 1'b1;
 				mem_waddr <= wr_idx;
 				mem_wdata <= {cpu_data, last_mask};
@@ -147,7 +201,7 @@ module paprium_cmd_log (
 	wire [11:0] ram_waddr = hdr_we ? 12'd4095
 	                      : snd_we ? (mem_waddr + 1'd1)
 	                               : mem_waddr;
-	wire [31:0] ram_wdata = hdr_we ? {16'hC0DE, 4'd0, wr_idx}
+	wire [31:0] ram_wdata = hdr_we ? {16'hC0DE, armed, frozen, 2'd0, wr_idx}
 	                      : snd_we ? snd_wdata
 	                               : mem_wdata;
 
