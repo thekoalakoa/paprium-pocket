@@ -1806,3 +1806,59 @@ changes have to be re-applied by hand instead.
 exiting the core zeroes the header while leaving the data. This capture was
 salvaged by reading in address order and ignoring the header. Capture state should
 survive resets - it is a diagnostic.
+
+
+---
+
+## The firmware builds. Toolchain working.
+
+xPack `riscv-none-elf-gcc` 15.2.0 in `tools/`, driven by `scripts/build_mcu.sh` -
+a shell replica of krikzz's Makefile, because Git Bash has no `make`. Same flags,
+same linker script, same `bin_to_verilog.exe`. Output goes to `build_output/mcu/`
+so krikzz's tree is never touched: his `mcu.txt` is our only clean baseline.
+
+Two things needed fixing to build at all:
+
+- **`-march=rv32im` is no longer enough.** GCC 15 split CSR and FENCE.I out of the
+  base ISA, so it must be `rv32im_zicsr_zifencei`. Same instructions; the CPU has
+  always had them. krikzz's Makefile says plain `rv32im` because his GCC folded
+  them in.
+- Paths needed quoting throughout - the project directory has a space in it.
+
+### Sizes, and why -O2 does not fit
+
+| build | bytes | spare of 16,384 |
+|---|---|---|
+| krikzz's published `mcu.txt` | 15,720 | 664 |
+| ours (MisterPezz82's) | 15,848 | 536 |
+| **rebuilt, `-O2`** | **16,344** | **40** |
+| **rebuilt, `-Os`** | **15,504** | **880** |
+
+GCC 15 at `-O2` is **624 bytes larger** than krikzz's compiler produced, leaving 40
+bytes - the two-line `sfx_loop` fix would overflow it. `-Os` comes in smaller than
+krikzz's own build with 880 bytes spare.
+
+**Byte-identical reproduction is off the table**, as expected. So the
+disassembly-diff route to recovering MisterPezz82's undocumented changes is dead,
+and their two documented ones have to be re-applied by hand.
+
+### -Os is a risk, and growing the IMEM is the better answer
+
+`-Os` is not free: the MCU services the 68000 in real time, and upstream already
+attributes the elevator corruption to **MCU SDRAM starvation**. Making its code
+slower to save space is exactly the wrong trade on a part already suspected of
+missing deadlines.
+
+The IMEM limit is **ours, not the toolchain's**. `neorv32.ld` already allows 256 KB;
+the ceiling is `rtl/PAPRIUM/mcu_core.sv`:
+
+    module mcu_irom(input [13:0]addr, ...);
+    reg[31:0]rom[16384/4];
+    di <= rom[addr[13:2]];
+
+Growing to 32 KB is a three-line change costing about **13 more M10K** against 62
+free in the shipping build. That buys `-O2` back plus room for the fix, Pezz's two
+changes, and anything later.
+
+**Plan: grow the IMEM, build at -O2.** Use `-Os` only as a fallback if the memory
+does not fit.
