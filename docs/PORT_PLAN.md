@@ -1727,3 +1727,82 @@ Rebuilding `mcu.txt` from krikzz's tree and moving the blob to IMA ADPCM should
 land in the SAME validation pass. Both change audio behaviour, both need a careful
 hardware A/B, and doing them separately means two full test cycles for one set of
 listening. Neither is urgent; the RTL work above is not blocked by either.
+
+
+---
+
+## SOLVED: the punk-TV cue never loops, and why
+
+Root cause, from the channel-7 capture. This is measured, not inferred.
+
+    232   SFX_PLAY 4A   mask=0080  vol=0000      cue starts at volume ZERO
+    234   ch7: vol=000  fifo=fed    pcm=1
+    286   ch7: vol=000  fifo=EMPTY  pcm=29920    whole sample pushed, FIFO dry
+    298   ch7: vol=019  fifo=EMPTY  pcm=29920    ramp begins...
+    352   ch7: vol=0C0  fifo=EMPTY  pcm=29920    ...fully ramped, nothing playing
+
+**29,920 is exactly the length of sample `0x4A`** - 4.99 s at 6 kHz, matching the
+SFX table dump. The MCU pushed the entire sample, it ended, and the PCM count never
+moved again. The second TV repeats it: 29921 -> 59840, exactly two plays all
+session, neither looping.
+
+### The bug, in krikzz's `sfx_player_update`
+
+    for (int ch = 0; ch < SFX_CHAN_NUM; ch++) {
+        if (sfx_chan[ch].size == 0) {
+            continue;                     // channel abandoned once it empties
+        }
+        ...
+        if (sfx_chan[ch].size == 0 && sfx_chan[ch].looped) {
+            ptr = ptr_base; size = size_base;   // only reachable from inside
+        }
+    }
+
+The restart fires only on the iteration where `size` reaches zero, and only if
+`looped` is ALREADY set. `sfx_play` sets `looped = 0`; the game's `sfx_loop`
+arrives about five seconds later. By then the channel is skipped at the top
+forever, and the volume ramp lands on a dead channel.
+
+The game is blameless: it starts the cue at volume 0, enables looping, ramps to
+`0xC0` and sweeps the pan `0xED -> 0x2A` as the player walks past. Textbook
+positional audio, all of it correct.
+
+### The fix - two lines, in `sfx_loop`
+
+    sfx_chan[i].looped = 1;
+    if (sfx_chan[i].size == 0) {          /* re-arm a channel that already ended */
+        sfx_chan[i].ptr  = sfx_chan[i].ptr_base;
+        sfx_chan[i].size = sfx_chan[i].size_base;
+    }
+
+**Firmware, not RTL.** So the toolchain work is now the critical path rather than
+optional - but precisely specified rather than exploratory.
+
+### Confirmed working: the RTL audio fixes
+
+Reported by ear on the build carrying them: enemies dropping, weapon drops and
+explosions are "noticeably louder or piercing through the music in a good way".
+That is exactly what the pan fix predicts - one side of every non-centred effect
+was phase-inverted and cancelling on the mono speaker, and impacts are the widest-
+panned, most transient sounds, so they had the most to lose. Echo and amplify
+contribute too. Three fixes shipped and audibly working.
+
+### Firmware headroom is tight
+
+    krikzz mcu.txt  3930 words = 15,720 bytes
+    ours            3962 words = 15,848 bytes
+    IMEM                          16,384 bytes
+
+**536 bytes spare, 3.3%.** A newer GCC producing slightly larger code overflows.
+`EFFORT ?= -O2` in the Makefile is overridable, so `-Os` is the fallback. Toolchain
+being installed is xPack `riscv-none-elf-gcc` 15.2.0, far newer than krikzz's, so
+a byte-identical rebuild is unlikely - which means the disassembly-diff route to
+recovering MisterPezz82's changes probably will not work, and the two documented
+changes have to be re-applied by hand instead.
+
+### Diagnostic bug to fix when the logger is next built
+
+`paprium_cmd_log` resets `armed`/`frozen`/`wr_idx` on `reset` but not the RAM, so
+exiting the core zeroes the header while leaving the data. This capture was
+salvaged by reading in address order and ignoring the header. Capture state should
+survive resets - it is a diagnostic.
