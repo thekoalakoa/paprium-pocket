@@ -20,12 +20,19 @@ Two open cues, both reported on:
     0x1C  boss / large-enemy death - plays an ordinary enemy's sound instead
     0x4A  punk-TV cue - the FIRST TV in the level works, the SECOND is silent
 
-The second is the cheaper capture: both TVs are in the first level, and "works
-once then not again" is the signature of a channel that never frees. sfx.c holds
-a channel busy while (size || !fifo_empty), and 0x4A is the longest sample in the
-bank at 4.99 s, so it is the likeliest to still look busy when the game asks
-again. If 0x4A is requested twice and only heard once, the loss is downstream of
-the game and therefore ours.
+The two TVs are in DIFFERENT levels - first in level 1, second in level 2 - so a
+channel leaking across them is implausible: a level transition sits between, and
+0x4A is only 4.99 s against minutes of play. Read it as a level-2 difference, not
+a stuck resource.
+
+The ring holds 1023 commands and a level fires far more than that, so a capture
+cannot span both TVs. Capture ONE window instead: reach the second TV, then exit
+the core promptly so its request is still in the ring.
+
+    0x4A present in a window taken at the second TV -> the game asked and the
+        sound was lost downstream. Ours, and fixable.
+    0x4A absent  -> the game never asked in level 2; the divergence is in game
+        state or in a command this firmware mutes, not in the audio path.
 """
 import struct
 import sys
@@ -109,21 +116,19 @@ def main():
         print()
         print("0x%02X (%s) requested %d time(s), mask(s): %s"
               % (sid, what, n, " ".join(masks)))
-        if n == 1:
-            print("  Requested once. If the event happened twice in this window, the")
-            print("  second request never reached the mailbox - the game did not ask.")
-        else:
-            print("  Requested every time. So the game asks correctly and the loss is")
-            print("  downstream, in the firmware or our RTL. Ours, and fixable.")
-            if len(set(masks)) > 1:
-                print("  NOTE: the channel masks differ between requests. sfx_play may")
-                print("  only allocate within the mask, so compare against which")
-                print("  channels were still busy from earlier long samples.")
+        print("  The game DID ask for it in this window. If it was not heard, the")
+        print("  sound was lost downstream - in the firmware or our RTL. Ours.")
+        if len(set(masks)) > 1:
+            print("  NOTE: the channel masks differ between requests - sfx_play may")
+            print("  only allocate within the mask.")
 
     if 0x1C not in ids and 0x4A not in ids:
         print()
-        print("Neither 0x1C nor 0x4A appears. Whatever fired here, the game did not")
-        print("ask for those samples - the divergence is earlier than the audio path.")
+        print("Neither 0x1C nor 0x4A appears in this window. If the event happened")
+        print("inside it, the game never asked - so the divergence is in game state")
+        print("or a muted command, not in the audio path. Check the window really")
+        print("does cover the event: %d entries, and a level can overflow the ring."
+              % len(entries))
     return 0
 
 
