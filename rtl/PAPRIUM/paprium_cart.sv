@@ -1,5 +1,5 @@
 module paprium_cart
-#(parameter SFX = 1'b1)
+#(parameter SFX = 1'b1, parameter CMDLOG = 1'b0)
 (
 	input             clk,
 	input             reset,
@@ -41,6 +41,10 @@ module paprium_cart
 	output            dbg_ramdp_write,
 	output     [10:0] dbg_ramdp_addr,
 	output     [31:0] dbg_ramdp_data,
+
+	// paprium: mailbox command log read-back (diagnostic builds only)
+	input      [11:0] cmdlog_read_addr,
+	output      [7:0] cmdlog_read_data,
 
 	// Paprium battery-backup save RAM (HPS cartridge save interface)
 	input      [14:0] save_addr,
@@ -195,8 +199,30 @@ module paprium_cart
 		.debug_ramdp_addr(dbg_ramdp_addr),
 		.debug_ramdp_data(dbg_ramdp_data),
 		.debug_cpu_we_act(),
-		.debug_cpu_write()
+		.debug_cpu_write(cpu_wr_pulse)
 	);
+
+	// paprium: snoop the 68k's writes to the command mailbox. CMDLOG is a
+	// localparam at the top level, so this whole block folds away in shipping.
+	wire cpu_wr_pulse;
+
+	generate
+		if(CMDLOG) begin : cmdlog_on
+			paprium_cmd_log cmdlog_inst
+			(
+				.clk(clk),
+				.reset(reset),
+				.cpu_wr(cpu_wr_pulse),
+				.cpu_addr(cpu.addr[12:0]),
+				.cpu_data(cpu.dato),
+				.read_addr(cmdlog_read_addr),
+				.read_data(cmdlog_read_data)
+			);
+		end
+		else begin : cmdlog_off
+			assign cmdlog_read_data = 8'd0;
+		end
+	endgenerate
 
 	assign cart_data = cpu_dati_ramdp;
 

@@ -320,6 +320,10 @@ module core_top (
   parameter PAPRIUM_SFX = 1'b1;
   // Diagnostic build: report openfile's outcome as playback duration. Shipping is 0.
   parameter PAPRIUM_CDDA_DBG = 1'b0;
+
+  // paprium: log the 68k's mailbox commands to their own APF data slot. Diagnostic
+  // builds only; shipping is 0 and the whole block folds away.
+  parameter PAPRIUM_CMD_LOG = 1'b0;
 // paprium-end
 
 
@@ -571,6 +575,10 @@ module core_top (
     casex (bridge_addr)
       32'h2xxxxxxx: begin
         bridge_rd_data <= save_rd_data;
+      end
+      // paprium: command log, diagnostic builds only
+      32'h3xxxxxxx: begin
+        bridge_rd_data <= cmdlog_rd_data;
       end
       32'hF8xxxxxx: begin
         bridge_rd_data <= cmd_bridge_rd_data;
@@ -859,6 +867,40 @@ module core_top (
       .read_addr(save_read_addr),
       .read_data(save_do)
   );
+
+  // paprium: command-log read-back on its own bridge region (0x3xxxxxxx) and its
+  // own data slot, so a diagnostic capture can never touch the 4 KB save.
+  wire [11:0] cmdlog_read_addr;
+  wire  [7:0] cmdlog_read_data;
+  wire [31:0] cmdlog_rd_data;
+
+  generate
+    if (PAPRIUM_CMD_LOG) begin : cmdlog_unload
+      data_unloader #(
+          .ADDRESS_MASK_UPPER_4(4'h3),
+          .ADDRESS_SIZE        (12),
+          .INPUT_WORD_SIZE     (1),
+          .READ_MEM_CLOCK_DELAY(4)
+      ) cmdlog_data_unloader (
+          .clk_74a   (clk_74a),
+          .clk_memory(clk_sys_53_69),
+
+          .bridge_rd           (bridge_rd),
+          .bridge_endian_little(bridge_endian_little),
+          .bridge_addr         (bridge_addr),
+          .bridge_rd_data      (cmdlog_rd_data),
+
+          .read_en  (),
+          .read_addr(cmdlog_read_addr),
+          .read_data(cmdlog_read_data)
+      );
+    end
+    else begin : cmdlog_unload_off
+      assign cmdlog_rd_data   = 32'd0;
+      assign cmdlog_read_addr = 12'd0;
+    end
+  endgenerate
+  // paprium-end
 
   wire        sram_present;
   wire        eeprom_present;
@@ -1170,7 +1212,8 @@ module core_top (
   cartridge #(
       .SVP(SVP),
       .PAPRIUM(PAPRIUM),
-      .PAPRIUM_SFX(PAPRIUM_SFX)
+      .PAPRIUM_SFX(PAPRIUM_SFX),
+      .PAPRIUM_CMDLOG(PAPRIUM_CMD_LOG)
   ) cartridge (
       .clk        (clk_sys_53_69),
       .clk_ram    (clk_md_107_39),
@@ -1223,6 +1266,9 @@ module core_top (
       // requested track as finished immediately
       .paprium_active  (paprium_active),
       .paprium_md_reset(paprium_md_reset),
+      .cmdlog_read_addr(cmdlog_read_addr),
+      .cmdlog_read_data(cmdlog_read_data),
+
       .paprium_sfx_l   (paprium_sfx_l),
       .paprium_sfx_r   (paprium_sfx_r),
 
