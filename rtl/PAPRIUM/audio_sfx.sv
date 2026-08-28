@@ -180,8 +180,12 @@ module sfx_chan
 			sfx.pan[1] <= pan > 'h80 ? 'h80 : pan;          //R
 		end
 
-		if(flags_we)
+		if(flags_we) begin
 			pitch <= flags[7] ? 5'd31 : flags[5] ? 5'd1 : 5'd0;  //skip 1 of 2..32 cycles
+			// paprium: 0x4000 echo and 0x0100 amplify, previously dropped
+			sfx.echo <= flags[6];
+			sfx.amp  <= flags[0];
+		end
 
 		if(vol_we)
 			sfx.vol <= vol;
@@ -226,15 +230,43 @@ module mix_bank
 	output reg signed [15:0]snd_r
 );
 
+	// paprium: the echo GPGX applies and this port used to drop. Per sample it
+	// clears the current slot, lets echo-flagged voices accumulate into it,
+	// advances the pointer and adds the slot it lands on to the output:
+	//
+	//     echo_l[ptr] = 0;  ... voices add (sample * 33)/100 ...
+	//     ptr = (ptr+1) % (48000/6);   l += echo_l[ptr];
+	//
+	// One lap of an 8000-entry ring at 48 kHz is 166.7 ms, single tap, no
+	// feedback - overwriting each slot rather than accumulating gives the clear
+	// for free. 8000 x 32 = 256 Kbit, ~26 M10K against 62 free.
+	localparam ECHO_LEN = 13'd8000;
+
+	reg [12:0] eptr = 0;
+	reg [31:0] echo_ram[8000];
+	reg [31:0] echo_rd;
+
+	reg signed [15:0]dry_l, dry_r;
+	reg signed [15:0]send_l, send_r;
+
+	// Saturate a mix accumulator to 16 bits
+	function automatic signed [15:0] sat16(input signed [22:0] v);
+		sat16 = (v < -23'sd32768) ? 16'sh8000
+		      : (v >  23'sd32767) ? 16'sd32767
+		      :                     v[15:0];
+	endfunction
+
 	reg mix_req;
 	reg mix_next;
 	reg mix_side;   //0:L,1:R
+	reg [1:0] tail;  // paprium: echo read/write after both sides are mixed
 
 	always @(posedge clk)
 	if(next_sample) begin
 		mix_req  <= 1;
 		mix_next <= 1;
 		mix_side <= 0;
+		tail     <= 0;
 	end
 	else if(mix_next) begin
 		mix_next <= 0;
@@ -242,20 +274,38 @@ module mix_bank
 	else if(mix_req & mix_ack) begin
 
 		if(mix_side == 0) begin
-			snd_l    <= mix_snd;
+			dry_l    <= mix_snd;
+			send_l   <= sat16({{1{echo_acc[21]}}, echo_acc});
 			mix_next <= 1;
 			mix_side <= 1;
 		end
 
 		if(mix_side == 1) begin
-			snd_r   <= mix_snd;
+			dry_r   <= mix_snd;
+			send_r  <= sat16({{1{echo_acc[21]}}, echo_acc});
 			mix_req <= 0;
+			tail    <= 2'd1;
 		end
 
+	end
+	else if(tail != 0) begin
+		case(tail)
+			// RAM read is registered, so give it a cycle before using it
+			2'd1: begin echo_rd <= echo_ram[eptr]; tail <= 2'd2; end
+			2'd2: begin
+				snd_l <= sat16($signed(dry_l) + $signed(echo_rd[31:16]));
+				snd_r <= sat16($signed(dry_r) + $signed(echo_rd[15:0]));
+				echo_ram[eptr] <= {send_l, send_r};
+				eptr  <= (eptr == ECHO_LEN - 1'd1) ? 13'd0 : eptr + 1'd1;
+				tail  <= 2'd0;
+			end
+			default: tail <= 2'd0;
+		endcase
 	end
 
 	wire mix_ack;
 	wire signed [15:0]mix_snd;
+	wire signed [21:0]echo_acc;
 
 	mix_mono mix_mono_inst
 	(
@@ -264,7 +314,8 @@ module mix_bank
 		.mix_next(mix_next),
 		.side(mix_side),
 		.ack(mix_ack),
-		.snd(mix_snd)
+		.snd(mix_snd),
+		.echo_acc(echo_acc)
 	);
 
 endmodule
@@ -278,7 +329,9 @@ module mix_mono
 	input  side,
 
 	output reg ack,
-	output reg signed [15:0]snd
+	output reg signed [15:0]snd,
+	// paprium: this side's echo send, 33% of each echo-flagged voice
+	output reg signed [21:0]echo_acc
 );
 
 	wire [3:0]chan_idx = state[5:2];
@@ -287,15 +340,27 @@ module mix_mono
 	wire signed [10:0]vol = bank.sfx[chan_idx[2:0]].vol;
 	wire signed [15:0]pcm = bank.sfx[chan_idx[2:0]].pcm;
 
+	// paprium: GPGX gives each echo-flagged voice ONE side, alternating as voices
+	// are allocated (`voice->echo = echo_pan++ & 1`). That counter lives in the
+	// firmware and is not visible here, so the side is taken from the channel
+	// index instead - deterministic, and it spreads echo across both sides the
+	// same way. A deliberate deviation, and the only one in this feature.
+	wire ch_echo = bank.sfx[chan_idx[2:0]].echo & (chan_idx[0] == side);
+	wire ch_amp  = bank.sfx[chan_idx[2:0]].amp;
+
+	// 33/100 as 84/256: 0.328 against 0.330, well inside the 4-bit source material
+	wire signed [23:0]echo_send = ($signed(val) * 24'sd84) >>> 8;
+
 	reg signed [15:0]val;
 	reg signed [21:0]acc;
 	reg [5:0]state;
 
 	always @(posedge clk)
 	if(mix_next) begin
-		state <= 0;
-		acc   <= 0;
-		ack   <= 0;
+		state    <= 0;
+		acc      <= 0;
+		ack      <= 0;
+		echo_acc <= 0;
 	end
 	else if(!ack) begin
 
@@ -306,7 +371,14 @@ module mix_mono
 				0: val <= pcm;
 				1: val <= $signed(val) * vol / 'h400;
 				2: val <= $signed(val) * pan / 'h80;
-				3: acc <= acc + val;
+				3: begin
+					// paprium: amplify scales the RUNNING mix, not the voice -
+					// GPGX does `l = (l * 125) / 100` on the accumulator inside
+					// the voice loop. x1.25 is acc + acc/4.
+					acc <= ch_amp ? ((acc + val) + ((acc + val) >>> 2))
+					              :  (acc + val);
+					if(ch_echo) echo_acc <= echo_acc + echo_send[21:0];
+				end
 			endcase
 		end
 		else begin
