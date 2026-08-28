@@ -1,138 +1,118 @@
-# Mega Drive for Analogue Pocket
+# Paprium for Analogue Pocket
 
-[![Latest Release](https://img.shields.io/github/v/tag/drizzt/openFPGA-MegaDrive?label=latest)](https://github.com/drizzt/openFPGA-MegaDrive/releases/latest) [![Downloads](https://img.shields.io/github/downloads/drizzt/openFPGA-MegaDrive/total)](https://github.com/drizzt/openFPGA-MegaDrive/releases) [![Platform](https://img.shields.io/badge/platform-Analogue%20Pocket-blue)](https://openfpga-library.github.io/analogue-pocket/)
+A standalone openFPGA core for **Paprium** (WaterMelon, 2020), running on the
+Analogue Pocket.
 
-LLM assisted port of [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA),
-via [MegaDrive_MiSTer](https://github.com/MiSTer-devel/MegaDrive_MiSTer). The
-console is a gate-level model of the real silicon, not a behavioural rewrite.
+This is a single-game core, not a Mega Drive emulator. The general cartridge
+hardware is stripped out to make room for Paprium's own — the NEORV32 MCU, the
+streaming window, and the cartridge's 8-channel PCM sound engine. Don't load other
+ROMs into it.
 
-Please report any issues to this repo, not to the MiSTer or Nuked-MD ones. Most
-likely a problem is a result of this port rather than the original core.
-
-> [!WARNING]
+> [!IMPORTANT]
+> **You must supply your own cartridge dump.** None is included, and none will be
+> linked. Paprium is still sold by [WaterMelon](https://www.watermelon.gg/).
 >
-> Beta core
->
-> Games boot and play, but some may still glitch or behave oddly. Please report
-> anything you run into.
+> The music is likewise not included — see [Music](#music).
 
-## Installation
+**Installation: [docs/INSTALL.md](docs/INSTALL.md)**
 
-### Easy mode
+---
 
-Use one of the openFPGA updater tools, such as
-[Pupdate](https://github.com/mattpannella/pupdate). They download and install
-cores onto the Pocket for you. Go donate to them if you can.
+## What works
 
-### Manual mode
+Boot, decompression, graphics streaming, saves, the cartridge's own sound effects,
+and music — with correct per-scene track selection and one-shot cues that stop
+rather than loop.
 
-Download the [latest release](https://github.com/drizzt/openFPGA-MegaDrive/releases/latest)
-zip and copy the `Assets`, `Cores` and `Platforms` folders to the root of your SD
-card. Note that Finder on macOS *replaces* folders rather than merging them like
-Windows does, so on a Mac merge the contents by hand.
+Fits a Cyclone V `5CEBA4F23C8` at **91% ALM**, on a device with less than half the
+logic of the MiSTer board this was ported from.
 
-Platform artwork is not bundled. If your SD card does not already have images for
-this platform, grab them from
-[dyreschlock/pocket-platform-images](https://github.com/dyreschlock/pocket-platform-images).
+## What this is not
 
-## Usage
+Not a faithful reproduction of the cartridge. Paprium's "DATENMEISTER" chipset —
+in reality an Intel MAX 10 FPGA, an STM32F446 and a flash die — decompresses the
+graphics and synthesises the music. **Neither the MAX 10 bitstream nor the STM32
+firmware has ever been dumped.**
 
-ROMs go in `/Assets/genesis/common`. `.md`, `.bin` and `.gen` files up to 32 MB
-are supported.
+So this takes the same approach as the EverDrive Pro: it runs krikzz's
+[`mega-ppm`](https://github.com/krikzz/mega-ppm) replacement MCU firmware and
+substitutes the released soundtrack for the synthesised music.
 
-## Features
+Expect it to play well, not to be cycle-accurate.
 
-### Cartridges
+## Known issues
 
-Plain ROMs, SSF2 bank switching (Super Street Fighter 2 and most pirate carts),
-the Realtec and SF-001/002/004 mappers, the SVP chip (Virtua Racing), and the
-fixed-value protection reads a handful of unlicensed carts expect.
+All predate this port and are present on other Paprium setups running the same
+replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 
-### Saves
-
-Cartridges with battery-backed SRAM or a 24CXX serial EEPROM save to a `.sav`
-file. Anything whose header claims save memory gets one, so a few homebrew and
-test ROMs end up with a `.sav` they never use.
-
-> [!WARNING]
->
-> Back up `/Saves/genesis` before switching between Genesis cores
->
-> Every Genesis core on the Pocket writes the same save file for a given ROM, and
-> the Pocket gives a core no way to keep its saves to itself. The cores do not
-> agree on the format, so a save made in one is not readable by another, and
-> playing a game here can overwrite a save made elsewhere, or the other way
-> round. Copy `/Saves/genesis` off your card before you switch cores, and keep
-> one core per game.
-
-### Region
-
-NTSC or PAL, chosen automatically from the cartridge header. The Region setting
-picks Japanese or export machine behaviour; set it to Auto unless a game needs
-otherwise. A cart with a blank or mis-stamped header field runs as NTSC.
-
-### Audio
-
-FM and PSG straight out of the gate-level sound chips. **Audio Filter** picks
-between the Model 1 and Model 2 low-pass characteristics, a minimal filter, or
-none. **FM Chip** switches between the YM2612's ladder-effect DAC and the
-cleaner YM3438.
-
-### Video
-
-**CRAM Dots** enables the coloured dot the real VDP puts in the left column when
-a game writes palette memory mid-line. Some games rely on it, most look better
-without it.
-
-**Composite Blend** blends adjacent pixels horizontally, like a composite video
-cable. Effects drawn as thin stripes, such as Sonic's waterfalls, become
-translucent instead of striped.
-
-**Aspect Ratio** picks how wide the picture is drawn. **Original** matches a
-period television. **Corrected** stretches the wider of the two Mega Drive
-screen modes so its pixels come out square, which suits games that were drawn
-on a computer monitor. Games in the narrower mode look the same either way.
-
-### Controls
-
-| Pocket | Mega Drive |
+| Issue | Status |
 |---|---|
-| D-pad | D-pad |
-| B | B |
-| A | C |
-| Y | A |
-| X | Y |
-| L | X |
-| R | Z |
-| Start | Start |
-| Select | Mode |
+| Elevator level: palette corruption, sprite priority | Open — upstream firmware |
+| Boss fight: player sprite drops behind the background | Open — upstream firmware |
+| Boss / large-enemy death plays the wrong sound effect | Under investigation |
+| Punk-TV cue silent outside Arcade/Easy | Under investigation |
+| Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
-**6 Button Pad** can be turned off for the handful of games that misread a
-6-button controller. A Mega Drive pad has no reset button, so use **Reset Core**
-in the Core Settings menu.
+Timing does not fully close on this device — inherited from the base core, which
+runs correctly on hardware regardless.
 
-### Pause
+[docs/PORT_PLAN.md](docs/PORT_PLAN.md) is the full engineering record: what was
+measured, what was tried, and which explanations turned out to be wrong.
 
-The game pauses while the Pocket menu is open.
+## Music
 
-## Not included
+Paprium's music is generated by hardware that has never been dumped, so it cannot
+be reproduced. Like the EverDrive Pro, this core substitutes the released
+soundtrack, streamed from the SD card.
 
-- Savestates and sleep, so leaving the core loses your progress
-- Master System backward compatibility
-- MD+ and CDDA, which need hardware the Pocket does not have
-- Pier Solar and Sega Channel carts
-- J-Cart, so the Codemasters carts save but only take two controllers
-- Cheats, multitaps, lightguns, keyboard and mouse
+**The core runs fine without it** — you simply get no music.
 
-## License
+The soundtrack is not distributed here. It is a commercial release, and the blob
+is raw 48 kHz stereo PCM, which plays in any media player — an album, not a game
+asset. Build it from your own copy:
 
-GPLv3, see [LICENSE](LICENSE). Individual files keep the licenses noted in their
-own headers: Nuked-MD-FPGA and most of the MegaDrive_MiSTer RTL are
-GPLv2-or-later, the audio filter chain is a mix of MIT and GPLv3-or-later,
-agg23's modules are MIT, and Analogue's APF shell is under the APF Software
-License Agreement, whose terms defer to the GPL or MIT wherever the two conflict.
+```bash
+./scripts/build_cdda.sh <soundtrack-dir> <cue-file> cdda/
+./scripts/build_cdda_blob.sh cdda/ paprium.pcm
+```
 
-Thanks to **nukeykt** and the Nuked-MD-FPGA contributors for the console model,
-**Alexey Melnikov (Sorgelig)** and the MegaDrive_MiSTer contributors for the
-MiSTer core, and **[agg23](https://github.com/agg23)** for the openFPGA
-integration work every Pocket port of a MiSTer core builds on.
+Ten of the game's music slots have no audio at all: the cartridge's own pointer
+table is null at each of them, so those scenes are correctly silent. That is not a
+missing file.
+
+## Building
+
+Quartus Prime Lite 21.1.1.
+
+```bash
+quartus_sh -t scripts/syn_check.tcl paprium     # synthesis only, fast
+quartus_sh -t generate.tcl paprium              # full build
+python scripts/reverse_bitstream.py projects/output_files/megadrive_pocket.rbf \
+                                    build_output/paprium.rbf_r
+./scripts/deploy_to_sd.sh /d                    # install to an SD card
+```
+
+Variants: `paprium`, `paprium_nosfx`, `paprium_cddadbg`, `paprium_cmdlog`.
+
+> Always check the fit summary **timestamp** and the `.rbf` **size** before
+> flashing. Quartus can fail and leave stale artifacts, which produce believable
+> wrong answers on hardware.
+
+## Lineage
+
+Built on four projects, each doing the hard part of a different layer:
+
+| | |
+|---|---|
+| [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA) | nukeykt — gate-level model of the real silicon |
+| [MegaDrive_MiSTer](https://github.com/MiSTer-devel/MegaDrive_MiSTer) | MiSTer-devel |
+| [openFPGA-MegaDrive](https://github.com/drizzt/openFPGA-MegaDrive) | drizzt — the Pocket port this forks |
+| [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge work |
+| [mega-ppm](https://github.com/krikzz/mega-ppm) | krikzz — replacement MCU firmware |
+
+Please report issues with **this** core here, not to those projects. A problem is
+most likely a result of this port.
+
+## Licence
+
+GPLv3, inherited from the upstream projects. See [LICENSE](LICENSE).
