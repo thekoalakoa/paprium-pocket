@@ -60,11 +60,11 @@ slots.append(collections.OrderedDict([
     ("nonvolatile", True),
     ("extensions", ["log"]),
     ("address", "0x30000000"),
-    ("size_maximum", "0x1000"),
+    ("size_maximum", "0x4000"),
 ]))
 
 io.open(p, 'w', encoding='utf-8', newline='\n').write(json.dumps(d, indent=2) + "\n")
-print("data.json: added slot 11 (Command Log) at 0x30000000, 4 KB")
+print("data.json: added slot 11 (Command Log) at 0x30000000, 16 KB")
 PY
 
 echo

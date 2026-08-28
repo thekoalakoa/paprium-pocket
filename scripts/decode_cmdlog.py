@@ -3,11 +3,11 @@
 
     python scripts/decode_cmdlog.py <file.log> [--all] [--sfx]
 
-The log is 1024 big-endian 32-bit words written by rtl/PAPRIUM/paprium_cmd_log.sv:
+The log is 4096 big-endian 32-bit words written by rtl/PAPRIUM/paprium_cmd_log.sv:
 
-    word 0..1022  [31:16] the 16-bit command written to cart RAM 0x1FEA
+    word 0..4094  [31:16] the 16-bit command written to cart RAM 0x1FEA
                   [15: 0] the sfx channel mask latched from 0x1E10
-    word 1023     {0xC0DE, wr_idx} - where the newest entry landed
+    word 4095     {0xC0DE, wr_idx} - where the newest entry landed
 
 Every Paprium command is a single 16-bit write to 0x1FEA with the command in the
 high byte and its parameter in the low byte (GPGX paprium_w16 / paprium_cmd).
@@ -25,9 +25,11 @@ channel leaking across them is implausible: a level transition sits between, and
 0x4A is only 4.99 s against minutes of play. Read it as a level-2 difference, not
 a stuck resource.
 
-The ring holds 1023 commands and a level fires far more than that, so a capture
-cannot span both TVs. Capture ONE window instead: reach the second TV, then exit
-the core promptly so its request is still in the ring.
+Only AUDIO commands are logged (plus 0x88/0xB0, recorded upstream as muted in this
+firmware). Sprite traffic would otherwise flush the ring many times over before you
+reached level 2, and this game has no saves - one capture has to survive a full
+playthrough. 4095 audio-only entries should comfortably span both levels, so a
+single capture can cover both TVs. Exit the core after the second one.
 
     0x4A present in a window taken at the second TV -> the game asked and the
         sound was lost downstream. Ours, and fixable.
@@ -61,15 +63,15 @@ def main():
         return 2
 
     data = open(args[0], 'rb').read()
-    if len(data) < 4096:
-        print("warning: %d bytes, expected 4096 - truncated capture?" % len(data),
+    if len(data) < 16384:
+        print("warning: %d bytes, expected 16384 - truncated capture?" % len(data),
               file=sys.stderr)
-        data = data.ljust(4096, b'\0')
+        data = data.ljust(16384, b'\0')
 
-    words = struct.unpack('>1024I', data[:4096])
+    words = struct.unpack('>4096I', data[:16384])
 
-    hdr = words[1023]
-    magic, wr_idx = hdr >> 16, hdr & 0x3FF
+    hdr = words[4095]
+    magic, wr_idx = hdr >> 16, hdr & 0xFFF
     if magic != 0xC0DE:
         print("header magic is %04X, expected C0DE." % magic, file=sys.stderr)
         print("The core may not have written this slot - is this the diagnostic "
@@ -79,7 +81,7 @@ def main():
             return 1
 
     # wr_idx is where the NEXT entry goes, so the ring is oldest-first from there
-    order = [(wr_idx + i) % 1023 for i in range(1023)]
+    order = [(wr_idx + i) % 4095 for i in range(4095)]
     entries = [(i, words[i]) for i in order if words[i] != 0]
 
     if '--sfx' in flags:
@@ -87,7 +89,7 @@ def main():
     if '--all' not in flags:
         entries = entries[-60:]
 
-    print("%d entries, newest at word %d\n" % (len(entries), (wr_idx - 1) % 1023))
+    print("%d entries, newest at word %d\n" % (len(entries), (wr_idx - 1) % 4095))
     print("%-6s %-6s %-16s %-6s %s" % ("word", "cmd", "name", "param", "chanmask"))
 
     saw_play = []

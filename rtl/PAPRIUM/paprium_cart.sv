@@ -43,7 +43,7 @@ module paprium_cart
 	output     [31:0] dbg_ramdp_data,
 
 	// paprium: mailbox command log read-back (diagnostic builds only)
-	input      [11:0] cmdlog_read_addr,
+	input      [13:0] cmdlog_read_addr,
 	output      [7:0] cmdlog_read_data,
 
 	// Paprium battery-backup save RAM (HPS cartridge save interface)

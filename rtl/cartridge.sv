@@ -104,7 +104,7 @@ module cartridge
 	output signed [15:0] paprium_sfx_r,
 
 	// paprium: mailbox command log read-back (diagnostic builds only)
-	input          [11:0] cmdlog_read_addr,
+	input          [13:0] cmdlog_read_addr,
 	output          [7:0] cmdlog_read_data,
 
 	output            mdp_track_request,
