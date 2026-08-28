@@ -1611,3 +1611,71 @@ whatever the previous one left - the first few boot entries show `AC4C`/`9000`,
 which is uninitialised. This is faithful rather than a bug: `sfx_play` reads the
 same latched RAM. Only trust flags on an `SFX_PLAY` whose parameters were written
 alongside it.
+
+
+---
+
+## Plan: rebuilding the MCU firmware ourselves
+
+MisterPezz82 will not be sharing their firmware source, so any firmware change has
+to start from krikzz's tree. This is the plan, and it is more tractable than it
+first looked.
+
+### What we know
+
+Our `mcu.txt` is byte-identical to MiSTer's (`0f1a2b90`, 248 lines) and differs
+from krikzz's published build (`ec08f761`, 245 lines) from line 1 - a different
+compile, ~48 words larger. **No `.c` or `.h` file has ever been committed to the
+MiSTer repo**, confirmed across all history, so only the binary was ever published.
+
+But their commit messages describe the firmware changes at source level, which
+means the delta is small and documented. Across the entire history, `mcu.txt`
+changed in four commits, and only two firmware changes are described:
+
+| Change | Origin | Description as given |
+|---|---|---|
+| First-level door fix | krikzz | object 107, sprite 4, `attr &= ~0x2000` |
+| Sprite attribute composition | MisterPezz82 | field-wise per GPGX with the `0x7ff` tile-index mask, replacing the whole-word XOR at `mame.c:544` |
+
+~48 words is consistent with two small changes, not a rewrite.
+
+### The tree builds standalone
+
+`repos/mega-ppm/mcu/` is self-contained. The Makefile's `NEORV32_HOME = ../neorv32`
+is misleading - the paths actually resolve to a bundled `lib/`:
+
+    lib/include/neorv32.h      the framework headers
+    lib/common/crt0.S          startup
+    lib/common/neorv32.ld      linker script
+    lib/source/*.c             the runtime
+
+Build settings are pinned by the Makefile: `-O2`, `-march=rv32im`, `-mabi=ilp32`,
+`riscv64-unknown-elf`. **The only missing piece is the compiler.**
+
+### Steps, in order
+
+1. **Install a RISC-V toolchain.** xPack `riscv-none-elf-gcc` is the easiest on
+   Windows; override `RISCV_TOOLCHAIN` since xPack uses a different prefix.
+2. **Reproduce krikzz's `mcu.txt` byte-for-byte.** This is the gating test. If
+   `make` reproduces `ec08f761`, the toolchain is pinned and everything downstream
+   is trustworthy. If it does not, no diff against our binary means anything,
+   because compiler drift will differ on every function.
+3. **Disassemble both images and diff.** ~4,000 instructions is tractable. With the
+   toolchain pinned, the differences ARE MisterPezz82's changes, which both
+   confirms the two documented ones and reveals anything undocumented.
+4. **Re-apply the two changes** to krikzz's source and rebuild.
+5. **Validate on hardware** against the behaviours their notes name - the
+   first-level door, and no regression in scenes that relied on the whole-word XOR.
+6. Only then add our own: `0x88 paprium_audio_setting`, currently muted.
+
+### Keep the fallback
+
+`rtl/PAPRIUM/mcu.txt` as it stands is known-good and hardware-validated. Any
+rebuild ships as a **variant**, never as a replacement, until it has been A/B'd on
+real hardware. Losing a working firmware to chase a fix would be a poor trade.
+
+### None of this blocks the audio work
+
+Echo and amplify are RTL - `audio_sfx.sv` and the mixer, entirely ours. The
+firmware question gates only `0x88` and any channel-allocation change. Do the RTL
+first: it is specified exactly, it fits, and it improves every effect in the game.
