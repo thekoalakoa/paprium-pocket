@@ -130,10 +130,17 @@ To enable it, place the music blob at:
 
 Building it from your own copy of the soundtrack:
 
+Needs [ffmpeg](https://ffmpeg.org/) on `PATH` and your own copy of the released
+soundtrack, in any format ffmpeg reads:
+
 ```bash
-./scripts/build_cdda.sh <soundtrack-dir> <cue-file> cdda/
-./scripts/build_cdda_blob.sh cdda/ paprium.pcm
+./scripts/build_cdda.sh  ~/Music/Paprium  docs/paprium.cue  cdda/
+./scripts/build_cdda_blob.sh  cdda/  paprium.pcm
 ```
+
+`docs/paprium.cue` ships with the core. Source files are matched by their leading
+two-digit number rather than by title, so a rip with slightly different titles
+still works.
 
 Ten of the game's music slots have no audio at all — the cartridge itself has a
 null pointer for each of them, so those scenes are correctly silent. That's not a

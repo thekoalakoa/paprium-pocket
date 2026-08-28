@@ -69,16 +69,28 @@ soundtrack, streamed from the SD card.
 
 The soundtrack is not distributed here. It is a commercial release, and the blob
 is raw 48 kHz stereo PCM, which plays in any media player — an album, not a game
-asset. Build it from your own copy:
+asset. Everything needed to build it from your own copy *is* here.
+
+**You need:** the released Paprium soundtrack in any format ffmpeg reads (MP3,
+WAV, FLAC), and [ffmpeg](https://ffmpeg.org/) on `PATH`
+(`winget install Gyan.FFmpeg`).
 
 ```bash
-./scripts/build_cdda.sh <soundtrack-dir> <cue-file> cdda/
-./scripts/build_cdda_blob.sh cdda/ paprium.pcm
+./scripts/build_cdda.sh  ~/Music/Paprium  docs/paprium.cue  cdda/
+./scripts/build_cdda_blob.sh  cdda/  paprium.pcm
 ```
 
-Ten of the game's music slots have no audio at all: the cartridge's own pointer
-table is null at each of them, so those scenes are correctly silent. That is not a
-missing file.
+Then copy `paprium.pcm` to `/Assets/paprium/common/` on the SD card.
+
+`docs/paprium.cue` maps the game's track numbers onto soundtrack filenames.
+Source files are matched by their **leading two-digit number**, not by title, so a
+rip whose titles differ slightly still works and an `.mp3` substitutes for the
+`.wav` the cue names.
+
+Ten cue entries point at `Blank.wav` and become silence. That is correct, not a
+missing file: the cartridge's own music pointer table is null at exactly those ten
+indices (8, 9, 10, 13, 26, 31, 41, 44, 45, 48), so the game has no music there
+either — verified against two independent ROM dumps.
 
 ## Building
 
