@@ -1438,3 +1438,35 @@ the player's actual progress and a diagnostic must not overwrite it.
 
 Affordable now: the menu reduction freed 1,727 ALMs, where at 98% this was not
 buildable at all.
+
+
+### Command-log build measured
+
+| | ALMs | RAM blocks | block mem | worst slack |
+|---|---|---|---|---|
+| shipping | 16,753 (91%) | 246 (80%) | 1,865,044 (59%) | -2.856 |
+| **+ command log** | **17,970 (97%)** | 262 (85%) | 1,996,116 (63%) | **-3.141** |
+
+The ring itself is cheap and went where intended: block memory grew by exactly
+131,072 bits = 4096 x 32, and RAM blocks by 16, so the buffer inferred correctly.
+The **1,217 ALMs** are almost all the second `data_unloader` - the dcfifos and
+state machine to serve a slot over the bridge cost far more than the buffer does.
+Worth knowing before adding a third slot to anything.
+
+Timing is 0.285 ns worse than shipping, which is what 97% looks like, and no worse
+than builds already proven on hardware (the first shipping build ran at -3.040).
+Acceptable for a diagnostic; it is not a build to ship.
+
+**The first attempt at this build crashed** - `quartus_fit` took an Access
+Violation at "Fitter placement preparation", 2:42 in, because the previous build
+had been killed mid-fit and left corrupt incremental state. Clearing
+`projects/db` and `projects/incremental_db` fixed it. **If a build is killed, wipe
+those before rebuilding.**
+
+It also nearly went unnoticed: the command was written
+`quartus_sh ...; echo "EXIT=$?"; grep ...`, so the reported exit status came from
+the trailing `grep` and read 0 on a failed build. Only the fit-summary timestamp
+caught it. Had it passed unremarked, the "diagnostic" package would have carried
+the shipping bitstream, with no logger in it, and a full playthrough would have
+produced an empty log. **Check the timestamp and size; never trust the exit code
+of a compound command.**
