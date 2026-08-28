@@ -3,38 +3,38 @@
 
     python scripts/decode_cmdlog.py <file.log> [--all] [--sfx]
 
-The log is 4096 big-endian 32-bit words written by rtl/PAPRIUM/paprium_cmd_log.sv:
+4096 big-endian 32-bit words written by rtl/PAPRIUM/paprium_cmd_log.sv, as 2047
+two-word entries plus a header:
 
-    word 0..4094  [31:16] the 16-bit command written to cart RAM 0x1FEA
-                  [15: 0] the sfx channel mask latched from 0x1E10
-    word 4095     {0xC0DE, wr_idx} - where the newest entry landed
+    word 2n    [31:16] the 16-bit command written to cart RAM 0x1FEA
+               [15: 0] the sfx channel mask latched from 0x1E10
+    word 2n+1  [31:16] the flags latched from 0x1E16
+               [15: 0] the volume latched from 0x1E12
+    word 4095  {0xC0DE, wr_idx} - where the newest entry landed
 
-Every Paprium command is a single 16-bit write to 0x1FEA with the command in the
-high byte and its parameter in the low byte (GPGX paprium_w16 / paprium_cmd).
+Every Paprium command is a single 16-bit write to 0x1FEA, command in the high byte
+and parameter in the low byte (GPGX paprium_w16 / paprium_cmd).
 
-Default output is the last 60 entries, oldest first, which is what you want after
-killing a boss. --all prints the whole ring; --sfx prints only sound commands.
+Only AUDIO commands are logged, plus 0x88/0xB0 which upstream records as muted in
+this firmware. Sprite traffic would otherwise flush the ring many times over before
+level 2, and this game has no saves - one capture must survive a full playthrough.
 
-Two open cues, both reported on:
+THE FLAGS MATTER. GPGX applies per-voice effects from them, and this port
+implements only the pitch pair:
+
+    0x8000  tiny pitch   31/32 speed      implemented
+    0x2000  huge pitch   half speed       implemented
+    0x4000  echo         166 ms, 33%      NOT IMPLEMENTED
+    0x0100  amplify      x1.25            NOT IMPLEMENTED
+
+A cue that sounds "close but not quite right" is most likely the correct sample
+played without its echo. If the log shows echo requested, that is the explanation,
+and it is ours to fix in RTL - no firmware work needed.
+
+Two open cues:
 
     0x1C  boss / large-enemy death - plays an ordinary enemy's sound instead
-    0x4A  punk-TV cue - the FIRST TV in the level works, the SECOND is silent
-
-The two TVs are in DIFFERENT levels - first in level 1, second in level 2 - so a
-channel leaking across them is implausible: a level transition sits between, and
-0x4A is only 4.99 s against minutes of play. Read it as a level-2 difference, not
-a stuck resource.
-
-Only AUDIO commands are logged (plus 0x88/0xB0, recorded upstream as muted in this
-firmware). Sprite traffic would otherwise flush the ring many times over before you
-reached level 2, and this game has no saves - one capture has to survive a full
-playthrough. 4095 audio-only entries should comfortably span both levels, so a
-single capture can cover both TVs. Exit the core after the second one.
-
-    0x4A present in a window taken at the second TV -> the game asked and the
-        sound was lost downstream. Ours, and fixable.
-    0x4A absent  -> the game never asked in level 2; the divergence is in game
-        state or in a command this firmware mutes, not in the audio path.
+    0x4A  punk-TV cue - the first TV (level 1) works, the second (level 2) is silent
 """
 import struct
 import sys
@@ -49,10 +49,27 @@ CMDS = {
     0xDF: "sram_read",      0xE0: "sram_write",
 }
 
-# Commands MisterPezz82's KNOWN_ISSUES.md records as muted in this firmware build
 MUTED = {0x88, 0xB0}
-
 SOUND = {0x88, 0x8C, 0x8D, 0xC9, 0xCA, 0xD1, 0xD2, 0xD3, 0xD6}
+
+FLAGS = [
+    (0x8000, "pitch31/32", True),
+    (0x4000, "ECHO",       False),
+    (0x2000, "pitchHalf",  True),
+    (0x0800, "f800",       True),
+    (0x0400, "f400",       True),
+    (0x0100, "AMPLIFY",    False),
+]
+
+CUES = ((0x1C, "boss / large-enemy death"), (0x4A, "punk-TV cue"))
+
+
+def flag_names(f):
+    out = []
+    for bit, name, implemented in FLAGS:
+        if f & bit:
+            out.append(name if implemented else name + "(unimplemented)")
+    return ",".join(out) if out else "-"
 
 
 def main():
@@ -66,70 +83,74 @@ def main():
     if len(data) < 16384:
         print("warning: %d bytes, expected 16384 - truncated capture?" % len(data),
               file=sys.stderr)
-        data = data.ljust(16384, b'\0')
+        data = data.ljust(16384, b'\x00')
 
     words = struct.unpack('>4096I', data[:16384])
 
-    hdr = words[4095]
-    magic, wr_idx = hdr >> 16, hdr & 0xFFF
+    magic, wr_idx = words[4095] >> 16, words[4095] & 0xFFF
     if magic != 0xC0DE:
         print("header magic is %04X, expected C0DE." % magic, file=sys.stderr)
-        print("The core may not have written this slot - is this the diagnostic "
-              "build, and did you EXIT the core rather than soft resetting?",
-              file=sys.stderr)
-        if magic == 0x0000:
+        print("Is this the diagnostic build, and did you EXIT the core rather "
+              "than soft resetting?", file=sys.stderr)
+        if magic == 0:
             return 1
 
-    # wr_idx is where the NEXT entry goes, so the ring is oldest-first from there
-    order = [(wr_idx + i) % 4095 for i in range(4095)]
-    entries = [(i, words[i]) for i in order if words[i] != 0]
+    # Entries are two words, and wr_idx is where the NEXT one goes
+    order = [(wr_idx + 2 * i) % 4094 for i in range(2047)]
+    entries = [(i, words[i], words[i + 1]) for i in order if words[i] != 0]
 
     if '--sfx' in flags:
-        entries = [(i, w) for i, w in entries if (w >> 24) in SOUND]
+        entries = [e for e in entries if (e[1] >> 24) in SOUND]
     if '--all' not in flags:
         entries = entries[-60:]
 
-    print("%d entries, newest at word %d\n" % (len(entries), (wr_idx - 1) % 4095))
-    print("%-6s %-6s %-16s %-6s %s" % ("word", "cmd", "name", "param", "chanmask"))
+    print("%d entries, newest at word %d\n" % (len(entries), (wr_idx - 2) % 4094))
+    print("%-6s %-4s %-15s %-5s %-6s %-6s %-5s %s"
+          % ("word", "cmd", "name", "parm", "mask", "flags", "vol", "effects"))
 
-    saw_play = []
-    for idx, w in entries:
-        cmd, param, mask = (w >> 24) & 0xFF, (w >> 16) & 0xFF, w & 0xFFFF
-        name = CMDS.get(cmd, "?")
+    plays = []
+    for idx, w0, w1 in entries:
+        cmd, param, mask = (w0 >> 24) & 0xFF, (w0 >> 16) & 0xFF, w0 & 0xFFFF
+        fl, vol = (w1 >> 16) & 0xFFFF, w1 & 0xFFFF
         note = "  <- muted in this firmware" if cmd in MUTED else ""
-        print("%-6d %02X     %-16s %02X     %04X%s" % (idx, cmd, name, param, mask, note))
+        print("%-6d %02X   %-15s %02X    %04X   %04X   %04X  %s%s"
+              % (idx, cmd, CMDS.get(cmd, "?"), param, mask, fl, vol,
+                 flag_names(fl), note))
         if cmd in (0xD1, 0xD3):
-            saw_play.append((cmd, param, mask))
+            plays.append((param, mask, fl))
 
     print()
-    if not saw_play:
-        print("No sfx_play/sfx_loop in this window. If the event happened inside it,")
-        print("the cue never reached the mailbox - look at the muted commands above.")
+    if not plays:
+        print("No sfx_play/sfx_loop here. If the event happened inside this window,")
+        print("the cue never reached the mailbox - see the muted commands above.")
         return 0
 
-    ids = [p for _, p, _ in saw_play]
+    ids = [p for p, _, _ in plays]
     print("sfx ids requested: " + " ".join("%02X" % i for i in sorted(set(ids))))
 
-    for sid, what in ((0x1C, "boss / large-enemy death"), (0x4A, "punk-TV cue")):
-        n = ids.count(sid)
-        if not n:
+    for sid, what in CUES:
+        rows = [(m, f) for p, m, f in plays if p == sid]
+        if not rows:
             continue
-        masks = ["%04X" % m for c, p, m in saw_play if p == sid]
-        print()
-        print("0x%02X (%s) requested %d time(s), mask(s): %s"
-              % (sid, what, n, " ".join(masks)))
-        print("  The game DID ask for it in this window. If it was not heard, the")
-        print("  sound was lost downstream - in the firmware or our RTL. Ours.")
-        if len(set(masks)) > 1:
-            print("  NOTE: the channel masks differ between requests - sfx_play may")
-            print("  only allocate within the mask.")
+        print("\n0x%02X (%s) requested %d time(s)" % (sid, what, len(rows)))
+        for m, f in rows:
+            print("    mask %04X  flags %04X  %s" % (m, f, flag_names(f)))
+        unimpl = [n for bit, n, impl in FLAGS
+                  if not impl and any(f & bit for _, f in rows)]
+        if unimpl:
+            print("  Requested with %s, which this port does not implement."
+                  % " and ".join(unimpl))
+            print("  That alone would make the cue sound close but not right, and")
+            print("  it is an RTL fix - no firmware work needed.")
+        else:
+            print("  The game DID ask for it here. If it was not heard, or sounded")
+            print("  wrong, the loss is downstream - firmware or our RTL. Ours.")
 
-    if 0x1C not in ids and 0x4A not in ids:
+    if not any(sid in ids for sid, _ in CUES):
         print()
-        print("Neither 0x1C nor 0x4A appears in this window. If the event happened")
-        print("inside it, the game never asked - so the divergence is in game state")
-        print("or a muted command, not in the audio path. Check the window really")
-        print("does cover the event: %d entries, and a level can overflow the ring."
+        print("Neither 0x1C nor 0x4A appears in this window. If the events happened")
+        print("inside it, the game never asked, so the divergence is in game state")
+        print("or a muted command. Check the window covers them: %d entries."
               % len(entries))
     return 0
 
