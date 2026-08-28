@@ -1347,3 +1347,42 @@ them, and nothing at all to DSP.
 
 1,727 ALMs are now free. That is real headroom for firmware-adjacent RTL work -
 a mailbox snooper, deeper SFX FIFOs - none of which was affordable at 98%.
+
+
+## Hardware confirmation: slim build, Japan region, No Filter
+
+Tested and working. New four-item menu present, and **the punk-TV cue works as
+intended**. This is the first time that combination has been verified together -
+the cue had only ever been confirmed on Export, on the pre-slim bitstream.
+
+So the shipping configuration is now confirmed end to end:
+
+| | |
+|---|---|
+| Bitstream | 16,753 ALMs (91%), md5 `6116d16c` |
+| Region | Japan (default), JP extras present |
+| Audio filter | hard-wired No Filter |
+| Menu | Soft Reset / Region / 6 Button Pad / Aspect Ratio |
+| Display modes | 22 |
+
+### Process note: a duplicate package cost a round trip
+
+An old copy of the core package sat at `hw-test/pocket-install/`, frozen at
+2026-08-26. It was installed by mistake - reasonably, given the directory name -
+which silently reverted the card to the 8/26 bitstream and menu. The symptom
+(removed menu entries still listed) looked like a failed build.
+
+Two consequences worth recording:
+
+1. **The earlier music-volume measurements were taken on a bitstream with no
+   music-volume menu.** The masking/clipping theory built on them was resting on
+   nothing. Hardware refuted that theory independently and the default was
+   reverted before shipping, so no bad code went out, but the reasoning was
+   unsupported at the time it was written down.
+2. `hw-test/pocket-install/` now contains only a README pointing at `pkg/`. The
+   package is built in exactly one place, and `scripts/deploy_to_sd.sh` force-
+   copies the whole directory and prints the resulting menu so a stale file is
+   visible before ejecting.
+
+**Verify the card, not the report.** Cheap, and it would have caught this
+immediately.
