@@ -1386,3 +1386,55 @@ Two consequences worth recording:
 
 **Verify the card, not the report.** Cheap, and it would have caught this
 immediately.
+
+
+---
+
+## Boss / large-enemy death plays the wrong sound
+
+**The correct sample is identified: `0x1C`** (`sfx_028_0x1C_9600Hz_4bit_2.15s.wav`),
+9600 Hz, 4-bit, 2.15 s, autocorrelation 0.895 - one of the most tonal in the bank.
+Identified by ear from the dump; it is the death sound for large "fat" enemies and
+most bosses. What plays instead is an ordinary enemy's death sound.
+
+### How the request reaches us
+
+`paprium_w16` (`paprium.h:2658`): a **16-bit write to cart RAM offset `0x1FEA`**
+dispatches every Paprium command.
+
+    if( address == 0x1FEA ) { paprium_cmd(data); }
+    /* cmd = data >> 8;   parameter = data & 0xFF */
+
+So `sfx_play` of sample `0x1C` is a single write of **`0xD11C`**, with the channel
+mask at `0x1E10`, volume `0x1E12`, pan `0x1E14` and flags `0x1E16` written just
+before. All of it is visible to our RTL.
+
+Note this is **not** the MD+ protocol our `paprium_mdp_adapter.sv` decodes
+(`$11xx`/`$12xx`). That adapter is the CDDA overlay this port added. Paprium's own
+commands go to the MCU, which polls cart RAM.
+
+### Eviction is ruled out by argument, not by test
+
+`sfx.c`'s allocator evicts the **oldest** channel when no masked channel is free -
+and then plays the **new** sound in it. Eviction can silence an older effect; it
+can never silence the incoming one. So "a different sound plays instead of `0x1C`"
+cannot be eviction, and the earlier eviction hypothesis is dead.
+
+That also disposes of the layered-sound theory: if the game asked for `0x1C` it
+would be heard, whatever else was competing.
+
+### What is left, and the test that separates it
+
+| Log at the kill | Meaning |
+|---|---|
+| `0xD11C` present | requested correctly - our firmware or RTL plays the wrong sample. **Ours, fixable** |
+| a different `0xD1nn` | the game asked for the ordinary sound; divergence is earlier, in game state |
+| no `0xD1` nearby | the cue arrives by a path our firmware mutes - `0xD3 sfx_loop`, or `0x88` |
+
+**Diagnostic design.** Snoop 16-bit writes to cart RAM `0x1FEA`, keep a ring of the
+last N commands with their `0x1E10` channel mask, and expose it through APF. Write
+it to a **separate nonvolatile data slot, not the save slot** - the 4 KB save is
+the player's actual progress and a diagnostic must not overwrite it.
+
+Affordable now: the menu reduction freed 1,727 ALMs, where at 98% this was not
+buildable at all.
