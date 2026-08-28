@@ -1470,3 +1470,85 @@ caught it. Had it passed unremarked, the "diagnostic" package would have carried
 the shipping bitstream, with no logger in it, and a full playthrough would have
 produced an empty log. **Check the timestamp and size; never trust the exit code
 of a compound command.**
+
+
+---
+
+## Proposal: IMA ADPCM for the music blob
+
+Not urgent, and not a constraint anyone is currently hitting - a 2.25 GB blob sits
+happily on a card with 953 GB free. Logged because it is a real improvement and
+the analysis behind it should not have to be redone.
+
+### The blob today
+
+    cdda-blob/paprium.pcm   2,245,919,744 bytes   195 minutes
+    48 kHz, 16-bit, stereo, headerless PCM at 192 KB/s
+
+53 unique tracks. Deduplication is not worth doing: the only repeats are the ten
+`Blank.wav` silences, all one second of zeros, wasting **1.7 MB**. The format is
+uncompressed deliberately, so the fetcher can seek by byte offset without decoding.
+
+### Why IMA ADPCM
+
+4 bits per sample, **4:1**, keeping 48 kHz and stereo: **2.25 GB -> ~562 MB**.
+
+The property that matters is that it is block-based. Each block carries its own
+predictor and step index, so decoding can start at any block boundary - which is
+exactly what `paprium_cdda_fetch` already does when it seeks to a chunk boundary.
+The seek mechanism does not change; each chunk simply covers 4x more audio.
+
+Decoder cost is an 89-entry step table, a 16-entry index table, and some adds and
+shifts. Small against the 1,727 ALMs the menu reduction freed.
+
+**The better reason is bandwidth.** Reading a quarter as many bytes cuts the CDDA
+path's bridge traffic 4x, on the subsystem that has caused the most trouble in this
+project - underruns, stale-chunk races, the stale-`done` bug twice. That headroom is
+worth more than the disk saving.
+
+### Work involved
+
+- ADPCM decoder module between `data_loader` and `paprium_cdda_buf`
+- Bytes-per-sample arithmetic in `paprium_cdda_fetch` and the blob header's length
+  fields; chunk size must land on block boundaries
+- `build_cdda_blob.sh` needs an encoder (ffmpeg `adpcm_ima_wav`, or ~30 lines of
+  Python)
+- **Format change** - every existing blob must be rebuilt, and the core should
+  reject or detect an old one rather than play noise
+- Its own hardware test pass. Music took four attempts to get right; it earns one
+
+### Why not a real codec
+
+Asked and answered, so it does not get re-asked. Two routes, both dead on this
+device.
+
+**In RTL.** MP3 needs Huffman decode over ~30 tables, requantisation, stereo
+processing, alias reduction, a 36-point IMDCT, and the synthesis polyphase
+filterbank - 32 subbands against a 512-tap window. Published FPGA implementations
+run **5,000-15,000 LEs plus DSPs and coefficient ROM**. We have 1,727 ALMs. Vorbis
+is worse (variable MDCT to 8192, codebooks in the tens of KB); Opus is a CELT/SILK
+hybrid essentially nobody implements in pure RTL.
+
+**On a soft CPU.** The realistic route generally, and it dies on two numbers here.
+`libmad` needs ~40 KB of code plus working RAM, against **62 free M10K = 77 KB
+total** before the CPU's own needs - and a small RISC-V with a multiplier is itself
+1,500-2,500 ALMs, already more than we have. Throughput is worse: stereo 48 kHz MP3
+is ~20-30 MIPS on an integer core with no DSP, and NEORV32 at 50 MHz gives perhaps
+15-25, which must never miss a deadline. The existing MCU cannot help - 16 KB of
+ROM, fully occupied servicing the 68000.
+
+Seeking would also stop being free: byte offsets no longer address frames, so the
+blob would need a frame index built at packing time.
+
+| Codec | Ratio | Cost |
+|---|---|---|
+| IMA ADPCM | 4:1 | ~100-200 ALMs |
+| FLAC | ~1.8:1 | feasible, poor payoff |
+| MP3 | ~11:1 | 5-15k LEs, or a CPU that does not fit |
+| Vorbis / Opus | ~12:1 | soft CPU + tens of KB, not viable |
+
+The complexity curve between ADPCM and MP3 is brutal; the size curve is not
+(562 MB against ~200 MB). A hundred times the logic for a further 2.8x.
+
+On a larger FPGA the answer differs. On a 5CEBA4 already at 91% with a gate-level
+68000 and VDP in it, it does not.
