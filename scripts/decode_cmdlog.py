@@ -10,7 +10,7 @@ two-word entries plus a header:
                [15: 0] the sfx channel mask latched from 0x1E10
     word 2n+1  [31:16] the flags latched from 0x1E16
                [15: 0] the volume latched from 0x1E12
-    word 4095  {0xC0DE, wr_idx} - where the newest entry landed
+    word 4095  {0xC0DE, armed, frozen, 0, wr_idx}
 
 Every Paprium command is a single 16-bit write to 0x1FEA, command in the high byte
 and parameter in the low byte (GPGX paprium_w16 / paprium_cmd).
@@ -87,7 +87,9 @@ def main():
 
     words = struct.unpack('>4096I', data[:16384])
 
-    magic, wr_idx = words[4095] >> 16, words[4095] & 0xFFF
+    hdr = words[4095]
+    magic, wr_idx = hdr >> 16, hdr & 0xFFF
+    armed, frozen = bool(hdr & 0x8000), bool(hdr & 0x4000)
     if magic != 0xC0DE:
         print("header magic is %04X, expected C0DE." % magic, file=sys.stderr)
         print("Is this the diagnostic build, and did you EXIT the core rather "
@@ -104,7 +106,16 @@ def main():
     if '--all' not in flags:
         entries = entries[-60:]
 
-    print("%d entries, newest at word %d\n" % (len(entries), (wr_idx - 2) % 4094))
+    if frozen:
+        state = "FROZEN - a cue was seen and its window is preserved"
+    elif armed:
+        state = "armed, not yet frozen - a cue was seen, tail still filling"
+    else:
+        state = ("NOT TRIGGERED - neither 0x1C nor 0x4A was requested at any"
+                 " point in the run, so the ring rolled and this is only the tail")
+    print("%d entries, newest at word %d" % (len(entries), (wr_idx - 2) % 4094))
+    print("capture state: %s" % state)
+    print()
     print("%-6s %-4s %-15s %-5s %-6s %-6s %-5s %s"
           % ("word", "cmd", "name", "parm", "mask", "flags", "vol", "effects"))
 
