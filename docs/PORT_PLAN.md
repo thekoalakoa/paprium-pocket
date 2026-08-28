@@ -1552,3 +1552,62 @@ The complexity curve between ADPCM and MP3 is brutal; the size curve is not
 
 On a larger FPGA the answer differs. On a 5CEBA4 already at 91% with a gate-level
 68000 and VDP in it, it does not.
+
+
+---
+
+## The command logger works, and boot already answered two questions
+
+### Getting the file written: a datatable entry, not just data.json
+
+The first capture came back with no file at all. **APF creates a nonvolatile file
+from the DATATABLE, not from `data.json`** - `core_top.sv` writes the save slot's
+size there and the comment says so outright:
+
+    // APF creates a .sav for every game unless the slot size reads back 0
+    wire [9:0]  datatable_addr = 10'd3;      // the save slot's index
+    wire [31:0] datatable_data = ... SAVE_SIZE;
+
+Slot 11 was declared in `data.json` and given no datatable entry, so APF never
+created `Paprium.log`. A full playthrough was spent on a logger with nowhere to
+write - my bug, and the smoke test that caught it cost two minutes against the
+two levels it saved.
+
+**Workaround, and it works:** pre-create the file on the card and APF loads it and
+writes it back on exit.
+
+    D:\Saves\paprium\common\Paprium.log   16384 zero bytes
+
+Note the path convention is `/Saves/<platform>/common/<romname>.<ext>` - **not**
+`/Saves/<platform>/<Author.Core>/`, which is what Analogue's docs suggest and what
+was tried first. Confirmed against the other cores on the card.
+
+A proper fix would add a datatable entry for slot 11. The index is
+`(slot_position * 2) + 1` by inference from the save slot at position 1 -> address
+3, so the log at position 3 -> address 7. **Unverified**, and writing the wrong
+index could corrupt the ROM slot's size, so it was not guessed at while a free
+workaround existed.
+
+### Confirmed from a 30-second boot
+
+    96   D1  SFX_PLAY 4E  mask 003F  flags 4000  ECHO
+    98   D1  SFX_PLAY 56  mask 003F  flags 4000  ECHO
+    58   D1  SFX_PLAY 01  mask 003F  flags 2100  pitchHalf, AMPLIFY
+
+**The game really does request echo and amplify**, and this port implements
+neither. That is no longer inference from GPGX source - it is measured, on real
+hardware, during the boot sequence alone. Every effect that asks for them is drier
+and quieter than the cartridge.
+
+**`0x88 audio_setting` fires five times during boot**, parameters `02` and `0A` -
+the NTSC and DAC configuration bits - and our firmware ignores all of it, exactly
+as MisterPezz82's KNOWN_ISSUES.md records.
+
+### Caveat when reading a capture
+
+`flags` and `vol` are the **last values latched** from `0x1E16`/`0x1E12`, not
+values carried by the command itself. A command that does not write them shows
+whatever the previous one left - the first few boot entries show `AC4C`/`9000`,
+which is uninitialised. This is faithful rather than a bug: `sfx_play` reads the
+same latched RAM. Only trust flags on an `SFX_PLAY` whose parameters were written
+alongside it.
