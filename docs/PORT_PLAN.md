@@ -1679,3 +1679,51 @@ real hardware. Losing a working firmware to chase a fix would be a poor trade.
 Echo and amplify are RTL - `audio_sfx.sv` and the mixer, entirely ours. The
 firmware question gates only `0x88` and any channel-allocation change. Do the RTL
 first: it is specified exactly, it fits, and it improves every effect in the game.
+
+
+---
+
+## Echo and amplify implemented in RTL
+
+Measured on hardware first: the boot capture showed `flags 4000` on `SFX_PLAY`
+`0x4E` and `0x56`, and `0x2100` on `0x01`, and the gameplay capture showed echo on
+nearly every command in the fade loop. The game asks for these constantly and this
+port dropped all of it, as MiSTer still does.
+
+Both flags were already reaching the RTL. Our 8-bit `flags` is the HIGH byte of the
+16-bit word the game writes to `0x1E16`, so **echo is `flags[6]`** (`0x4000`) and
+**amplify is `flags[0]`** (`0x0100`) - no new MCU decode, just two bits that were
+being ignored.
+
+**Amplify** scales the RUNNING mix, not the voice - GPGX does `l = (l * 125) / 100`
+on the accumulator inside the voice loop, so it is applied at the accumulate step
+as `acc + acc/4`.
+
+**Echo** is a single-tap 8000-entry ring - 166.7 ms at 48 kHz - at 33%, no
+feedback. GPGX clears each slot, lets voices accumulate into it, advances the
+pointer and adds the slot it lands on; overwriting each slot rather than
+accumulating gives the clear for free. 33/100 is taken as 84/256 (0.328 against
+0.330, inside the noise of 4-bit source material). 8000 x 32 = 256 Kbit, ~26 M10K
+against 62 free.
+
+### One deliberate deviation
+
+GPGX assigns each echo-flagged voice to ONE side, alternating as voices are
+allocated (`voice->echo = echo_pan++ & 1`). That counter lives in the firmware and
+is not visible to the RTL, so the side is taken from the **channel index** instead.
+Deterministic, and it spreads echo across both sides the same way, but it is not
+bit-identical to GPGX. Recorded because it is the only place this feature departs
+from the reference.
+
+### Status
+
+Written, **not yet synthesised** - the command-log build had the Quartus project
+locked. Needs `syn_check`, a fit, and a hardware A/B against the current build
+before it goes anywhere near shipping.
+
+### Firmware rebuild: batch it with the audio format change
+
+Rebuilding `mcu.txt` from krikzz's tree and moving the blob to IMA ADPCM should
+land in the SAME validation pass. Both change audio behaviour, both need a careful
+hardware A/B, and doing them separately means two full test cycles for one set of
+listening. Neither is urgent; the RTL work above is not blocked by either.
