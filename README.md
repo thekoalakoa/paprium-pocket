@@ -112,7 +112,7 @@ Variants: `paprium`, `paprium_nosfx`, `paprium_cddadbg`, `paprium_cmdlog`.
 
 ## Lineage
 
-Built on four projects, each doing the hard part of a different layer:
+Built on five projects, each doing the hard part of a different layer:
 
 | | |
 |---|---|
