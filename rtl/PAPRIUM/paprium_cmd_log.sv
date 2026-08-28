@@ -21,17 +21,22 @@
 //   no 0xD1 near the kill      -> the cue arrives by a path our firmware mutes
 //                                 (0xD3 sfx_loop, or 0x88 audio_setting).
 //
-// Every command is logged, not just 0xD1, because "which commands fire around
-// the event" is the question - and 0x88/0xB0 are already suspected of being
-// muted in this firmware build.
+// SOUND COMMANDS ONLY, and a deep ring, because the two events of interest are in
+// DIFFERENT LEVELS and this game has no save - reaching the second punk TV means
+// playing level 1 and most of level 2, so one capture has to survive an enormous
+// number of commands. Sprite traffic (0xAD/0xAE/0xAF) dominates by orders of
+// magnitude and would flush the ring many times over before the second TV; audio
+// commands are comparatively rare, so filtering to them is what makes a single
+// playthrough enough. 0x88 and 0xB0 are kept despite 0xB0 being a sprite command,
+// because both are recorded upstream as muted in this firmware build.
 //
-// Layout, 1024 words of 32 bits = 4096 bytes, read back through its own APF data
+// Layout, 4096 words of 32 bits = 16384 bytes, read back through its own APF data
 // slot (never the save slot - that is the player's progress):
 //
-//   word 0 .. 1022 : ring of commands, oldest overwritten
+//   word 0 .. 4094 : ring of commands, oldest overwritten
 //                    [31:16] the 16-bit command word written to 0x1FEA
 //                    [15: 0] the channel mask latched from 0x1E10
-//   word 1023      : {16'hC0DE, 6'd0, wr_idx} - where the newest entry landed
+//   word 4095      : {16'hC0DE, 4'd0, wr_idx} - where the newest entry landed
 //
 // The mask matters because sfx_play takes it as the set of channels it may
 // allocate from, and sfx.c evicts the oldest channel within that mask.
@@ -50,7 +55,7 @@ module paprium_cmd_log (
 	// apf_bridge_write_data[31-WORD_SIZE:0] slice degenerates at 32 bits - so the
 	// word is served a byte at a time, most significant first, which makes a
 	// hexdump of the file read as the 32-bit values directly.
-	input  wire [11:0] read_addr,
+	input  wire [13:0] read_addr,
 	output reg   [7:0] read_data
 );
 
@@ -60,24 +65,38 @@ module paprium_cmd_log (
 
 	wire [11:0] wr_word = cpu_addr[12:1];
 
-	wire hit_cmd  = cpu_wr & (wr_word == A_CMD);
+	// Audio-relevant commands, plus the two recorded as muted upstream
+	wire [7:0] cmd_hi = cpu_data[15:8];
+	wire keep =
+		   (cmd_hi == 8'h88)   // audio_setting  (muted in this firmware)
+		|| (cmd_hi == 8'h8C)   // music
+		|| (cmd_hi == 8'h8D)   // music_setting
+		|| (cmd_hi == 8'hB0)   // sprite_init    (muted in this firmware)
+		|| (cmd_hi == 8'hC9)   // music_volume
+		|| (cmd_hi == 8'hCA)   // sfx_volume
+		|| (cmd_hi == 8'hD1)   // sfx_play
+		|| (cmd_hi == 8'hD2)   // sfx_off
+		|| (cmd_hi == 8'hD3)   // sfx_loop
+		|| (cmd_hi == 8'hD6);  // music_special
+
+	wire hit_cmd  = cpu_wr & (wr_word == A_CMD) & keep;
 	wire hit_mask = cpu_wr & (wr_word == A_MASK);
 
 	// The mask is written just before the command, so latching it and pairing it
 	// with the next command word is enough - no ordering games needed.
 	reg [15:0] last_mask;
 
-	reg [9:0]  wr_idx;
+	reg [11:0] wr_idx;
 
 	reg        mem_we;
-	reg [9:0]  mem_waddr;
+	reg [11:0] mem_waddr;
 	reg [31:0] mem_wdata;
 
 	always @(posedge clk) begin
 		mem_we <= 1'b0;
 
 		if(reset) begin
-			wr_idx    <= 10'd0;
+			wr_idx    <= 12'd0;
 			last_mask <= 16'd0;
 		end
 		else begin
@@ -88,8 +107,8 @@ module paprium_cmd_log (
 				mem_waddr <= wr_idx;
 				mem_wdata <= {cpu_data, last_mask};
 
-				// 0..1022; word 1023 is the header
-				wr_idx <= (wr_idx == 10'd1022) ? 10'd0 : wr_idx + 1'd1;
+				// 0..4094; word 4095 is the header
+				wr_idx <= (wr_idx == 12'd4094) ? 12'd0 : wr_idx + 1'd1;
 			end
 		end
 	end
@@ -101,19 +120,20 @@ module paprium_cmd_log (
 	always @(posedge clk) hdr_we <= mem_we;
 
 	wire        ram_we    = mem_we | hdr_we;
-	wire [9:0]  ram_waddr = hdr_we ? 10'd1023 : mem_waddr;
-	wire [31:0] ram_wdata = hdr_we ? {16'hC0DE, 6'd0, wr_idx} : mem_wdata;
+	wire [11:0] ram_waddr = hdr_we ? 12'd4095 : mem_waddr;
+	wire [31:0] ram_wdata = hdr_we ? {16'hC0DE, 4'd0, wr_idx} : mem_wdata;
 
 	// Written as a plain inferred dual-port RAM: one write port, one registered
-	// read port, no read-during-write games. 1024 x 32 = 32 Kbit.
-	reg [31:0] mem[1024];
+	// read port, no read-during-write games. 4096 x 32 = 128 Kbit, affordable at
+	// 246/308 RAM blocks.
+	reg [31:0] mem[4096];
 
 	always @(posedge clk) if(ram_we) mem[ram_waddr] <= ram_wdata;
 
 	reg [31:0] rd_word;
 	reg  [1:0] rd_sel;
 	always @(posedge clk) begin
-		rd_word <= mem[read_addr[11:2]];
+		rd_word <= mem[read_addr[13:2]];
 		rd_sel  <= read_addr[1:0];
 	end
 

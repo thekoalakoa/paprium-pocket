@@ -870,7 +870,7 @@ module core_top (
 
   // paprium: command-log read-back on its own bridge region (0x3xxxxxxx) and its
   // own data slot, so a diagnostic capture can never touch the 4 KB save.
-  wire [11:0] cmdlog_read_addr;
+  wire [13:0] cmdlog_read_addr;
   wire  [7:0] cmdlog_read_data;
   wire [31:0] cmdlog_rd_data;
 
@@ -878,7 +878,7 @@ module core_top (
     if (PAPRIUM_CMD_LOG) begin : cmdlog_unload
       data_unloader #(
           .ADDRESS_MASK_UPPER_4(4'h3),
-          .ADDRESS_SIZE        (12),
+          .ADDRESS_SIZE        (14),
           .INPUT_WORD_SIZE     (1),
           .READ_MEM_CLOCK_DELAY(4)
       ) cmdlog_data_unloader (
@@ -897,7 +897,7 @@ module core_top (
     end
     else begin : cmdlog_unload_off
       assign cmdlog_rd_data   = 32'd0;
-      assign cmdlog_read_addr = 12'd0;
+      assign cmdlog_read_addr = 14'd0;
     end
   endgenerate
   // paprium-end
