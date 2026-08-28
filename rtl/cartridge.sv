@@ -33,7 +33,7 @@ module cartridge
 // banking is suppressed, SDRAM port 2 moves from the SVP to the Paprium MCU, and the
 // save RAM becomes the MCU-managed 4 KB backup RAM. SVP and PAPRIUM are mutually
 // exclusive - both want port 2
-#(parameter SVP = 1'b0, parameter PAPRIUM = 1'b0, parameter PAPRIUM_SFX = 1'b1)
+#(parameter SVP = 1'b0, parameter PAPRIUM = 1'b0, parameter PAPRIUM_SFX = 1'b1, parameter PAPRIUM_CMDLOG = 1'b0)
 // pocket-end
 (
 	input             clk,
@@ -102,6 +102,10 @@ module cartridge
 	output            paprium_md_reset,
 	output signed [15:0] paprium_sfx_l,
 	output signed [15:0] paprium_sfx_r,
+
+	// paprium: mailbox command log read-back (diagnostic builds only)
+	input          [11:0] cmdlog_read_addr,
+	output          [7:0] cmdlog_read_data,
 
 	output            mdp_track_request,
 	output      [7:0] mdp_track_num,
@@ -537,7 +541,7 @@ end
 
 generate
 if(PAPRIUM) begin
-	paprium_cart #(.SFX(PAPRIUM_SFX)) paprium
+	paprium_cart #(.SFX(PAPRIUM_SFX), .CMDLOG(PAPRIUM_CMDLOG)) paprium
 	(
 		.clk(clk),
 		.reset(reset),
@@ -577,6 +581,9 @@ if(PAPRIUM) begin
 		.dbg_ramdp_addr(),
 		.dbg_ramdp_data(),
 
+		.cmdlog_read_addr(cmdlog_read_addr),
+		.cmdlog_read_data(cmdlog_read_data),
+
 		.save_addr(save_addr),
 		.save_di(save_di),
 		.save_do(paprium_save_do),
@@ -607,6 +614,7 @@ else begin
 	assign paprium_md_reset    = 0;
 	assign paprium_sfx_l       = 0;
 	assign paprium_sfx_r       = 0;
+	assign cmdlog_read_data    = 0;
 
 	assign mdp_track_request  = 0;
 	assign mdp_track_num      = 0;
