@@ -61,6 +61,14 @@ module paprium_cmd_log (
 	input  wire [12:0] cpu_addr,     // byte address within the 8 KB cart RAM
 	input  wire [15:0] cpu_data,     // the 16-bit value being written
 
+	// paprium: channel-7 state, logged as synthetic entries. The mailbox capture
+	// proved the REQUEST for the punk-TV cue is correct, so the open question is
+	// what the channel does with it: does the volume register actually take the
+	// ramp, and does the MCU keep feeding samples after the first 4.99 s pass?
+	input  wire [10:0] ch7_vol,
+	input  wire        ch7_empty,
+	input  wire        ch7_wr,      // pulses per PCM word pushed by the MCU
+
 	// APF read-back port. data_unloader only supports byte-wide reads - its
 	// apf_bridge_write_data[31-WORD_SIZE:0] slice degenerates at 32 bits - so the
 	// word is served a byte at a time, most significant first, which makes a
@@ -125,6 +133,20 @@ module paprium_cmd_log (
 	reg [10:0] post_cnt;
 
 	wire hit_cmd = hit_raw & ~dup & ~frozen;
+
+	// Channel-7 snapshots, emitted on CHANGE rather than on a timer: the volume
+	// register changing and the FIFO running dry are both rare, so this stays
+	// sparse and cannot flood the ring the way the fade traffic did. Logged as
+	// command 0xF7, which is not a real Paprium command, so the decoder can tell
+	// them apart from mailbox traffic.
+	localparam [7:0] SNAP_CMD = 8'hF7;
+
+	reg [10:0] ch7_vol_d;
+	reg        ch7_empty_d;
+	reg [15:0] ch7_wr_cnt;
+
+	wire ch7_changed = (ch7_vol != ch7_vol_d) | (ch7_empty != ch7_empty_d);
+	wire hit_snap    = ch7_changed & ~frozen & ~hit_cmd;
 	wire hit_mask  = cpu_wr & (wr_word == A_MASK);
 	wire hit_vol   = cpu_wr & (wr_word == A_VOL);
 	wire hit_flags = cpu_wr & (wr_word == A_FLAGS);
@@ -145,7 +167,10 @@ module paprium_cmd_log (
 		mem_we <= 1'b0;
 
 		if(reset) begin
-			wr_idx     <= 12'd0;
+			wr_idx      <= 12'd0;
+			ch7_vol_d   <= 11'd0;
+			ch7_empty_d <= 1'b1;
+			ch7_wr_cnt  <= 16'd0;
 			last_mask  <= 16'd0;
 			last_vol   <= 16'd0;
 			last_flags <= 16'd0;
@@ -158,6 +183,10 @@ module paprium_cmd_log (
 			post_cnt   <= 11'd0;
 		end
 		else begin
+			ch7_vol_d   <= ch7_vol;
+			ch7_empty_d <= ch7_empty;
+			if(ch7_wr) ch7_wr_cnt <= ch7_wr_cnt + 1'd1;
+
 			if(hit_mask)  last_mask  <= cpu_data;
 			if(hit_vol)   last_vol   <= cpu_data;
 			if(hit_flags) last_flags <= cpu_data;
@@ -183,6 +212,16 @@ module paprium_cmd_log (
 				snd_wdata <= {last_flags, last_vol};
 
 				// entries are two words; 0..4093, word 4095 is the header
+				wr_idx <= (wr_idx >= 12'd4092) ? 12'd0 : wr_idx + 2'd2;
+			end
+			else if(hit_snap) begin
+				mem_we    <= 1'b1;
+				mem_waddr <= wr_idx;
+				//  [31:24] 0xF7 marker   [23:16] fifo_empty   [15:0] volume
+				mem_wdata <= {SNAP_CMD, 7'd0, ch7_empty, 5'd0, ch7_vol};
+				//  [31:16] unused        [15:0]  PCM words pushed so far
+				snd_wdata <= {16'd0, ch7_wr_cnt};
+
 				wr_idx <= (wr_idx >= 12'd4092) ? 12'd0 : wr_idx + 2'd2;
 			end
 		end
