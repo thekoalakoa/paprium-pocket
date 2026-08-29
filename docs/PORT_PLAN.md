@@ -2989,6 +2989,48 @@ kind of thing, not because they are different voices.
 Still open: what the 4-byte event contains. The note/octave reading was refuted
 against hardware (see below), so this restarts with no field assumed to be pitch.
 
+## Array B as a per-voice transpose: dead, and so is the whole family
+
+**Array B is entirely zero for track07** - Bone Crusher, the only track we have a
+hardware recording of. So are arrays A, C and D, in the sense that matters: A is
+a constant `0x10`, C all zero, D a constant `0x80`.
+
+    track07 header arrays:  A const 10   B ALL ZERO   C ALL ZERO   D const 80
+
+Applying B as a transpose there is a **no-op**. It cannot change the 52/52 result
+and cannot rescue anything. (Across the corpus 15 of 52 modules have any nonzero
+B at all; 37 are entirely zero.)
+
+That alone removes the excuse: Bone Crusher carries no per-voice base of any
+kind, so if the note/octave reading were correct, plain absolute pitch should
+have matched. It ranked last.
+
+### The general case, closed too
+
+Rather than stop at array B, the entire per-voice-transpose family was tested by
+granting each module a **free 0-11 transpose per voice, fitted by coordinate
+ascent to maximise agreement with the recording** - best case, every module
+given the same advantage.
+
+    rank  1  track11  +0.999
+    rank  2  track21  +0.998
+    ...
+    rank 34  track07  +0.972   <- the correct answer, below chance (26)
+
+Bone Crusher fits **worse than 33 other modules even after being optimally
+fitted to the recording it actually is**. If the note reading carried real pitch,
+track07's notes should fit its own recording better than other songs' notes do,
+fitting or no fitting. They do not.
+
+Note the fitted correlations are all +0.97 to +0.999: with 26 free parameters
+every module can be bent to match, so the model is nearly vacuous. That makes
+the test weak at *confirming* anything - but the ordering is still informative,
+and it puts the right answer in the bottom half.
+
+**Conclusion: no per-voice pitch base rescues the decode.** The refutation stands
+without qualification, and the remaining explanation is that the 4-byte event
+simply does not contain a semitone note where it was thought to.
+
 ## HARDWARE VERDICT: the note/octave decode is wrong
 
 A 34-second capture of **Bone Crusher from original hardware** was run blind
