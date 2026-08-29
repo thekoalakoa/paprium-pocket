@@ -3064,3 +3064,48 @@ cap for port 2 entirely rather than tuning a threshold.
 
 **Revert to 24 afterwards** unless a result argues otherwise: 8 costs ALMs and
 timing for no benefit.
+
+
+## SETTLED: MCU starvation is not the elevator's cause
+
+Both directions tested on hardware.
+
+| STARVE2_LIMIT | MCU bandwidth | Elevator | Everything else |
+|---|---|---|---|
+| 8 | 3x more | **unchanged** | no reported difference |
+| 24 (upstream) | baseline | glitches | fine |
+| 96 | 12x less | **unchanged** | **visible slowdown, dropped frames** |
+
+The frame drops at 96 are what make this conclusive. **The knob demonstrably
+works** - starve the MCU and frame pacing suffers, which is precisely the animation
+skipping MisterPezz82 logged as issue #10 and added `STARVE2_LIMIT` to address. The
+game is genuinely sensitive to port-2 arbitration.
+
+**And the elevator is indifferent to it in both directions.** Three times the
+bandwidth does not help; a twelfth of it does not hurt. Whatever corrupts the
+elevator is not MCU bandwidth.
+
+So upstream's recorded root cause - "ROOT CAUSE = shared-SDRAM port starvation" -
+conflated two separate problems. Starvation explains the animation skipping. It does
+not explain the elevator.
+
+**Restored to 24.** 8 costs 1,145 ALMs and 0.87 ns for no benefit; 96 makes the game
+worse. 24 is the value the animation fix was tuned to and neither direction improved
+on it.
+
+### Where the elevator investigation goes now
+
+Everything tried and eliminated: the sprite-attribute composition (upstream built and
+HW-tested it, no effect), `0xB0 sprite_init` (implemented here, no effect), MCU
+bandwidth in both directions (no effect), and decompression (upstream verified the
+decoders match GPGX, and this port has since replaced the `0x81` decoder with the
+real LZO one and the subway renders correctly).
+
+What is known: it happens **when a background elevator is scrolling past**, and it
+manifests as the player sprite dropping to background priority plus square sprite
+blocks scrolling across.
+
+That combination - a scrolling background object, sprite priority, and block-shaped
+artefacts - points at the VDP side rather than the MCU: plane priority, scroll
+tables, or VRAM allocation for the scrolling layer. The next diagnostic should look
+at what the game writes to the VDP during that scene, not at what the MCU is doing.
