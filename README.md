@@ -49,9 +49,25 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 |---|---|
 | Elevator level: palette corruption, sprite priority | Open — upstream firmware |
 | Roof top Boss fight: player sprite drops behind the background during bombing phase | Open — upstream firmware |
-| Boss / large-enemy death plays the wrong sound effect | Under investigation |
-| Punk-TV cue silent outside Arcade/Easy | Under investigation |
+| Big enemies play a normal enemy's death sound | Open — the game requests it correctly, so the loss is downstream |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
+
+### Fixed here
+
+Bugs present in every other Paprium build on this hardware, including the MiSTer
+core this forks. All verified on real hardware, in both Arcade and Original modes.
+
+| Fix | Was |
+|---|---|
+| Punk-TV cues, and the looping area ambience | Silent. `sfx_player_update` abandons a channel once it empties, so the game's later `sfx_loop` — which enables looping and ramps the volume — landed on a dead channel |
+| Subway and other `0x81` assets | Corrupted. Stock `mega-ppm` ships MAME's reverse-engineered guess at the LZ decoder; replaced with the real LZO decoder |
+| Block 888 door | Wrong palette |
+| Stage Clear, Continue, Game Over, High Score, Ending | Silent. `cmd_8C` stopped one-shot cues instead of playing them |
+| Echo and amplify on sound effects | Never implemented, though the game requests them constantly |
+| Stereo imaging on every off-centre effect | One side was phase-inverted, cancelling on the Pocket's mono speaker |
+
+The firmware changes are in [patches/](patches/) and rebuild from a clean
+[krikzz/mega-ppm](https://github.com/krikzz/mega-ppm) clone.
 
 Timing does not fully close on this device — inherited from the base core, which
 runs correctly on hardware regardless.
