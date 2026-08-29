@@ -2929,6 +2929,71 @@ advance, which is what makes it a test rather than a demonstration.
 This is the experiment that should decide whether to continue. Everything else
 is blocked behind it.
 
+## Properly powered search: pitch is NOT in the module data
+
+With the album restored as a valid reference, chroma was cached for **50
+labelled tracks**, so a hypothesis is scored by the mean rank of the correct
+module across 50 trials rather than one 1-in-52 shot. Chance is 25.5, standard
+error 2.0, so significance needs a mean rank below about 21.
+
+Seventeen interpretations, all at chance:
+
+    mean 22.2  top-1  0/50   a pentatonic degree      <- best, 1.6 SE, not significant
+    mean 22.9  top-1  1/50   b major degree
+    mean 23.4  top-1  0/50   a major degree
+    mean 24.3  top-1  0/50   u16 as log-frequency
+    mean 24.3  top-1  2/50   a + octave b (old model)
+    mean 25.5  top-1  1/50   voice index x2 mod 12
+    mean 26.1  top-1  1/50   voice index mod 12
+    mean 26.7  top-1  1/50   a absolute semitone
+
+covering both bytes, absolute and delta, major / minor / pentatonic degrees, the
+16-bit slot as a log-frequency, and the hypothesis that pitch is carried by the
+**voice** with patterns as pure rhythm. Top-1 counts run 0-2 of 50 where chance
+is 1.
+
+**Conclusion: the melodic pitch content is not recoverable from the pattern
+bytes, nor from the voice index, by any direct mapping.** This is no longer a
+weak or single-trial result - it is a 50-trial test with a validated reference
+and a known chance level.
+
+## What that implies
+
+The container is fully understood and the payload does not contain pitch in any
+form that a per-value mapping reaches. The remaining possibilities are all
+indirect:
+
+1. **Events reference something we have not found.** The small values (`01..0E`)
+   behave like indices, and there is no frequency register anywhere in the
+   hardware we hold to point them at (see the SFX-engine correction above). The
+   referenced structure would have to live outside the module - in the ROM, or in
+   the STM32 firmware that has never been dumped.
+2. **Pitch is stateful in a way a histogram cannot see** - relative to a running
+   value updated by commands that are themselves not yet identified. A chroma
+   test cannot detect that, and nothing weaker than a full interpreter would.
+
+Both are consistent with everything measured. Neither is testable with the files
+we have.
+
+## Honest bottom line
+
+    container  order list, 26 voices, patterns, rows, slots     SOLVED
+    text       XOR 0xA5                                          SOLVED
+    reference  album validated against hardware, 50 tracks       SOLVED
+    payload    event semantics, pitch                            NOT SOLVED
+
+The tooling built here is durable and correct: `identify_track.py`,
+`validate_pitch.py`, `validate_tempo.py`, and a cached 50-track reference make
+any future hypothesis decisively testable in seconds against a known chance
+level. That is what was missing for the whole first half of this work.
+
+What would actually unlock the payload is **the STM32F446 firmware**, which is
+the only place the synth has ever existed. `repos/paprium-dump` documents glitch
+attacks against exactly that chip (`ChipWhisperer/Paprium_STM32_Glitch_CW.py`,
+CVE-2020-0574 for the MAX 10). Until such a dump exists, further guessing at
+event semantics is not a good use of effort - the search space is unbounded and
+the tests can only ever say no.
+
 ## RETRACTION: the album IS a valid reference, and a correct refutation was explained away
 
 Two direct captures (Nickology, from hardware) settled this.
