@@ -2270,3 +2270,44 @@ Other things to try once that is known:
   the sax man and the JP-exclusive features live.
 - Whether `0xB0 paprium_sprite_init`, the other muted command, gates anything -
   MisterPezz82 suspected it in the elevator corruption and never followed up.
+
+
+## Eight commands are muted, not two
+
+The firmware stubs more than the two upstream mentioned. From
+`repos/mega-ppm/mcu/paprium.c`, with krikzz's own comments:
+
+| cmd | comment | GPGX |
+|---|---|---|
+| `0x83` | unk startup thing | logged no-op |
+| `0x95` | (bgm related) | logged no-op |
+| `0x96` | (bgm related) | logged no-op |
+| `0xA4` | **megawire settings** | logged no-op |
+| `0xB0` | *(none)* | `paprium_sprite_init` - **implemented** |
+| `0xB6` | likely restores boot code to allow HW reset | logged no-op |
+| `0xD0` | *(none)* | logged no-op |
+| `0xD6` | ??? | `paprium_music_special` - **implemented** |
+| `0x88` | set audio config | `paprium_audio_setting` - **now implemented here too** |
+
+Most are no-ops in GPGX as well, so muting them costs nothing. **Three are not:**
+`0x88` (fixed), `0xB0` and `0xD6`.
+
+`0xD6` matters most on current evidence: it fires **hundreds of times** in a single
+playthrough capture, interleaved with the audio traffic, and we discard every one.
+GPGX implements it as `paprium_music_special`. `0xB0` is `paprium_sprite_init`, and
+MisterPezz82 suspected it in the elevator corruption without following up.
+
+## Observed: enemy names do not vary
+
+**Reported on hardware comparison:** in this port every enemy of a given type shares
+one name; on original hardware each enemy has its own.
+
+That is a behavioural difference, a different class from the audio bugs, and it is
+what a lookup returning a constant looks like. No mechanism identified yet - and
+guessing at one is the mistake this project keeps making - but the muted command
+list above is a far better suspect set than nothing.
+
+**Diagnostic:** the command logger currently filters to audio commands, deliberately,
+so a capture survives a playthrough. A short capture with the filter OFF, taken while
+a few enemies spawn, would show what actually fires at a spawn. That is a small
+change to `paprium_cmd_log.sv`'s `keep` expression.
