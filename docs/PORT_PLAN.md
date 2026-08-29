@@ -2724,3 +2724,34 @@ just the elevator.
 If lowering the limit changes the elevator at all - better or worse - that confirms
 starvation as the mechanism, which is worth knowing even if the value needs tuning
 afterwards.
+
+
+## STARVE2_LIMIT=8 changes nothing - evidence against starvation
+
+Built at 8 (from upstream's 24) and tested on hardware. **The elevator glitches
+identically.**
+
+Under contention that is a real 3x increase in the MCU's service rate - one access
+per 8 arbitration rounds instead of one per 24. Tripling its bandwidth produced no
+observable change, which is difficult to reconcile with "the MCU is starved and
+falls behind on per-frame composition".
+
+Cost of the build, for the record: **18,045 ALMs (98%) against 16,900 (91%)** and
+worst slack **-3.413 against -2.539**. Changing one constant should not cost 1,145
+ALMs; that is the fitter landing badly at high utilisation rather than the
+comparator growing. Worth knowing that fits at this density are unstable.
+
+### Next: the opposite experiment
+
+Now building at **96** - starving the MCU roughly 12x harder than upstream's 24. If
+the elevator is unchanged at both 8 and 96, MCU bandwidth is **not** the mechanism,
+and the root cause MisterPezz82 recorded is wrong. That is the single most useful
+thing left to learn about this bug, because it has steered the investigation since
+before this port existed.
+
+If 96 makes it clearly worse, starvation is real after all and 8 simply was not
+enough of a change - in which case the useful direction is removing the arbitration
+cap for port 2 entirely rather than tuning a threshold.
+
+**Revert to 24 afterwards** unless a result argues otherwise: 8 costs ALMs and
+timing for no benefit.

@@ -112,7 +112,13 @@ wire [2:0] wr = {wrl2|wrh2,wrl1|wrh1,wrl0|wrh0};
 // The trade-off is real and needs watching: port0/port1 are the 68000 and VDP and
 // have real-time deadlines, so cycles taken from them can create artefacts of their
 // own. Test for NEW glitches elsewhere, not only whether the elevator improved.
-localparam [7:0] STARVE2_LIMIT = 8'd8;
+// EXPERIMENT (2026-08-29): 96, deliberately starving the MCU HARDER than upstream's
+// 24. At 8 - a 3x bandwidth increase for the MCU - the elevator glitched
+// identically, which is evidence against starvation as the mechanism. Testing the
+// opposite direction settles it: if 12x worse starvation ALSO changes nothing, MCU
+// bandwidth is not the cause, and MisterPezz82's recorded root cause is wrong.
+// Revert to 24 afterwards unless a result argues otherwise.
+localparam [7:0] STARVE2_LIMIT = 8'd96;
 reg  [7:0] starve2 = 0;
 wire       port2_pending = (ack2 != req2);
 wire       boost2 = port2_pending && (starve2 >= STARVE2_LIMIT);
