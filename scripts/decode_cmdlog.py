@@ -88,6 +88,26 @@ def main():
 
     words = struct.unpack('>4096I', data[:16384])
 
+    # Sticky counters, deliberately not cleared by reset - a mid-run reset can
+    # rewind the ring, and these survive it.
+    w94, w93 = words[4094], words[4093]
+    ec_cnt, ec_peak = w94 >> 16, w94 & 0xFFFF
+    ec_last, any_cnt = w93 >> 16, w93 & 0xFFFF
+    print("counters: mailbox commands seen=%d   0xEC seen=%d   peak=%d   last=%d"
+          % (any_cnt, ec_cnt, ec_peak, ec_last))
+    if any_cnt == 0:
+        print("  Zero commands of ANY kind - the snoop never saw the mailbox.")
+        print("  That is a wiring/build fault, not a fact about the game.")
+    elif ec_cnt == 0:
+        print("  The snoop was alive (%d commands) and 0xEC NEVER fired." % any_cnt)
+        print("  So the VRAM budget is not renegotiated during play, and the 53")
+        print("  clamp cannot be the elevator's cause. This line is closed.")
+    elif ec_peak > 0x35:
+        print("  PEAK %d EXCEEDS THE 0x35 CLAMP - the budget was truncated." % ec_peak)
+    else:
+        print("  Peak %d is inside the 53 clamp, never truncated." % ec_peak)
+    print()
+
     hdr = words[4095]
     magic, wr_idx = hdr >> 16, hdr & 0xFFF
     armed, frozen = bool(hdr & 0x8000), bool(hdr & 0x4000)
