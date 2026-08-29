@@ -2372,3 +2372,58 @@ Starting points:
 - The game would write PCM to YM2612 register `0x2A` at some rate. Check whether
   those writes arrive and whether our timing for them is right.
 - Compare against GPGX with the same option set, which is cheap and needs no build.
+
+
+## LOG_ALL capture: what the full command stream shows
+
+First capture with the audio filter off - boot through the first room, ring filled
+once (2047 entries) and stopped.
+
+    AD sprite          1392
+    AF sprite_stop      263
+    AE sprite_start     263
+    D1 SFX_PLAY          22
+    F5 unpack_scal       21
+    B1 sprite_pause      14
+    D2 sfx_off           11
+    DA decoder            8
+    88 audio_setting      8
+    B6                    6   muted
+    DB decoder_copy       5
+    C9 music_volume       5
+    EC                    4
+    DF sram_read          4
+    A4 megawire           3   muted
+    CA sfx_volume         3
+    83                    2   muted
+    8D music_setting      2
+    F4 unpack             2
+    8C music              2
+    96                    2   muted
+    95                    2   muted
+    B0 sprite_init        1   muted
+
+### Two things worth knowing
+
+**`0xD6` does not appear at all.** It fired hundreds of times in the audio-filtered
+captures, so it starts later in gameplay rather than at boot. Chasing it needs a
+capture taken mid-level, not from boot.
+
+**`0xB0 sprite_init` fires once, at init, and we muted it.** GPGX implements it as a
+single clear:
+
+    memset(paprium_s.ram + 0x1F20, 0, 14*8);
+
+112 bytes of the DMA/sprite table. Without it, stale entries survive initialisation.
+Now implemented here. MisterPezz82 suspected this command in the elevator corruption
+and never followed it up, so it is worth retesting the elevator against this build.
+
+### The grunt-name question is NOT answered
+
+Stated plainly because the temptation is to force a conclusion. The capture shows
+sprites being rendered but not *what* they render - names are almost certainly drawn
+from object data in cart RAM, which the command stream does not carry.
+
+Finding the mechanism needs a different diagnostic: snapshot the object table
+(`obj_data[64]` in the ramdp struct) around a spawn and compare entries between two
+grunts of the same type. That is a different capture shape from a command ring.
