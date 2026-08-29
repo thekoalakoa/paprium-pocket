@@ -2569,13 +2569,71 @@ Not yet resolved, and two obvious tests failed to separate them:
   pattern at 13, 2.76 at 26), so patterns are voice-agnostic phrases rather than
   belonging to a voice. That kills the separation test but is itself a useful fact.
 
+## The 8-byte row
+
+    row    8 bytes = 2 events of 4
+    event  note, octave, effect, param
+
+**Rows are real**: 2509 of 2525 patterns across all 52 modules are an exact
+multiple of 8 bytes. Patterns end `00 00` (98%) and begin with `01` (72%).
+
+**note/octave is well evidenced.** From 1172 near-duplicate pattern pairs - the
+same phrase appearing twice with small variations - the byte deltas are musical:
++-1 and +-2 dominate, then +5 and -7, which are the same interval an octave
+apart. Plain +-12 never occurs. The joint test explains why:
+
+    note +5  with octave -1  (75%)   net -7
+    note -7  with octave  0  (75%)   net -7      same interval
+    note -8  with octave +1  (76%)   net +4
+    note +4  with octave  0  (82%)   net +4      same interval
+    note -5  with octave +1  (65%)   net +7
+    note +7  with octave  0  (54%)   net +7      same interval
+
+Every wrap resolves to the same net semitone interval, which is what an octave
+field does and hard to produce any other way. 84.7% of note bytes are 1..12, and
+the adjacent byte concentrates on 1..9.
+
+**Evidence against, recorded honestly:** the note-byte histogram decays
+monotonically (1:12%, 2:16%, 3:12% ... 12:3%) rather than showing seven hot
+values. Real music in a key does not look like that. Either the note slots are
+not yet cleanly separated from command slots, or the field is not a semitone.
+
+A pitch-class test was run and then discarded as worthless: `(oct*12+note-1) mod
+12` reduces to `note-1`, so it only re-showed the note histogram.
+
+## Hypotheses tested and refuted
+
+- **Indices assigned in first-use order** (as the order list does). Only 3-5% of
+  patterns satisfy it under any framing - no better than chance.
+- **A fixed 128-byte pattern prologue.** Suggested by track 1, where every
+  pattern changes character at row 16. False across the corpus: the smallest
+  pattern is 56 bytes.
+- **Voice separation by column.** Patterns are *shared* across columns under both
+  13 and 26 (mean 2.65 / 2.76 columns per pattern), so patterns are
+  voice-agnostic phrases. This also means the 13-vs-26 question is still open.
+
+## Timing is not yet understood
+
+Patterns sharing an order-list row have different lengths (track 1 position 0
+mixes 304, 176, 192 and 296-byte patterns), so a row of the order list cannot be
+a set of simultaneous voices of equal duration. Either the order list is not
+positions x voices, or rows carry a duration this model has not identified.
+
+## Game state modulates playback
+
+Reported from hardware: tones and music change as player health drops, and the
+sax man's theme changes as he is hit. So the synth takes **live modulation from
+game state** - it is not module playback alone. That is almost certainly what
+`0x8D music_setting` and `0xD6 music_special` carry, and it means any renderer
+needs a transpose/parameter input rather than being a pure function of the
+module. Worth capturing 0x8D/0xD6 during a boss fight.
+
 ## Next step
 
-Decode the 8-byte row. The candidates are note / instrument / volume / effect with
-parameters. Track 1's first pattern opens `01 00 00 00 02 00 00 00` and its lane
-statistics differ sharply by position - lanes 0 and 4 are non-zero ~49% of the time,
-lanes 3 and 7 only ~19% - which suggests the row is **two 4-byte half-rows**, and
-therefore that the pattern is interleaving two voices.
+`scripts/render_mwmm.py` renders a module to a WAV with square waves, so a wrong
+pitch model sounds obviously wrong. Listening is the decisive test the statistics
+cannot settle. It takes `--cols 13|26` and `--layout par|seq` because neither the
+column count nor the time layout is resolved.
 
 ## 0xB0 does not fix the elevator - but the trigger is now known
 
