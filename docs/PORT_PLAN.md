@@ -3349,3 +3349,61 @@ than command logging.
 
 **This is a far better lead than anything MCU-bandwidth related**, because it
 predicts both halves of the symptom rather than just "things go wrong under load".
+
+## The VRAM budget clamp: 53 is mega-ppm's limit, not the console's
+
+`ppm_vram_set_budget` in `mame.c` clamps the requested block count at `0x35`
+under a comment reading "temp failsafe". Working out where 53 comes from:
+
+Every block is a fixed **16 tiles** - `ppm_vram_load_block` hardcodes the DMA
+length at 0x100 words (512 bytes) and advances the unpack pointer by 0x200.
+The allocator is fixed-size LRU: `age` selects the victim, `usage` pins blocks
+still needed this frame.
+
+Slot index translates to a VRAM tile address as
+`((x + (x <= 0x30 ? 1 : 0x4b)) << 4)`:
+
+| slots  | block index | tiles     |
+|--------|-------------|-----------|
+| 0-48   | 1-49        | 16-799    |
+| 49-52  | 124-127     | 1984-2047 |
+
+Slot 53 maps to tile 2048 - one past the end of the Mega Drive's 2048-tile
+VRAM. **So the clamp is not an arbitrary margin, and the constant cannot just
+be raised**: 54 would DMA off the end of VRAM.
+
+### But it does not mean VRAM is full
+
+53 blocks is 848 tiles. Plus the 16 reserved low tiles, that is 864 of 2048.
+**Tiles 800-1983 - 1,184 tiles, 37 KB - are never allocated at all.**
+
+Plane maps, the sprite attribute table, hscroll and window live somewhere in
+that gap, but on a typical setup those come to roughly 450 tiles' worth. The
+remainder appears to be unused. The two-range mapping with a large hole in the
+middle has the shape of a partial reverse-engineering (mame.c is derived from
+MAME's `rom.cpp`), not of a deliberate layout.
+
+### Where the cartridge chips come in
+
+The MAX 10 and STM32 **cannot** touch VRAM - it is inside the VDP on a private
+bus, reachable only by 68000 DMA. The 2048-tile ceiling is absolute and no cart
+silicon raises it. But deciding *how to pack those tiles* is precisely the job
+those chips did. If the real chipset packed the middle region, or used
+variable-size blocks rather than fixed 16-tile ones, it would have had far more
+than 53 blocks available.
+
+So the ceiling to chase is 2048 tiles, of which we use 848.
+
+### Next step, in order
+
+1. **Does the elevator exceed 53?** The BUDGET_ONLY logger build captures only
+   `0xEC`, so one run survives to the elevator. If the peak is <= 53 the clamp
+   is innocent and this whole line is dead.
+2. **If it exceeds:** find what actually occupies tiles 800-1983 by logging the
+   VDP's plane/sprite/hscroll base registers (2, 3, 4, 5, 13) from our own RTL -
+   we have the VDP, so this is directly measurable rather than guesswork.
+3. Only then consider extending the slot mapping into whatever is genuinely free.
+
+Do not raise `0x35` blindly. Slots past 52 alias off the end of VRAM, and slots
+grown into the middle gap would land on the plane maps and sprite table - which
+would look like corruption everywhere, not just the elevator.

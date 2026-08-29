@@ -46,7 +46,7 @@ CMDS = {
     0xC6: "boot",           0xC9: "music_volume",   0xCA: "sfx_volume",
     0xD1: "SFX_PLAY",       0xD2: "sfx_off",        0xD3: "SFX_LOOP",
     0xD6: "music_special",  0xDA: "decoder",        0xDB: "decoder_copy",
-    0xDF: "sram_read",      0xE0: "sram_write",
+    0xDF: "sram_read",      0xE0: "sram_write",  0xEC: "VRAM_BUDGET",
     0xF7: "[ch7 snapshot]",   # synthetic, not a Paprium command
 }
 
@@ -123,6 +123,7 @@ def main():
 
     plays = []
     snaps = []
+    budgets = []
     for idx, w0, w1 in entries:
         cmd, param, mask = (w0 >> 24) & 0xFF, (w0 >> 16) & 0xFF, w0 & 0xFFFF
         fl, vol = (w1 >> 16) & 0xFFFF, w1 & 0xFFFF
@@ -138,8 +139,42 @@ def main():
         print("%-6d %02X   %-15s %02X    %04X   %04X   %04X  %s%s"
               % (idx, cmd, CMDS.get(cmd, "?"), param, mask, fl, vol,
                  flag_names(fl), note))
+        if cmd == 0xEC:
+            budgets.append((idx, vol))
         if cmd in (0xD1, 0xD3):
             plays.append((param, mask, fl))
+
+    if budgets:
+        # cmd_EC_vram_budget reads the block count from cmd_args[1] = 0x1E12,
+        # which this logger records in the vol column.
+        from collections import Counter
+        vals = [b for _, b in budgets]
+        print()
+        print("VRAM block budget (0xEC), %d request(s):" % len(budgets))
+        for v, n in sorted(Counter(vals).items()):
+            over = "  <- OVER THE 0x35 CLAMP, silently truncated" if v > 0x35 else ""
+            print("  %3d blocks (0x%02X)  x%d%s" % (v, v, n, over))
+        hi = max(vals)
+        print()
+        if hi > 0x35:
+            print("  The game asked for %d blocks and mame.c gave it 53, so %d blocks"
+                  % (hi, hi - 0x35))
+            print("  never got resident tiles. That is exactly the reported symptom:")
+            print("  wrong tiles as background blocks, sprites drawing stale frames.")
+            print()
+            print("  53 is not a safety margin - it is precisely VRAM under mega-ppm's")
+            print("  slot mapping ((x + (x<=0x30 ? 1 : 0x4b)) << 4):")
+            print("    slots 0-48  -> tiles 16-799")
+            print("    slots 49-52 -> tiles 1984-2047, ending at the last tile")
+            print("  So the number cannot just be raised. Asking for more than 53")
+            print("  means the game expects a different VRAM arrangement than")
+            print("  mega-ppm reconstructs - a denser or variable-size allocator.")
+            print("  THAT mismatch is the bug, not the constant.")
+        else:
+            print("  Peak was %d blocks, inside the 53 clamp - never truncated in this"
+                  % hi)
+            print("  run, so the clamp is NOT the cause. Confirm the capture actually")
+            print("  reached the elevator before concluding; a short run proves nothing.")
 
     if snaps:
         vols = [v for _, v, _, _ in snaps]
