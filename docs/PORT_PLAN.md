@@ -555,7 +555,7 @@ and one-shot behaviour.
 | SFX inaudible while music plays | **CLOSED - settings, not headroom** | Refuted: at the same 294 gain the effects are clear once the game's own audio options are right |
 | Elevator corruption + priority | upstream firmware | Open, issue C |
 | Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
-| "Saxophone guy" never appears | **not yet tested** | He only spawns in ORIGINAL mode at Hard or above. Every test run so far has been Arcade/Easy, so the conditions have never been met |
+| "Saxophone guy" never appears | **not yet tested** | Spawns on **Very Hard and above**, on specific stages. Every run so far has been Arcade/Easy, so the conditions have never been met |
 | Some SFX differ from real hardware | expected, partly | See below |
 
 **Elevator** is upstream issue C verbatim: *"Lots of graphical corruption in the
@@ -1953,3 +1953,64 @@ Worth noting the same trap may apply elsewhere: the mode/difficulty axis was onl
 discovered at all because the punk-TV cue behaved differently across it. Any
 "never happens" observation from this project should be checked against whether
 the conditions were ever actually present.
+
+
+---
+
+## Reference: wafflenet.com/paprium.html
+
+A community walkthrough with trigger conditions for secrets. Two things in it
+change how we test.
+
+### The Boom Box is a sound test, and we should be using it
+
+> The Boom Box is in the Options menu, labelled '?'.
+> Unlock: complete Original Mode with more than 160000 points, **or press
+> Up-Up-Down-Down-Left-Right-Left-Right-B-B on the main menu** (a sound effect
+> will play to confirm code entry).
+
+**A cheat code gives us a sound test.** Every audio capture in this project has
+cost a full arcade-style playthrough, because the game has no saves and the cues
+we needed were minutes apart. A sound test reaches music directly.
+
+Also in there:
+
+> press X to change the music to the "crisis state" out-of-tune version, and Z to
+> add the Sexy Sax Man solos to the songs where he appears. These can also be
+> combined! ... once enabled you cannot press the buttons a second time to remove
+> the effect - the song must be restarted.
+
+So the sax solos are a **music-layer variant**, not only a character that spawns
+in-game - reachable from the Boom Box without playing at Very Hard at all.
+
+Note the caveat for our purposes: the Boom Box plays MUSIC, and this port
+substitutes the OST for music, so it exercises the CDDA path rather than the
+cartridge's own synth. Useful for track selection, mapping and one-shot behaviour;
+it does **not** test the SFX bank, which is where the punk-TV and boss-death cues
+live.
+
+> Nobody has yet unlocked more than 52/63 music tracks in the Boom Box.
+
+52 is exactly the number of live entries in the cartridge's music pointer table,
+against 62 slots - matching the ten null pointers found in the ROM. Independent
+confirmation of that finding from an entirely different direction.
+
+### Sax man: Very Hard, not Hard, and stage-specific
+
+> Appears on Very Hard difficulty and higher:
+> INTERCOM (Mid-Levels path only), BION MART, CENTRAL PARK, ICE FACTORY,
+> GREEN CROSS, BLUE BAR (during Romulus & Remus boss fight), SKY SPA
+
+**INTERCOM is the elevator stage** - the one with the corruption bug. So a Very
+Hard run through INTERCOM's mid-levels path tests the sax man and the elevator at
+once.
+
+### Block 888 is the opening stage
+
+Confirms the door fix is reachable in seconds, which makes it a cheap regression
+check rather than something to play toward.
+
+> After leaving the first room, if you go left and push against the edge of the
+> screen you can skip the whole level and go straight to the boss area - only
+> works in Original Mode, and only after your first playthrough on a given save
+> file.
