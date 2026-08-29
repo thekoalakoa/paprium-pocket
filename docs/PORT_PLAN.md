@@ -2014,3 +2014,74 @@ check rather than something to play toward.
 > screen you can skip the whole level and go straight to the boss area - only
 > works in Original Mode, and only after your first playthrough on a given save
 > file.
+
+
+---
+
+# RESUME HERE (2026-08-29)
+
+Everything is committed and pushed to
+<https://github.com/thekoalakoa/paprium-pocket>. Working tree clean.
+
+## State
+
+The **shipping build is on the SD card and verified** in Arcade and Original modes:
+`pkg/pocket/Cores/Koala_Koa.Paprium/paprium.rbf_r`, md5 `8124362d`, 16,900 ALMs
+(91%), worst slack **-2.539**, TNS **-1201** - the best timing this project has
+produced.
+
+Six fixes shipped, none of which exist in any other Paprium build on this
+hardware: punk-TV cues and area ambience, the `0x81` LZO decoder, the Block 888
+door, one-shot music cues, echo and amplify, and the pan phase inversion.
+
+Firmware is rebuilt from krikzz's source and reproducible via
+`patches/mega-ppm-pocket.patch`. Toolchain in `tools/`, driven by
+`scripts/build_mcu.sh`.
+
+## The one open item with a clear next step
+
+**Big enemies play a normal enemy's death sound.** The game requests correctly, so
+the loss is downstream of the mailbox. `0x1C` is never requested in any capture.
+
+Do **not** try to infer which sound is the death cue from a full log - that was
+attempted three times and was wrong three times (`0x1C`, then `0x3D`, then the
+`0x0D/0x13/0x3A/0x20` cluster, which the user identified as a regular enemy dying
+to a weapon).
+
+**Take a minimal capture instead:**
+
+1. Install the diagnostic: `./scripts/make_cmdlog_pkg.sh`, copy
+   `build_output/cmdlog-pkg/Cores/Koala_Koa.Paprium/*` to the card, and re-zero
+   `D:\Saves\paprium\common\Paprium.log` with 16,384 zero bytes.
+2. Launch, go straight to the big enemy (the fourth), **kill it, exit immediately**.
+3. The last entries in the log are unambiguously that death. No correlation
+   guesswork.
+
+Then extend `paprium_cmd_log` to snapshot **all eight channels** rather than just
+channel 7, to see whether the cue is allocated and then evicted.
+
+## Other open items
+
+- Elevator corruption (INTERCOM) and the rooftop boss sprite priority - both
+  characterised using soft resets, which carry stale SDRAM. Retest under a clean
+  core exit before trusting the upstream attribution.
+- Sax man: **Very Hard or above**, and INTERCOM is on his list, so one Very Hard
+  run tests him and the elevator together.
+- Intro single-pixel flicker - cosmetic.
+- IMA ADPCM for the music blob (2.25 GB -> ~562 MB, 4x less bridge traffic).
+  Batch with a firmware validation pass.
+- `paprium_cmd_log` resets `armed`/`frozen`/`wr_idx` but not its RAM, so exiting
+  the core zeroes the header. Captures are salvageable by reading in address order.
+- `build_output/paprium_SHIPPING.rbf_r` is misnamed - it is the old 2026-08-26
+  build, not what ships.
+
+## Habits that earned their keep
+
+- **Verify the card, not the report.** A stale copy of the package once reverted a
+  card silently and cost a playthrough.
+- **Check the fit-summary timestamp and `.rbf` size before flashing.** Quartus
+  failed silently more than once; a compound shell command reported the trailing
+  `grep`'s exit status as success.
+- **Quit and relaunch the core between tests.** Reset Core does not clear SDRAM.
+- **Measure before theorising.** Four confident diagnoses of the punk-TV cue were
+  wrong; the log settled it in one capture.
