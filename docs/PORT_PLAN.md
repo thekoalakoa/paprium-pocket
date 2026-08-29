@@ -2472,3 +2472,59 @@ Missing:
    SDRAM. Not the MCU, which already services the 68000 in real time.
 
 That is a project on its own branch, not something to ride along with a `memset`.
+
+
+# Synth work: the MWMM module format is opening up
+
+## Layout established
+
+From variance analysis across all 52 modules - bytes constant across every module
+are structure, bytes that vary are data.
+
+    +0x00  "WMMM"
+    +0x04  00 01 BE   constant
+    +0x07  ..0x0C     per-track parameters (tempo? length?)
+    +0x10  26 bytes   per-voice array A - volume, 0x10 everywhere
+    +0x2A  26 bytes   per-voice array B - varies per track
+    +0x44  26 bytes   per-voice array C - zero everywhere
+    +0x5E  26 bytes   per-voice array D - pan, 0x80 (centre) everywhere
+    +0x78  32 bytes   TITLE,    XOR 0xA5
+    +0x98  32 bytes   COMPOSER, XOR 0xA5
+    +0xB8  sequence data
+
+26 is the voice count in GPGX's synth loop, which is what identifies the arrays.
+
+## TEXT IS XOR 0xA5
+
+`0x85 ^ 0xA5 = 0x20` (space), `0xA5 ^ 0xA5 = 0x00` (padding). Every module decodes
+cleanly, so this is not a coincidence.
+
+**This applies to game text generally, not just modules** - and it explains why an
+ASCII search for the enemy-name table found nothing earlier. A repeat of that search
+under XOR 0xA5 finds mostly these same titles (surviving as LZO literals in the
+module region), so the name table is presumably inside a compressed asset. The
+encoding is no longer the obstacle.
+
+Two incidental findings: **tracks 3 and 51 are placeholders** shipped in the retail
+ROM - `"I am a new music module !"` - and **tracks 34 and 35 are both titled
+"Hardcore Boss Part 3"**, a typo in WaterMelon's own data where 34 should be Part 2.
+
+## What the sequence body is NOT
+
+Ruled out by measurement rather than assumed:
+
+- **Not offset-indexed.** No module contains an ascending in-range run of u16 or u32
+  values anywhere in its first 512 bytes, so there is no per-voice pointer table.
+- **Not a fixed-stride row format.** No stride from 2 to 200 shows meaningful
+  concentration of non-zero positions.
+- It is **sparse and clustered**: 67% zero bytes across all 52 bodies, 93% of bytes
+  below 0x10, non-zero runs separated by zero runs, with a hint of 8-byte alignment
+  in the stride residues.
+
+## Next step
+
+Re-run the body analysis from **0xB8** rather than 0x78. Every measurement above was
+taken over a region whose first 64 bytes are title and composer text - which is
+exactly the kind of contamination that makes a histogram meaningless. The stride and
+sparsity numbers need redoing on the real sequence data before anything is concluded
+from them.
