@@ -2628,12 +2628,64 @@ game state** - it is not module playback alone. That is almost certainly what
 needs a transpose/parameter input rather than being a pure function of the
 module. Worth capturing 0x8D/0xD6 during a boss fight.
 
+## Validated against the released recordings - and the pitch model FAILED
+
+`cdda/trackNN.pcm` and `music-modules/trackNN.mwmm` are **the same piece**: the
+cue's TRACK numbers line up with the module numbers (TRACK 01 = "90's Acid Dub
+Character Select" = track01.mwmm "90's Acid Dubstep"). That gives objective
+ground truth, so the decode does not have to be judged by ear.
+
+`scripts/validate_pitch.py` measures the chroma of the real audio with Goertzel
+filters and correlates it against the decoded pitch classes at all 12 rotations.
+Across 8 modules, as a full matrix with every other track as a control:
+
+    own audio ranked best for 1 of 8 modules - exactly chance
+
+Module 01 correlates **better with track 05's audio (+0.755) than with its own
+(+0.568)**. So the decoded pitch classes carry no song-specific information, and
+**note/octave as ABSOLUTE pitch is refuted.**
+
+## What survives
+
+The interval evidence is not thereby wrong - it is evidence about *deltas*, and
+deltas stay musical if the values are pitch relative to some per-pattern base.
+That was tested without needing to know the base: fit each pattern's own notes to
+their best 7-note scale, against a null with the same counts drawn from the
+global value distribution.
+
+    real 80.1%   null 72.2%   gap +7.9 points
+
+Real tonal music sits 15-25 points above such a null. So there **is** tonal
+structure, at roughly half the strength it should have. The natural reading is
+that the note slots are real but **diluted by command slots being counted as
+notes** - which also explains the note histogram's monotonic decay, since small
+command opcodes and small note values are being pooled.
+
+## Status, honestly
+
+| Claim | Standing |
+|---|---|
+| Order list, u16 absolute offsets, self-delimiting | Solid - 52/52 |
+| Patterns contiguous, rows of 8 bytes | Solid - 2509/2525 |
+| Row = 2 events of 4 bytes | Good - lane statistics are symmetric |
+| A note and an octave field exist | Good - interval and wrap evidence |
+| Those fields give absolute pitch | **Refuted** - chance against real audio |
+| Which slots are notes vs commands | **Unknown - this is the blocker** |
+| Timing / tempo | Unknown |
+| 13 or 26 voices | Unknown |
+
 ## Next step
 
-`scripts/render_mwmm.py` renders a module to a WAV with square waves, so a wrong
-pitch model sounds obviously wrong. Listening is the decisive test the statistics
-cannot settle. It takes `--cols 13|26` and `--layout par|seq` because neither the
-column count nor the time layout is resolved.
+Separate note slots from command slots before anything else - every downstream
+measurement is being diluted by the mixture. The lever is the near-duplicate
+pattern pairs: slots whose deltas are musical (wrap-consistent with the octave
+byte) are notes; slots that change arbitrarily are commands. Classify slots on
+that basis, then re-run `validate_pitch.py` on notes alone. If the correlation
+against the real recordings rises above the controls, the model is right and the
+only remaining problem is timing. If it stays at chance, the note reading is
+wrong despite the interval evidence and the 4-byte framing needs revisiting.
+
+Do not build any RTL until that correlation test passes.
 
 ## 0xB0 does not fix the elevator - but the trigger is now known
 
