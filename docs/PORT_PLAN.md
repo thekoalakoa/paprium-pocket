@@ -3535,3 +3535,68 @@ So the ceiling to chase is 2048 tiles, of which we use 848.
 Do not raise `0x35` blindly. Slots past 52 alias off the end of VRAM, and slots
 grown into the middle gap would land on the plane maps and sprite table - which
 would look like corruption everywhere, not just the elevator.
+
+## Two new hardware reports (2026-08-29)
+
+### Block 888 door: red floor where hardware shows green
+
+Reported leaving the first room. The floor of the doorway renders red; on original
+hardware it is green and matches the cell behind it.
+
+**This is very likely ours, and specifically the door fix itself.** The line is:
+
+```c
+if ((intf_obj->objID & 0xff) == 107 && x == 4) satEntry->attrs &= ~0x2000;
+```
+
+`0x2000` is bit 13 of the Mega Drive sprite attribute word - **palette bit 0**. So
+the fix forces sprite 4 of object 107 onto a different palette line (1->0, or 3->2).
+A wrong floor colour is exactly what a wrong palette line looks like.
+
+Hypothesis: **`x == 4` is the floor sprite in our build, not the door panel.** The
+fix came from MisterPezz82 against their build; if sprite ordering differs at all we
+are recolouring the wrong piece - repairing the panel they saw and breaking the
+floor we see.
+
+Test is cheap for the tester: the door is ~30 seconds in, so an A/B needs no
+playthrough. Build with the line disabled and compare:
+
+- floor green AND panel still correct -> drop the fix entirely
+- floor green BUT panel wrong again -> `x == 4` is the floor; find the panel's index
+- no change -> the fix is innocent and the palette comes from elsewhere (CRAM)
+
+Note `satEntry->attrs` is computed with an XOR chain including
+`ppm_vram_find_block(...)`, so a block that failed to load returns 0 and changes the
+resulting attribute word. A door whose block is missing could mis-colour for reasons
+that have nothing to do with this line - worth keeping in mind if the A/B comes back
+clean.
+
+### Stage clear at full health plays the standard cue
+
+At 100% health the game should play a different stage-clear tune; ours plays the
+ordinary one.
+
+**Probably not fixable under the OST-substitution approach.** The released
+soundtrack contains exactly one Stage Clear track (cue index 52). There is no
+separate perfect-clear recording on the album, so if the cartridge plays a variant
+it is a modified render of the same module by the synth - not a track we can
+substitute.
+
+Worth one cheap capture anyway, because two outcomes differ materially:
+
+- the game requests a DIFFERENT track index -> we map it wrong (or to Blank), and
+  that is fixable
+- the game requests the standard index and signals the variation another way, most
+  likely `0xD6 music_special` which this firmware mutes -> confirms it is a synth
+  render, and closes the question
+
+The audio-filter logger mode already captures `0x8C`, `0x8D` and `0xD6`. Clear
+stage 1 at full health, then exit.
+
+### Note on where sat_data lives
+
+`ppmio.ramdp->sat_data[144]` sits at cart RAM byte offset 0xb00, items of 8 bytes
+(posY, sizeNext, attrs, posX), so `sat_data[i].attrs` is at byte `0xb00 + i*8 + 4`.
+That is inside the shared RAM - but it is written by the MCU, not the 68000, and the
+command logger snoops 68000 writes only. Reading actual sprite attributes would need
+a snoop on the MCU write port, not the existing one.
