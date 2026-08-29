@@ -1243,6 +1243,36 @@ build changed it. The suspects are the two commands recently un-muted, `0x88
 audio_cfg` and `0xB0 sprite_init`, both of which now execute during boot where
 they previously did nothing. An older `.rbf` plus a cold boot separates those.
 
+
+### CONFIRMED: the save gates the mini-game, and its music is not MWMM
+
+Renaming `/Saves/paprium/common/<romname>.sav` and cold booting brought the
+mini-game back, after a **language-selection screen** that also only appears on a
+fresh save. So first-boot state lives in the EEPROM-backed save, not in SDRAM -
+which is why no amount of power cycling reached it.
+
+Practical consequence, worth telling users: **to see the mini-game again, remove
+the save.** Rename it rather than deleting it; it is the player's progress.
+
+**The music question is now closed, negatively.** Chiptune music was audible in
+the mini-game with `paprium.pcm` renamed away. That proves it is not CDDA. But it
+equally proves it is not the cartridge synth, by elimination:
+
+    this core implements no MWMM synth at all - the firmware substitutes CDDA
+    for music. Therefore anything audible from it is BY CONSTRUCTION not MWMM.
+
+With CDDA absent and MWMM not implemented, what remains is the 68000 driving the
+YM2612/PSG directly - ordinary Mega Drive music held in the ROM. That also
+explains why the square-wave renders "sounded like the mini-game": both are plain
+chiptune, and the resemblance carried no information about the decode.
+
+So the mini-game is **not** a reference for the MWMM format. The door is closed,
+which was the likely outcome recorded before the test and is worth having settled
+rather than left open.
+
+**The only remaining reference is a capture of real cartridge audio**, run blind
+through `scripts/identify_track.py` against all 52 modules.
+
 ---
 
 ## Menu reduction: trading options for ALMs
