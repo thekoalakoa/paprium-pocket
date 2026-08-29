@@ -2929,6 +2929,66 @@ advance, which is what makes it a test rather than a demonstration.
 This is the experiment that should decide whether to continue. Everything else
 is blocked behind it.
 
+## RESOLVED: 26 voices, and the order list is voice-major
+
+Settled with internal evidence, no audio involved.
+
+**The order list is not a positions x voices grid.** Autocorrelation across all
+52 modules decays smoothly with lag and shows no peak at either candidate:
+
+    lag 13  20.7%   neighbours 20.9%   excess -0.2 points
+    lag 26  15.4%   neighbours 15.3%   excess +0.1 points
+
+A real period is a peak above its neighbours, not a high value - short lags
+repeat more by chance. There is no period, so the entries are not interleaved
+columns.
+
+**It is voice-major**: each voice's positions are contiguous. An unused voice is
+then a whole block of the empty pattern, which is exactly what appears, against
+a shuffle null:
+
+    width 13   54.6% pure blocks   null  5.7%   excess +48.8
+    width 26   70.2% pure blocks   null 15.7%   excess +54.5
+    width  2    6.7%               null  1.9%   excess  +4.8
+
+("pure" = a block that is either >90% empty or <2% empty - a voice that is
+unused, or always playing. A shuffle cannot manufacture that.)
+
+**26 voices**, and the two readings converge on it regardless of block count:
+13 blocks each carrying 2 voices per pattern, or 26 blocks each carrying 1. Both
+give 26. The header's four per-voice arrays are **26 bytes** - one byte per voice
+(volume `0x10`, pan `0x80`) - not 13 u16, which corroborates it independently.
+
+**The block count is 26, so a pattern carries ONE voice.** The deciding evidence
+is an asymmetry that cannot arise by chance. Taking bytes 0-3 and 4-7 of each row
+as two candidate voices, across 2525 patterns:
+
+    both halves active 2129    only the first 342    only the second 0
+
+Two independent voices would split roughly symmetrically. A hard zero on one side
+means the second half is populated only when the first is - it is dependent, not
+independent. The halves belong to the same voice.
+
+### Correction to the row model
+
+Earlier entries describe the 8-byte row as "2 events of 4 bytes" and speculated
+it "interleaves two voices". The framing is right and the speculation is wrong:
+both events belong to **one** voice, so they are two consecutive time steps, or
+an event plus a secondary slot. That also disposes of the lane-symmetry argument
+used to suggest two voices - the halves are symmetric because they are the same
+kind of thing, not because they are different voices.
+
+### Settled layout
+
+    +0xD8       order list, u16 big-endian absolute file offsets
+                VOICE-MAJOR: 26 contiguous blocks, one per voice
+                each block is len/26 position entries
+    min(order)  patterns, contiguous, rows of 8 bytes
+    row         2 events of 4 bytes, BOTH the same voice
+
+Still open: what the 4-byte event contains. The note/octave reading was refuted
+against hardware (see below), so this restarts with no field assumed to be pitch.
+
 ## HARDWARE VERDICT: the note/octave decode is wrong
 
 A 34-second capture of **Bone Crusher from original hardware** was run blind
