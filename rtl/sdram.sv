@@ -102,7 +102,17 @@ wire [2:0] wr = {wrl2|wrh2,wrl1|wrh1,wrl0|wrh0};
 // so non-Paprium cores (port2 = SVP) are unaffected in normal use. Reordering
 // whole accesses is functionally safe: each access completes atomically and the
 // per-port req/ack handshakes are independent - only timing/fairness changes.
-localparam [7:0] STARVE2_LIMIT = 8'd24;
+// paprium: lowered from MisterPezz82's 24. Their own note says 24 "reduces (does
+// not fully resolve)" the animation skipping, so the MCU is still starved at that
+// value. Hardware here shows the elevator corrupting specifically WHEN A BACKGROUND
+// ELEVATOR IS SCROLLING PAST - sustained tile streaming, exactly when port0/port1
+// traffic peaks and port2 waits longest. 8 triples the MCU's worst-case service
+// rate while still leaving the console 7 of every 8 rounds.
+//
+// The trade-off is real and needs watching: port0/port1 are the 68000 and VDP and
+// have real-time deadlines, so cycles taken from them can create artefacts of their
+// own. Test for NEW glitches elsewhere, not only whether the elevator improved.
+localparam [7:0] STARVE2_LIMIT = 8'd8;
 reg  [7:0] starve2 = 0;
 wire       port2_pending = (ack2 != req2);
 wire       boost2 = port2_pending && (starve2 >= STARVE2_LIMIT);
