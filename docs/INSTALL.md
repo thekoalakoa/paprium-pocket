@@ -69,6 +69,21 @@ To reach the game: play or skip through the mini-game, then use
 **Soft Reset (mini game)** from the core's settings menu. The game boots properly
 on the second start.
 
+### Getting the mini-game back
+
+You only see it once. The cartridge records first-boot state in its save, so
+after that you go straight to the game - and no amount of resetting or power
+cycling brings it back, because the save is on the SD card.
+
+To see it again (and the language-selection screen), move your save aside:
+
+```
+/Saves/paprium/common/<your-rom-name>.sav
+```
+
+**Rename it, don't delete it** - that file is your game progress. Rename it back
+afterwards to carry on where you left off.
+
 ---
 
 ## Core settings
