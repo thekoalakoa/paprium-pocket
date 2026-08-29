@@ -2929,6 +2929,69 @@ advance, which is what makes it a test rather than a demonstration.
 This is the experiment that should decide whether to continue. Everything else
 is blocked behind it.
 
+## RETRACTION: the album IS a valid reference, and a correct refutation was explained away
+
+Two direct captures (Nickology, from hardware) settled this.
+
+**Intercom capture = album track04 "Asian Chill"**, on two independent measures:
+
+    chroma +0.936      tempo 123.0 BPM capture vs 123.0 BPM album
+
+Same key and same tempo. The album version and the cartridge version are the
+same piece, so **the released soundtrack is a faithful reference after all**.
+
+### What that costs
+
+The earlier entry "The OST is NOT ground truth - and that reverses the
+refutation" is **wrong and is withdrawn**. Its reasoning was that decoded modules
+matched their own album audio at chance (1 of 16) and that no field matched album
+tempo, therefore the album must be a different production. The parsimonious
+explanation was always the other one: **the album is fine and the decode is
+wrong.**
+
+This is the error pattern to name: a negative result was explained away by
+impugning the reference rather than the hypothesis. The reference then got
+"replaced" with internal tests that were weaker (melodic continuity, which any
+smooth parameter passes), and the wrong conclusion survived two more rounds.
+
+So the original album-based chroma test stands as **valid evidence**, and it
+refuted the decode correctly the first time.
+
+### Why the earlier cart capture disagreed
+
+The Bone Crusher capture ranked its own album track 9th of 16 audio-to-audio.
+That was a 34-second phone recording of gameplay, with sound effects over the
+music. The Intercom direct capture is 208 seconds and clean. Recording quality,
+not a different production.
+
+## Two hardware tests, both failed
+
+| Test | Reference | Correct module | Rank |
+|---|---|---|---|
+| Bone Crusher | phone, 34 s, gameplay SFX | track07 | **52 / 52** |
+| Intercom | direct capture, 208 s, clean | track04 | **15 / 52** |
+
+Chance is 26. Neither passes, and the second is on a good reference, so the
+refutation of the note/octave decode is now supported by better evidence than
+when it was first made rather than worse.
+
+### Block 888 is not yet identified
+
+Chroma put it closest to album track07 (+0.929) but tempo refutes that outright:
+71.8 BPM against 161.5, a ratio of 2.25. Chroma alone is not sufficient to
+identify a track - worth remembering, since it nearly produced a false label.
+Tempo-compatible candidates are track12/20/23/27/33/34/35/57/59 (73.8 BPM) and
+track25/36 (143.6). Needs a `0x8C` capture from the cmdlog build to label
+properly.
+
+## Consequence for method
+
+The album is usable, which restores 50 potential reference tracks instead of the
+handful of hardware captures. Any hypothesis can now be scored across many
+labelled trials, which is what defeats the multiple-comparison problem.
+
+**Label recordings by tempo AND chroma together, never chroma alone.**
+
 ## Event layer restarted from nothing - and the container is now fully mapped
 
 Working from structure alone, assuming no field means anything.
