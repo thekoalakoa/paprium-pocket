@@ -2509,26 +2509,73 @@ Two incidental findings: **tracks 3 and 51 are placeholders** shipped in the ret
 ROM - `"I am a new music module !"` - and **tracks 34 and 35 are both titled
 "Hardcore Boss Part 3"**, a typo in WaterMelon's own data where 34 should be Part 2.
 
-## What the sequence body is NOT
+## A third text field, and the real start of the sequence data
 
-Ruled out by measurement rather than assumed:
+`0xB8` is **not** sequence data. It is a third 32-byte XOR-`0xA5` field: a
+**comment**, present in all 52 modules and drawn from a fixed set of about a dozen
+joke strings the authoring tool offered - `"Make music not war !"`,
+`"It hurts to be SNES"`, `"I am king of the YM chip !"`,
+`"Even GEMS sounds better than thi[s]"`. Track 1's is truncated mid-word at exactly
+32 bytes (`"Good... Bad... I got the MIDI ke"`), which is what fixes the field width.
 
-- **Not offset-indexed.** No module contains an ascending in-range run of u16 or u32
-  values anywhere in its first 512 bytes, so there is no per-voice pointer table.
-- **Not a fixed-stride row format.** No stride from 2 to 200 shows meaningful
-  concentration of non-zero positions.
-- It is **sparse and clustered**: 67% zero bytes across all 52 bodies, 93% of bytes
-  below 0x10, non-zero runs separated by zero runs, with a hint of 8-byte alignment
-  in the stride residues.
+So the header is three 32-byte text fields, and sequence data starts at **0xD8**.
+
+## Structure, measured from 0xD8
+
+    +0xD8   order list   u16 big-endian, ABSOLUTE file offsets
+    ...     ends exactly where its own lowest entry points
+    min(w)  pattern data, contiguous to end of file
+
+**The order list is self-delimiting**: `0xD8 + 2n == min(entries)`. Solving for n
+resolves all **52/52** modules with every entry in range - no heuristics, no
+thresholds. Lengths run 26 to 468 entries.
+
+**Patterns partition the remainder contiguously.** Sizes are always a multiple of 8
+(136 to 352 bytes in track 1), so a pattern is a whole number of **8-byte rows**.
+That is the 8-byte stride showing up, and it lives *inside* patterns rather than
+across the file.
+
+**An all-zero pattern exists and is heavily reused** - in track 1 it is `0x14C0`,
+136 bytes of zeros, referenced 93 of 312 times. That is the rest/empty pattern, and
+it is what makes the body 67.7% zeros. Others are sparse sustains: `0x07C0` is 144
+bytes with one event at the top and one at the bottom, reused 16 times.
+
+## Corrections to the previous entry
+
+Both earlier "ruled out" claims were **wrong**, and both for the same reason - they
+were measured over the header rather than the data.
+
+- **"Not offset-indexed"** - false. The order list is exactly the pointer table that
+  search was looking for. It was missed because the search covered the first 512
+  bytes *of the file*, which is header and text, and because the entries are
+  absolute file offsets rather than relative to the body.
+- **"Not a fixed-stride row format"** - false. The stride is 8, and every one of the
+  52 modules agrees once measured from 0xD8.
+
+The sparsity figure survives unchanged: 67.7% zeros from 0xD8, against 67% measured
+from 0x78. It was right by luck, not by method.
+
+## Open: the column count
+
+Order-list lengths are divisible by **13 and 26 in all 52 modules** (by 8 in only
+16), so the grid is positions x 13 or positions x 26. The header's 26-byte arrays
+fit either reading - 26 u8, or 13 u16.
+
+Not yet resolved, and two obvious tests failed to separate them:
+
+- No column is constant under either width, because the exporter emitted patterns in
+  first-use order, which makes the table ascend regardless of how it is folded.
+- Patterns are **shared across columns** under both widths (mean 2.65 columns per
+  pattern at 13, 2.76 at 26), so patterns are voice-agnostic phrases rather than
+  belonging to a voice. That kills the separation test but is itself a useful fact.
 
 ## Next step
 
-Re-run the body analysis from **0xB8** rather than 0x78. Every measurement above was
-taken over a region whose first 64 bytes are title and composer text - which is
-exactly the kind of contamination that makes a histogram meaningless. The stride and
-sparsity numbers need redoing on the real sequence data before anything is concluded
-from them.
-
+Decode the 8-byte row. The candidates are note / instrument / volume / effect with
+parameters. Track 1's first pattern opens `01 00 00 00 02 00 00 00` and its lane
+statistics differ sharply by position - lanes 0 and 4 are non-zero ~49% of the time,
+lanes 3 and 7 only ~19% - which suggests the row is **two 4-byte half-rows**, and
+therefore that the pattern is interleaving two voices.
 
 ## 0xB0 does not fix the elevator - but the trigger is now known
 
