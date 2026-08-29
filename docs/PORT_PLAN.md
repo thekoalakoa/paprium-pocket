@@ -1167,6 +1167,41 @@ STM32 does. Worth knowing before treating this as a defect to fix. The protocol
 above costs nothing and removes the variable either way.
 
 
+
+### CORRECTION: quitting the core does not clear the workspace either
+
+Found when a mini-game test failed: the core was exited and relaunched as the
+protocol above instructs, and the mini-game **still did not appear**.
+
+The protocol's claim that quitting gives "a clean slate" is wrong above 8 MiB.
+
+    data.json   "Paprium ROM"  address 0x10000000  size_maximum 0x800000
+
+The ROM slot is exactly 8 MiB, so a relaunch rewrites SDRAM `0x000000-0x7FFFFF`
+and nothing else. The MCU's decompression workspace starts at **`0x800000`,
+immediately above the ROM** (`paprium_cart.sv`, and the size note above), inside
+the same 64 MB chip. Reconfiguring the FPGA does not power-cycle that chip, and
+the ROM download does not reach it, so **everything the MCU decompressed in the
+previous session survives a core exit**.
+
+The MCU side is identical either way and cannot be the difference: `ppm_reset()`
+is unconditional - it re-copies 8 KB from flash and re-applies the boot-check and
+post-splash patches on every 68000 reset, cold or soft. So the mini-game is
+gated purely on whether the workspace already holds decompressed data.
+
+**Only a full power-off of the Pocket clears it.** A short press of the power
+button sleeps the unit and keeps SDRAM powered; the unit must be actually powered
+down, then started again.
+
+    to reach the mini-game:  power the Pocket OFF (not sleep), wait a few
+                             seconds, power on, launch the core
+
+This weakens the retest list above rather than settling it. **Elevator
+corruption, the intro flicker and boss sprite priority were all re-checked with
+"quit and relaunch"**, which is now known to preserve the workspace - so those
+sessions were not clean either, and the attributions still stand unconfirmed.
+Anything that depends on decompressed state needs a power-cycle, not a relaunch.
+
 ---
 
 ## Menu reduction: trading options for ALMs
