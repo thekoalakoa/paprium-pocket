@@ -1196,11 +1196,17 @@ down, then started again.
     to reach the mini-game:  power the Pocket OFF (not sleep), wait a few
                              seconds, power on, launch the core
 
-This weakens the retest list above rather than settling it. **Elevator
-corruption, the intro flicker and boss sprite priority were all re-checked with
-"quit and relaunch"**, which is now known to preserve the workspace - so those
-sessions were not clean either, and the attributions still stand unconfirmed.
-Anything that depends on decompressed state needs a power-cycle, not a relaunch.
+**RETRACTED - this did not affect any real test.** The above was written
+asserting that the elevator, intro-flicker and boss-priority retests had been
+run with "quit and relaunch" and were therefore tainted. They were not: the
+hardware testing for this project has used a **full power cycle before every
+run** throughout. Those results were obtained on genuinely clean state and the
+attributions stand as measured.
+
+The workspace finding itself remains true and worth keeping - a core relaunch
+really does leave `0x800000` upward intact - but it describes a trap that was
+never actually fallen into. It matters only for anyone who tests with a
+relaunch instead of a power cycle.
 
 
 ### Power-cycling does not trigger it either - so SDRAM is not the gate
@@ -1222,6 +1228,12 @@ through `cmd_DF_eep_rd` / `cmd_E0_eep_wr` in banks of 0x200. Paprium's cartridge
 carries a real M24C64 EEPROM (`paprium-dump/ChipDocs/m24c64wp.pdf`), so a
 "first boot done" flag there would produce exactly the observed behaviour: the
 mini-game was seen during Test 1 on a fresh save and has not been seen since.
+
+This is reinforced by the testing practice: every hardware run on this project
+is preceded by a full power cycle, so SDRAM state has **never** been carried
+between sessions. The mini-game has nonetheless been absent across many builds.
+Whatever gates it has therefore survived every power cycle it has ever been
+given, which leaves the save as the only candidate that is actually state.
 
 **Next check: rename the .sav (it is the player's progress - rename, never
 delete) and cold boot.**
