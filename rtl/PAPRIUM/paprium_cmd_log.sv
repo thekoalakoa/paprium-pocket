@@ -96,7 +96,18 @@ module paprium_cmd_log (
 	// since sprite commands repeat heavily.
 	//
 	// Set to 0 to restore the audio-only filter used for the punk-TV work.
-	localparam LOG_ALL = 1'b1;
+	localparam LOG_ALL = 1'b0;
+
+	// BUDGET_ONLY: log just 0xEC, which sets the VRAM block budget. It fires a
+	// handful of times per level, so one capture survives all the way to the
+	// elevator - where LOG_ALL fills from boot and stops long before.
+	//
+	// The budget arrives in cmd_args[1] (cart RAM 0x1E12), which this logger
+	// already records as the `vol` field. mame.c clamps it at 0x35 = 53, and that
+	// is exactly VRAM: slots 0-48 map to tiles 16-799, slots 49-52 to 1984-2047.
+	// A request above 53 means the game expects a VRAM layout other than the one
+	// mega-ppm reconstructs, which would explain the elevator artefacts.
+	localparam BUDGET_ONLY = 1'b1;
 
 	wire [7:0] cmd_hi = cpu_data[15:8];
 	wire keep_audio =
@@ -111,7 +122,7 @@ module paprium_cmd_log (
 		|| (cmd_hi == 8'hD3)   // sfx_loop
 		|| (cmd_hi == 8'hD6);  // music_special
 
-	wire keep = LOG_ALL | keep_audio;
+	wire keep = BUDGET_ONLY ? (cmd_hi == 8'hEC) : (LOG_ALL | keep_audio);
 
 	wire hit_raw   = cpu_wr & (wr_word == A_CMD) & keep;
 
