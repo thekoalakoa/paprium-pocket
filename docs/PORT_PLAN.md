@@ -2231,3 +2231,42 @@ Why this is worth chasing rather than filing away:
 Where to start: log the boot command sequence with `paprium_cmdlog` (it already
 captures `0x88` and `0xB0`), and read GPGX's handling of the `0xC6 paprium_boot`
 command and the `ram[0x1800]` region.
+
+
+## TO DO: fake an expansion, and see what the game gates on hardware
+
+Deferred deliberately, to be run after the `0x88` result is in.
+
+**Faking a Sega CD is one line.** `rtl/upstream/nuked-md/md_board.v`:
+
+    assign DISK = 1'h1;   // expansion detect: high = nothing attached
+
+`DISK` feeds `ym6046`, the I/O chip owning the version register at `0xA10001`,
+whose bit 5 is the expansion detect. Setting it to `1'h0` reports an expansion.
+
+**Expect it to break rather than unlock.** A real Sega CD also provides hardware at
+`0x400000-0x7FFFFF` - program RAM, sub-CPU communication registers, CD audio. Claim
+one is present and the game may talk to something that is not there; a hang or a
+wait loop at boot is the likelier outcome than new content. There is also no
+evidence Paprium gains anything: GPGX's Paprium code contains no Mega CD or 32X
+references at all, and the Boom Box is documented as merely *displaying* console
+icons for what is attached. It would not help audio either - Paprium's enhanced
+sound is its own cartridge hardware, not a CD.
+
+Cheap enough to settle empirically though: one line, one build, and the failure mode
+shows within seconds of boot.
+
+**The broader question is the interesting one:** what does the game actually gate on
+detected hardware? The `0x88` fix is the first probe - it stores the DAC and NTSC
+selection where the game reads it back, so the in-game **VM DAC** checkbox becomes
+the observable. If toggling it now audibly changes which chip plays the effects, the
+game does act on configuration state, and hardware-gated behaviour becomes worth
+mapping properly. If it stays inert, the detection is likely cosmetic and this whole
+line of enquiry can be closed.
+
+Other things to try once that is known:
+
+- Region reported as Japan vs Export against **Original mode at Very Hard**, where
+  the sax man and the JP-exclusive features live.
+- Whether `0xB0 paprium_sprite_init`, the other muted command, gates anything -
+  MisterPezz82 suspected it in the elevator corruption and never followed up.
