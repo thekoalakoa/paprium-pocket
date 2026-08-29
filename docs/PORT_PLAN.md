@@ -551,7 +551,7 @@ and one-shot behaviour.
 
 | Issue | Owner | Status |
 |---|---|---|
-| Punk-TV cue silent | **CLOSED - works in both regions** | SFX `0x4A` plays loud and clear. Not a bug in the port, and not region-dependent |
+| Punk-TV cue silent | **FIXED in firmware** | `sfx_loop` now re-arms a channel that already ended. Both TVs play, level 1 and level 2 |
 | SFX inaudible while music plays | **CLOSED - settings, not headroom** | Refuted: at the same 294 gain the effects are clear once the game's own audio options are right |
 | Elevator corruption + priority | upstream firmware | Open, issue C |
 | Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
@@ -1862,3 +1862,69 @@ changes, and anything later.
 
 **Plan: grow the IMEM, build at -O2.** Use `-Os` only as a fallback if the memory
 does not fit.
+
+
+---
+
+## FIXED: punk-TV cue, in firmware, verified on hardware
+
+**Both punk TVs play** - level 1 and level 2. The level-2 one has never worked in
+this port.
+
+The log shows the mechanism exactly:
+
+    256  vol=000  EMPTY  pcm=29920    sample ended, as it always did
+    276  vol=019  EMPTY  pcm=29920    the ramp arrives
+    278  vol=019  fed    pcm=29921    RE-ARMED - PCM resumes
+    334  vol=0C0  fed    pcm=42772    still streaming as volume peaks
+    654  vol=000  fed    pcm=62532    2.1 plays of a 29,920-word sample
+
+Before the fix that count froze at 29,920 forever and the volume ramp climbed onto
+a dead channel. Two lines in `sfx_loop`, in krikzz's `mega-ppm` source.
+
+This is the first bug fixed by **changing the firmware** rather than working around
+it. Two days ago that was filed as impossible - needing chips nobody has dumped.
+It needed a compiler, a 40-line build script, and reading `sfx.c`.
+
+### The three predicted regressions, all confirmed
+
+Reported on hardware, and all expected because this firmware is krikzz's source
+plus our fix, without MisterPezz82's changes:
+
+| Symptom | Cause |
+|---|---|
+| Block 888 door renders wrong | their door fix absent (`attr &= ~0x2000`, object 107 sprite 4) |
+| No end-of-stage music | their `cmd_8C` one-shot change absent |
+| Subway (untested this run) | stock `0x81` LZ decoder is MAME's broken heuristic |
+
+Nothing unexpected broke, which is the other thing this test established: our
+rebuild does not diverge from theirs in undocumented ways.
+
+### Still open, and separate
+
+The **boss / large-enemy death sound** is unchanged, and the mailbox capture
+already showed why: `0x1C` is never requested across a window spanning boot to the
+first TV. The game asks for a different sample, so it is not a playback fault and
+not related to the loop bug.
+
+### Next: three ports back onto our firmware
+
+1. **`0x81` LZO decoder** - GPGX's `paprium_decoder_lzo` (`paprium.h:827-1010`,
+   183 lines) replacing mame.c's `case 0x81` heuristic, the one with an
+   `// unconfirmed end code` comment on its loop terminator. Verify against the
+   subway.
+2. **Door fix** - one line, `attr &= ~0x2000` on object 107 sprite 4. Verify
+   against Block 888.
+3. **`cmd_8C` one-shot music cues** - bit-7-clear cues routed to `mdp_play_once`
+   instead of stopping. Verify against stage clear.
+
+Room exists: IMEM is 32 KB and the firmware is 16,368 bytes.
+
+### Warning: block RAM is now completely full
+
+    ALMs        18,149 / 18,480  (98%)
+    RAM blocks     308 / 308     (100%)
+
+In the DIAGNOSTIC configuration - shipping has no 16 KB command log and no second
+data_unloader. Nothing further can be added to a cmdlog build without taking
+something out.
