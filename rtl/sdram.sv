@@ -112,13 +112,21 @@ wire [2:0] wr = {wrl2|wrh2,wrl1|wrh1,wrl0|wrh0};
 // The trade-off is real and needs watching: port0/port1 are the 68000 and VDP and
 // have real-time deadlines, so cycles taken from them can create artefacts of their
 // own. Test for NEW glitches elsewhere, not only whether the elevator improved.
-// EXPERIMENT (2026-08-29): 96, deliberately starving the MCU HARDER than upstream's
-// 24. At 8 - a 3x bandwidth increase for the MCU - the elevator glitched
-// identically, which is evidence against starvation as the mechanism. Testing the
-// opposite direction settles it: if 12x worse starvation ALSO changes nothing, MCU
-// bandwidth is not the cause, and MisterPezz82's recorded root cause is wrong.
-// Revert to 24 afterwards unless a result argues otherwise.
-localparam [7:0] STARVE2_LIMIT = 8'd96;
+// Restored to MisterPezz82's 24 after testing both directions on hardware.
+//
+// At 8 (3x more MCU bandwidth) the elevator glitched identically, and the build
+// cost 1,145 ALMs and 0.87 ns for no benefit. At 96 (12x less) the elevator STILL
+// glitched identically - but the game visibly slowed with dropped frames.
+//
+// That dissociation is the useful result. The knob demonstrably works: starve the
+// MCU and frame pacing suffers, which is the animation skipping upstream logged as
+// issue #10. But the elevator corruption is indifferent to MCU bandwidth in both
+// directions, so starvation is NOT its cause - upstream's recorded root cause
+// conflated two separate problems.
+//
+// 24 is kept because it is the value the animation-skipping fix was tuned to and
+// neither direction improved on it.
+localparam [7:0] STARVE2_LIMIT = 8'd24;
 reg  [7:0] starve2 = 0;
 wire       port2_pending = (ack2 != req2);
 wire       boost2 = port2_pending && (starve2 >= STARVE2_LIMIT);
