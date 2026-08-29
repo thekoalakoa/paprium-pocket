@@ -2460,6 +2460,61 @@ TVs, the subway, the Block 888 door, stage-clear music, echo, amplify and the pa
 de-inversion.
 
 
+## TO DO: the full-health stage clear, bundled with the YM2612 work
+
+Reported from hardware: clearing stage 1 at 100% health plays the ordinary
+stage-clear cue instead of the perfect-health one. The tester's ear says the
+perfect version sounds like **an additional layer over the standard finish**, not
+a different piece.
+
+That matches the shape of a PCM cue plus an **FM fanfare driven by the 68000
+through the console's own YM2612** - which would be entirely independent of the
+unsolved MWMM payload, and therefore fixable.
+
+Supporting circumstantial evidence:
+
+- The released soundtrack has exactly one Stage Clear track (cue index 52), so a
+  variant was never a separate recording.
+- The cartridge's own music pointer table is **null at ten indices** (8, 9, 10, 13,
+  26, 31, 41, 44, 45, 48). If the perfect clear requests one of those, the cart has
+  no PCM to stream and the jingle must come from elsewhere.
+- The YM2612 DAC path is independently known to be broken here (below), so we
+  already have reason to believe FM content can go missing.
+
+### The zero-cost test, which needs no build
+
+With `paprium.pcm` renamed away this core has no music path at all, so anything
+still audible is the 68000 driving the YM2612 directly. That isolates the layer:
+
+    1. rename /Assets/paprium/common/paprium.pcm -> paprium.pcm.off
+    2. EXIT the core (not Reset Core), relaunch
+    3. clear stage 1 at ordinary health - listen
+    4. clear stage 1 at full health - listen
+
+    fanfare audible at full health only -> the FM layer exists and we drop it
+    nothing either time                 -> no FM layer; it is a synth render
+    same sound both times               -> the variation is not in the FM part
+
+Rename, do not delete - the blob is 2.25 GB to rebuild.
+
+### The instrumented version, if the ear test is ambiguous
+
+Sticky counters for YM2612 activity - total register writes, key-ons (reg 0x28),
+DAC writes (reg 0x2A) - using the same reset-immune scheme as the VRAM budget
+counters, plus the existing 0x8C/0x8D/0xD6 music logging so the requested track
+index is visible. One capture: clear stage 1 at full health, exit.
+
+    different index  -> we map it wrong, or to Blank; fixable
+    null index + FM key-ons -> the YM2612 IS the variant; fixable
+    standard index, no FM   -> a synth render of the same module; out of reach
+
+### Note on scope
+
+If the layer turns out not to exist, the correct outcome is to leave the standard
+cue playing. Writing a perfect-health fanfare of our own would mean shipping music
+the game never contained - fabrication in a preservation project, and worse than an
+honest wrong cue.
+
 ## TO DO: the YM2612 DAC path produces static
 
 Exposed by the `0x88` fix - the in-game **VM DAC** option selects the YM2612's DAC
