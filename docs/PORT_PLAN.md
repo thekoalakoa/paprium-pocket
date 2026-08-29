@@ -2929,14 +2929,72 @@ advance, which is what makes it a test rather than a demonstration.
 This is the experiment that should decide whether to continue. Everything else
 is blocked behind it.
 
+## HARDWARE VERDICT: the note/octave decode is wrong
+
+A 34-second capture of **Bone Crusher from original hardware** was run blind
+through `scripts/identify_track.py` against all 52 modules. The correct module is
+`track07.mwmm`.
+
+    Bone Crusher (track07)  rank 52 of 52   corr +0.300   (winner +0.809)
+
+Dead last. Repeated on two independent 17-second halves: **52/52 both times**.
+Worse than chance, not merely unsupported.
+
+Confounds checked, none of them explains it:
+
+- **track07 is not a degenerate module.** 568 decoded notes, 23rd of 52 by count,
+  peak/trough 22.2 - entirely typical.
+- **The ranking is not just counting notes.** Correlation between match score and
+  note count is only +0.253; `track53` decodes 114 notes and ranks 4th while
+  `track37` decodes 1181 and ranks near the bottom.
+- **The reference is valid.** Real cartridge, real synth, correct track named
+  only afterwards, and the chroma feature is separately validated at 8/8
+  own-best on segment-vs-segment.
+
+This was pre-registered before the answer was known - "mid-pack or lower means
+the decode is wrong" - so it stands as written.
+
+## What that costs, and what survives
+
+**Withdrawn:** note + octave as semitone pitch.
+
+**The melodic-continuity result was weaker evidence than it was presented as.**
++18 and +20 points over a shuffle shows the values move in small steps. So does
+*any* smoothly varying parameter - a volume envelope, a filter sweep, a pan
+automation. It never distinguished pitch from those, and it was treated as
+though it did.
+
+**Still standing**, because none of it depends on the pitch reading:
+
+| Claim | Basis |
+|---|---|
+| Order list, u16 absolute offsets, self-delimiting | 52/52 self-consistent |
+| Patterns contiguous, sizes a multiple of 8 | 2509/2525 |
+| Row = 2 events of 4 bytes | symmetric lane statistics |
+| Text is XOR 0xA5 | all 52 titles, composers, comments decode |
+| The album cannot serve as reference | key and tempo both fail |
+
+The octave-wrap observation remains a real, specific pattern (delta pairs summing
+to 12, resolving to identical net intervals 65-84% of the time). It means
+*something* - but whatever it means, it does not produce the pitches the
+cartridge plays.
+
 ## Next step
 
-There is no external reference for this format short of real hardware. The album
-cannot validate it, so until a cartridge capture exists every test must be
-internal. The **melodic-continuity metric** is the tool for that - internal, no
-audio needed, sensitive at +20 points. Use it to settle the open questions by
-maximising it across candidate slot classifications and column counts, rather
-than guessing as the eight failed classifiers did.
+Stop extending the current model; it is falsified at the top. The structural
+layer is solid and the event layer is not, so work restarts at the 4-byte event
+with no assumption that any field is a note.
+
+The asset from this round is the **method**: a blind, pre-registered test against
+real hardware that a wrong answer cannot pass. `identify_track.py` plus one
+cartridge recording now falsifies any hypothesis in seconds. Every earlier round
+of this work failed for want of exactly that.
+
+One hypothesis worth testing before abandoning pitch entirely: the values may be
+pitch **relative to a per-voice base**, in which case pooled chroma is wrong by
+construction. Header array B (`+0x2A`, sparse, the only per-track-varying array)
+is the obvious candidate for that base. Testing it needs the voice mapping, so
+resolve 13-vs-26 first.
 
 ## 0xB0 does not fix the elevator - but the trigger is now known
 
