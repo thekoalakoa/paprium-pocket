@@ -221,18 +221,19 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..496bb4c 100644
+index 1a1de1d..53ef226 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
-@@ -11,6 +11,7 @@ void cmd_unknown_muted();
+@@ -11,6 +11,8 @@ void cmd_unknown_muted();
  void cmd_00();
  void cmd_81_init();
  void cmd_84_sdram_off();
++void cmd_B0_sprite_init();
 +void cmd_88_audio_cfg();
  void cmd_8C_bgm_play();
  void cmd_8D_bgm_cfg();
  void cmd_AD_obj_add();
-@@ -133,7 +134,7 @@ void ppm_init_cmd_ptr() {
+@@ -133,7 +135,7 @@ void ppm_init_cmd_ptr() {
      }
  
      cmp_ptr[0x83] = cmd_unknown_muted; // unk startup thing
@@ -241,10 +242,32 @@ index 1a1de1d..496bb4c 100644
      cmp_ptr[0x95] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0x96] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0xA4] = cmd_unknown_muted; // megawire settings
-@@ -390,6 +391,26 @@ void cmd_F5_stamp_rescale() {
+@@ -142,7 +144,7 @@ void ppm_init_cmd_ptr() {
+     cmp_ptr[0xD6] = cmd_unknown_muted; //???
+ 
+     //unknown stuff
+-    cmp_ptr[0xB0] = cmd_unknown_muted;
++    cmp_ptr[0xB0] = cmd_B0_sprite_init;
+     cmp_ptr[0xD0] = cmd_unknown_muted;
+ 
+     cmp_ptr[0x00] = cmd_00;
+@@ -390,6 +392,39 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
++void cmd_B0_sprite_init() {
++
++    // paprium-pocket: stock mega-ppm mutes this. GPGX implements it as a clear of
++    // 112 bytes of the DMA/sprite table (paprium.h, paprium_sprite_init):
++    //     memset(paprium_s.ram + 0x1F20, 0, 14*8);
++    // Without it stale DMA entries survive initialisation. MisterPezz82 suspected
++    // this command in the elevator corruption and never followed it up.
++    vu8 *ram = (vu8 *) ppmio.ramdp;
++    for (int i = 0; i < 14 * 8; i++) {
++        ram[0x1F20 + i] = 0;
++    }
++}
++
 +void cmd_88_audio_cfg() {
 +
 +    // paprium-pocket: stock mega-ppm mutes this command, so the game's audio
@@ -268,7 +291,7 @@ index 1a1de1d..496bb4c 100644
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
-@@ -399,7 +420,12 @@ void cmd_8C_bgm_play() {
+@@ -399,7 +434,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {
