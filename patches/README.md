@@ -39,14 +39,19 @@ Object 107's sprite 4 is the Block 888 door and composes with palette bit `0x200
 set, rendering in the wrong colours. Reported by MisterPezz82 as
 "object 107 sprite 4, `attr &= ~0x2000`" and shipped in their V.05.
 
+**`paprium.c` / `mdp.c` / `mdp.h` — one-shot music cues.**
+`cmd_8C_bgm_play` treats bit 7 of its argument as "loop", and stock mega-ppm calls
+`mdp_stop()` when it is clear — so Stage Clear, Continue, Game Over, High Score
+and Ending are silent. Captured on hardware: `cmd_8C` track `0x35` (53) with bit 7
+clear at the end of a stage, and 53 is one of the tracks the cue sheet marks
+`REM NOLOOP`. Adds `mdp_play_once()`, sending MD+ `$11xx` (`MDP_CMD_PLAY_S`),
+which this core's `paprium_mdp_adapter` already decodes as `track_loop = 0`.
+
 ## Not yet re-applied
 
-- **`cmd_8C` one-shot music cues** — MisterPezz82's V.04 change routing bit-7-clear
-  cues (Stage Clear, Continue, Game Over, High Score, Ending) through
-  `mdp_play_once` instead of stopping them. Its absence shows as no end-of-stage
-  music.
-- **Field-wise sprite attribute composition** — their V.04/V.05 change, explicitly
-  recorded as harmless but *not* an elevator fix.
+- **Field-wise sprite attribute composition** — MisterPezz82's V.04/V.05 change,
+  explicitly recorded in their own notes as harmless but *not* an elevator fix.
+  Low value, so not carried over.
 
 ## Build notes
 
