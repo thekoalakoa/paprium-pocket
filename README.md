@@ -112,15 +112,39 @@ Variants: `paprium`, `paprium_nosfx`, `paprium_cddadbg`, `paprium_cmdlog`.
 
 ## Lineage
 
-Built on five projects, each doing the hard part of a different layer:
+Built on five projects. GPLv3 throughout, so all of it stays credited.
 
 | | |
 |---|---|
-| [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA) | nukeykt — gate-level model of the real silicon |
-| [MegaDrive_MiSTer](https://github.com/MiSTer-devel/MegaDrive_MiSTer) | MiSTer-devel |
+| [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA) | nukeykt — gate-level model of the real silicon; the console itself |
+| [MegaDrive_MiSTer](https://github.com/MiSTer-devel/MegaDrive_MiSTer) | MiSTer-devel — the core built around it |
 | [openFPGA-MegaDrive](https://github.com/drizzt/openFPGA-MegaDrive) | drizzt — the Pocket port this forks |
-| [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge work |
-| [mega-ppm](https://github.com/krikzz/mega-ppm) | krikzz — replacement MCU firmware |
+| [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge RTL: MCU integration, mailbox, memory map, SFX engine, MD+ adapter |
+| [mega-ppm](https://github.com/krikzz/mega-ppm) | krikzz — the replacement MCU firmware, and the source this core's firmware is built from |
+
+### What this port adds
+
+Roughly a third of `rtl/PAPRIUM` is new here, plus changes throughout the rest:
+
+- **The whole CDDA music path** — `paprium_cdda_fetch/buf/play.sv`. Streams the
+  soundtrack from an SD-card blob by seeking within a single APF data slot,
+  because a core is capped at 32 data slots and Paprium has 62 tracks.
+- **Audio fixes in the SFX mixer** — echo (`0x4000`) and amplify (`0x0100`), which
+  the game requests constantly and neither this port nor MiSTer implemented; and a
+  pan sign bug that phase-inverted one side of every non-centred effect.
+- **Firmware fixes**, built from krikzz's source — see [patches/](patches/). The
+  punk-TV cue never looped because `sfx_player_update` abandons a channel once it
+  empties, so the game's later `sfx_loop` landed on a dead one.
+- **Diagnostics** — a mailbox command logger and SFX channel-state capture, which
+  is how the above was found rather than guessed at.
+- **Everything Pocket-specific** — APF integration, data slots, the fit work that
+  took a 98% core to 91%.
+
+The cartridge RTL underneath it is MisterPezz82's, and their
+[KNOWN_ISSUES.md](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer/blob/master/docs/KNOWN_ISSUES.md)
+is a genuinely useful engineering record — it saved this project at least one
+wasted build by documenting an elevator fix that had already been tried and did
+not work.
 
 Please report issues with **this** core here, not to those projects. A problem is
 most likely a result of this port.
