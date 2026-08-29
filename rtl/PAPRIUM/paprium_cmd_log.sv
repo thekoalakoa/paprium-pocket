@@ -86,9 +86,20 @@ module paprium_cmd_log (
 	localparam [11:0] A_VOL   = 12'hF09;  // 0x1E12 >> 1 - volume
 	localparam [11:0] A_FLAGS = 12'hF0B;  // 0x1E16 >> 1 - flags
 
-	// Audio-relevant commands, plus the two recorded as muted upstream
+	// LOG_ALL: capture EVERY command, not just audio. Needed for questions that are
+	// not about sound - grunt names that do not vary, and the muted 0xB0/0xD6 that
+	// GPGX implements - where the point is seeing what fires around an event.
+	//
+	// With the filter off, sprite traffic (0xAD/0xAE/0xAF) fills 2047 entries in
+	// seconds, so the ring must NOT wrap: it fills once from boot and freezes,
+	// giving boot plus the first enemies. Dedup still applies and buys back a lot,
+	// since sprite commands repeat heavily.
+	//
+	// Set to 0 to restore the audio-only filter used for the punk-TV work.
+	localparam LOG_ALL = 1'b1;
+
 	wire [7:0] cmd_hi = cpu_data[15:8];
-	wire keep =
+	wire keep_audio =
 		   (cmd_hi == 8'h88)   // audio_setting  (muted in this firmware)
 		|| (cmd_hi == 8'h8C)   // music
 		|| (cmd_hi == 8'h8D)   // music_setting
@@ -99,6 +110,8 @@ module paprium_cmd_log (
 		|| (cmd_hi == 8'hD2)   // sfx_off
 		|| (cmd_hi == 8'hD3)   // sfx_loop
 		|| (cmd_hi == 8'hD6);  // music_special
+
+	wire keep = LOG_ALL | keep_audio;
 
 	wire hit_raw   = cpu_wr & (wr_word == A_CMD) & keep;
 
@@ -211,8 +224,14 @@ module paprium_cmd_log (
 				// second word follows on the next cycle
 				snd_wdata <= {last_flags, last_vol};
 
-				// entries are two words; 0..4093, word 4095 is the header
-				wr_idx <= (wr_idx >= 12'd4092) ? 12'd0 : wr_idx + 2'd2;
+				// entries are two words; 0..4093, word 4095 is the header.
+				// In LOG_ALL the ring fills ONCE and stops - wrapping would discard
+				// the boot sequence, which is the part being examined.
+				if(wr_idx >= 12'd4092) begin
+					if(LOG_ALL) frozen <= 1'b1;
+					wr_idx <= 12'd0;
+				end
+				else wr_idx <= wr_idx + 2'd2;
 			end
 			else if(hit_snap) begin
 				mem_we    <= 1'b1;

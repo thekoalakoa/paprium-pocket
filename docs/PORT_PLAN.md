@@ -2352,3 +2352,23 @@ fails in the same "varying path does not vary" way.
 All five firmware fixes and three RTL audio fixes verified on hardware: both punk
 TVs, the subway, the Block 888 door, stage-clear music, echo, amplify and the pan
 de-inversion.
+
+
+## TO DO: the YM2612 DAC path produces static
+
+Exposed by the `0x88` fix - the in-game **VM DAC** option selects the YM2612's DAC
+over the cartridge's own, and choosing it gives **static with music still audible
+underneath**.
+
+Not a regression and not a shipping concern: the default is the cartridge DAC and is
+unaffected. The path has presumably never worked in this port; the toggle simply
+could not reach it before, because the game read its configuration back from memory
+we never wrote.
+
+Starting points:
+
+- "Music still audible underneath" suggests **both paths may be live at once** -
+  the cartridge SFX engine still running while the game also feeds the YM2612.
+- The game would write PCM to YM2612 register `0x2A` at some rate. Check whether
+  those writes arrive and whether our timing for them is right.
+- Compare against GPGX with the same option set, which is cheap and needs no build.
