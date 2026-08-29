@@ -2789,22 +2789,48 @@ command slots being pooled in with note slots.
 | Timing / tempo | Open - no field found, and no valid reference to fit against |
 | 13 or 26 voices | Open |
 
+## How to get a valid reference - the test plan
+
+**The mini-game.** It appears only on a cold start. `Reset Core` does NOT clear
+SDRAM (see "Reset Core does not clear SDRAM" above) - that is precisely why the
+documented workflow is "play the mini-game, reset the core, play the real game".
+To see it again the core must be **fully exited and relaunched**.
+
+    1. rename /Assets/paprium/common/paprium.pcm -> paprium.pcm.off
+       (rename, not delete - it is 2.25 GB to rebuild)
+    2. EXIT the core from the Pocket menu, not Reset Core
+    3. relaunch, load the ROM, listen to the mini-game
+
+Expectations, so the result is interpretable either way. This core has **no MWMM
+synth at all** - the firmware substitutes CDDA for music. So music in the
+mini-game with the blob absent is the 68000 driving the YM2612 directly, i.e.
+ordinary Mega Drive music, **not** the cartridge synth. That would make the
+mini-game useless as an MWMM reference - and would also explain why the
+square-wave renders sounded like it, both being plain chiptune. Cheap to run,
+but it will probably close a door rather than open one.
+
+**The real cartridge is the reference that matters.** Same synth, same key, same
+tempo, none of the album's re-production problems. A 60-second capture of any
+stage theme off real hardware is enough.
+
+`scripts/identify_track.py` takes such a recording and ranks all 52 modules by
+decoded pitch content, **blind** - the track does not have to be identified in
+advance, which is what makes it a test rather than a demonstration.
+
+    right module #1 by a clear margin  ->  note/octave decode confirmed
+    right module mid-pack              ->  decode wrong, revisit the framing
+
+This is the experiment that should decide whether to continue. Everything else
+is blocked behind it.
+
 ## Next step
 
-The lesson from this round is that **there is no external reference for this
-format**. The album cannot validate it, so every future test must be internal
-(melodic continuity, scale fit, self-consistency) or against real hardware.
-
-The one true reference available is the **pre-boot mini-game**, which plays music
-without the CDDA blob and therefore is synthesised on the cartridge. If its music
-comes from an MWMM module, it is the only case where our synthesis could be
-compared against hardware directly. Worth confirming whether mini-game music is
-audible on the core with no blob installed.
-
-For the format itself, the melodic-continuity metric is now the tool of choice -
-it is internal, needs no audio, and is sensitive (a +20 point gap). Use it to
-settle the open questions: try slot classifications and pick whichever maximises
-melodic continuity rather than guessing, and test 13 vs 26 the same way.
+There is no external reference for this format short of real hardware. The album
+cannot validate it, so until a cartridge capture exists every test must be
+internal. The **melodic-continuity metric** is the tool for that - internal, no
+audio needed, sensitive at +20 points. Use it to settle the open questions by
+maximising it across candidate slot classifications and column counts, rather
+than guessing as the eight failed classifiers did.
 
 ## 0xB0 does not fix the elevator - but the trigger is now known
 
