@@ -156,7 +156,7 @@ module paprium_cmd_log (
 	reg        armed, frozen;
 	reg [10:0] post_cnt;
 
-	wire hit_cmd = hit_raw & ~dup & ~frozen;
+	wire hit_cmd = hit_raw & (BUDGET_ONLY | ~dup) & ~frozen;
 
 	// Channel-7 snapshots, emitted on CHANGE rather than on a timer: the volume
 	// register changing and the FIFO running dry are both rare, so this stays
@@ -170,7 +170,7 @@ module paprium_cmd_log (
 	reg [15:0] ch7_wr_cnt;
 
 	wire ch7_changed = (ch7_vol != ch7_vol_d) | (ch7_empty != ch7_empty_d);
-	wire hit_snap    = ch7_changed & ~frozen & ~hit_cmd;
+	wire hit_snap    = ch7_changed & ~frozen & ~hit_cmd & ~BUDGET_ONLY;
 	wire hit_mask  = cpu_wr & (wr_word == A_MASK);
 	wire hit_vol   = cpu_wr & (wr_word == A_VOL);
 	wire hit_flags = cpu_wr & (wr_word == A_FLAGS);
@@ -182,6 +182,10 @@ module paprium_cmd_log (
 	reg [15:0] last_flags;
 
 	reg [11:0] wr_idx;
+
+	reg [15:0] ec_cnt, ec_peak, ec_last, any_cmd_cnt;
+	wire       any_cmd = cpu_wr & (wr_word == A_CMD);
+	wire       ec_cmd  = any_cmd & (cmd_hi == 8'hEC);
 
 	reg        mem_we;
 	reg [11:0] mem_waddr;
@@ -207,6 +211,13 @@ module paprium_cmd_log (
 			post_cnt   <= 11'd0;
 		end
 		else begin
+			if(any_cmd) any_cmd_cnt <= any_cmd_cnt + 1'd1;
+			if(ec_cmd) begin
+				ec_cnt  <= ec_cnt + 1'd1;
+				ec_last <= last_vol;
+				if(last_vol > ec_peak) ec_peak <= last_vol;
+			end
+
 			ch7_vol_d   <= ch7_vol;
 			ch7_empty_d <= ch7_empty;
 			if(ch7_wr) ch7_wr_cnt <= ch7_wr_cnt + 1'd1;
@@ -238,7 +249,7 @@ module paprium_cmd_log (
 				// entries are two words; 0..4093, word 4095 is the header.
 				// In LOG_ALL the ring fills ONCE and stops - wrapping would discard
 				// the boot sequence, which is the part being examined.
-				if(wr_idx >= 12'd4092) begin
+				if(wr_idx >= 12'd4088) begin
 					if(LOG_ALL) frozen <= 1'b1;
 					wr_idx <= 12'd0;
 				end
@@ -252,7 +263,7 @@ module paprium_cmd_log (
 				//  [31:16] unused        [15:0]  PCM words pushed so far
 				snd_wdata <= {16'd0, ch7_wr_cnt};
 
-				wr_idx <= (wr_idx >= 12'd4092) ? 12'd0 : wr_idx + 2'd2;
+				wr_idx <= (wr_idx >= 12'd4088) ? 12'd0 : wr_idx + 2'd2;
 			end
 		end
 	end
@@ -260,17 +271,36 @@ module paprium_cmd_log (
 	// Cycle after the command word: the flags/volume word. Cycle after that: the
 	// header, so a capture taken at any moment names the newest entry.
 	reg [31:0] snd_wdata;
-	reg        snd_we, hdr_we;
+	reg        snd_we, hdr_we, hdr1_we, hdr2_we;
 	always @(posedge clk) begin
-		snd_we <= mem_we;
-		hdr_we <= snd_we;
+		snd_we  <= mem_we;
+		hdr_we  <= snd_we;
+		hdr1_we <= hdr_we;
+		hdr2_we <= hdr1_we;
 	end
 
-	wire        ram_we    = mem_we | snd_we | hdr_we;
-	wire [11:0] ram_waddr = hdr_we ? 12'd4095
+	// The counters must also reach RAM when the ring is silent - in BUDGET_ONLY a
+	// whole run can log nothing, which is exactly the case being diagnosed. Tick
+	// them out periodically so an empty ring still carries a verdict.
+	reg [19:0] beat;
+	reg        beat_tick, beat_tick2;
+	always @(posedge clk) begin
+		beat       <= beat + 1'd1;
+		beat_tick  <= &beat;
+		beat_tick2 <= beat_tick;
+	end
+	wire hdr1_any = hdr1_we | beat_tick;
+	wire hdr2_any = hdr2_we | beat_tick2;
+
+	wire        ram_we    = mem_we | snd_we | hdr_we | hdr1_any | hdr2_any;
+	wire [11:0] ram_waddr = hdr2_any ? 12'd4093
+	                      : hdr1_any ? 12'd4094
+	                      : hdr_we ? 12'd4095
 	                      : snd_we ? (mem_waddr + 1'd1)
 	                               : mem_waddr;
-	wire [31:0] ram_wdata = hdr_we ? {16'hC0DE, armed, frozen, 2'd0, wr_idx}
+	wire [31:0] ram_wdata = hdr2_any ? {ec_last, any_cmd_cnt}
+	                      : hdr1_any ? {ec_cnt, ec_peak}
+	                      : hdr_we ? {16'hC0DE, armed, frozen, 2'd0, wr_idx}
 	                      : snd_we ? snd_wdata
 	                               : mem_wdata;
 
