@@ -47,6 +47,8 @@ projects/output_files/
 # rebuilds the blob bit-identically from your own copy.
 # ---------------------------------------------------------------------------
 *.pcm
+wave-bank*.wv
+wave-bank*.wav
 Paprium.md
 paprium.bin
 *.sav
