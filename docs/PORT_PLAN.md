@@ -2929,6 +2929,89 @@ advance, which is what makes it a test rather than a demonstration.
 This is the experiment that should decide whether to continue. Everything else
 is blocked behind it.
 
+## Event layer restarted from nothing - and the container is now fully mapped
+
+Working from structure alone, assuming no field means anything.
+
+**Mutual information between the eight byte lanes** shows 2-byte grouping, not
+4: L2-L3 couple most strongly (0.71 bits), and there is clear same-parity
+coupling across slots (L4-L6 0.51, L5-L7 0.47, L2-L4 0.46, L3-L5 0.45).
+
+**A row is four optional 2-byte slots**, all drawing on the same vocabulary
+(`0200`, `0300`, `0400` lead in every slot). Occupancy falls 85.7 / 45.9 / 39.5 /
+31.0%. Left-packing was tested and **refuted** - 27% violations - so the slots are
+independently occupied, commonly slot 0 alone (38.6%) or all four (19.5%).
+
+The commonest rows are a single 2-byte event with everything else zero:
+
+    02 00 00 00 00 00 00 00    2.66%
+    01 04 00 00 00 00 00 00    1.65%
+    03 04 00 00 00 00 00 00    1.53%
+
+First byte spans `01..0E`. **14 = 2 x 7** suggested scale degrees rather than
+semitones, which is a different hypothesis from any tried before.
+
+### Thirteen interpretations tested against hardware, all fail
+
+Each scored by where `track07` lands against the Bone Crusher recording:
+
+    rank  6/52   a delta major degree      <- best, and not significant
+    rank 12/52   b minor scale degree
+    rank 18/52   a major scale degree
+    rank 26/52   a minor scale degree      <- chance
+    rank 50/52   a absolute semitone
+    rank 52/52   a + octave b              <- the previously assumed model
+
+Chance is 26/52 and rank 1-2 was pre-registered as the bar. With 13 hypotheses,
+a rank of 6 is exactly what chance produces - `P(rank<=6)` is 11.5% each, so
+about 1.5 of 13 should reach it. **Nothing passes.** Absolute semitone and scale
+degree, on either byte, plain or delta, are all dead.
+
+Searching further in this direction would be multiple-comparison mining, so it
+stopped here.
+
+## CORRECTION: the SFX engine cannot be the music synth
+
+Stated earlier in this document that a 26-voice synth could be reached by
+extending `audio_sfx.sv`, since it already does per-channel rate, volume, pan and
+echo. **That is wrong.** The engine has no chromatic pitch:
+
+    reg [2:0]srate;   // 8 sample rates, sub-multiples of the 48 kHz tick
+    reg [4:0]pitch;   // "skip 1 of 2..32 cycles"
+    pitch <= flags[7] ? 5'd31 : flags[5] ? 5'd1 : 5'd0;   // three values in use
+
+Eight rates and a cycle-skip cannot play a melody. Whatever renders MWMM is a
+**separate mechanism that has never been seen** - not in RTL, not in firmware
+(krikzz substitutes CDDA and never implemented it), and not in any dump. That
+also explains why the module's values look like indices rather than frequencies:
+there is no frequency register anywhere in the hardware we have.
+
+Building the synth therefore means *designing* one, not extending what exists.
+
+## Where the work actually stands
+
+| Layer | State |
+|---|---|
+| Container - order list, voices, patterns, rows, slots | **Fully mapped**, all internally verified |
+| Text encoding (XOR 0xA5) | Solved |
+| Event semantics | **Open**, with every simple reading refuted against hardware |
+| Reference material | One 34 s cartridge recording; the album is unusable |
+
+The honest position: the container is understood and the payload is not. Cracking
+event semantics with no reference implementation, from 52 files and a single
+recording, is a research problem rather than an engineering one.
+
+## What would actually change that
+
+**More hardware recordings.** One recording tests one track, so any hypothesis
+gets a single 1-in-52 shot and cannot be distinguished from luck. Ten recordings
+of ten known tracks would let a hypothesis be scored across ten independent
+trials - a real statistical test rather than a coin flip, and enough to survive
+the multiple-comparison problem that just stopped this round.
+
+That is cheap to collect and would make every future hypothesis decisively
+testable. It is the highest-value thing available.
+
 ## RESOLVED: 26 voices, and the order list is voice-major
 
 Settled with internal evidence, no audio involved.
