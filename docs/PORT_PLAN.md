@@ -2528,3 +2528,42 @@ taken over a region whose first 64 bytes are title and composer text - which is
 exactly the kind of contamination that makes a histogram meaningless. The stride and
 sparsity numbers need redoing on the real sequence data before anything is concluded
 from them.
+
+
+## 0xB0 does not fix the elevator - but the trigger is now known
+
+Tested on hardware with the sixth firmware fix in place. **The elevator still
+glitches**: the player sprite drops to the background, and square sprite blocks
+scroll across the screen.
+
+New and useful: it happens **when a background elevator is scrolling past**.
+
+That is sustained tile streaming, which is exactly when port 0/1 traffic is heaviest
+and the MCU on port 2 waits longest - and it matches MisterPezz82's recorded root
+cause, shared-SDRAM port starvation. So `0xB0` being a dead end here is consistent
+rather than surprising; it fires once at init and has nothing to do with sustained
+bandwidth.
+
+### The next lever is a tunable we already have
+
+`rtl/sdram.sv`:
+
+    localparam [7:0] STARVE2_LIMIT = 8'd24;
+    wire boost2 = port2_pending && (starve2 >= STARVE2_LIMIT);
+
+The arbiter is strict fixed priority (refresh > port0 > port1 > port2), so under load
+the MCU is served only **once every 24+ arbitration rounds**. That is a hard cap on
+its bandwidth precisely when the game needs it most.
+
+MisterPezz82 chose 24 and recorded that it "reduces (does not fully resolve) the
+animation skipping" - so by their own account the MCU is still starved at this value.
+
+**Experiment:** lower it. 8 would triple the MCU's worst-case service rate while
+still leaving the console 7 of every 8 rounds. The trade-off is real and needs
+watching: port 0/1 are the 68000 and VDP, which have real-time deadlines, so taking
+cycles from them can create its own artefacts. Test for new glitches elsewhere, not
+just the elevator.
+
+If lowering the limit changes the elevator at all - better or worse - that confirms
+starvation as the mechanism, which is worth knowing even if the value needs tuning
+afterwards.
