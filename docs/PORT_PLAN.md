@@ -2311,3 +2311,44 @@ list above is a far better suspect set than nothing.
 so a capture survives a playthrough. A short capture with the filter OFF, taken while
 a few enemies spawn, would show what actually fires at a spawn. That is a small
 change to `paprium_cmd_log.sv`'s `keep` expression.
+
+
+## 0x88 confirmed on hardware: the game DOES act on configuration
+
+Tested with the shipping build carrying the `0x88` fix (md5 `bb0cb54c`).
+
+**The VM DAC checkbox now does something.** Before the fix it was inert - the game
+wrote its audio configuration and read back stale memory. Now toggling it produces
+an audible change. That settles the question behind the whole boot-check theory:
+**the game reads its hardware/audio configuration back and branches on it.**
+
+Two consequences.
+
+### The YM2612 DAC path is broken - newly reachable, not newly broken
+
+Checking the box produces **static, with music still audible underneath**. The
+option selects the YM2612's DAC over the cartridge's own, and that path evidently
+does not work in this port. It has presumably never worked; the toggle simply could
+not reach it before.
+
+**Not a shipping concern.** The default is unchecked (DT128VALT, the cartridge DAC)
+and is unaffected. The box now does what it says on the tin and exposes a real
+downstream fault, which is an improvement over silently doing nothing.
+
+Worth investigating separately: whether the game routes PCM to YM2612 register 0x2A
+and our timing for those writes is wrong, or whether the cartridge SFX engine keeps
+running with stale data alongside it - "music still audible underneath" suggests
+both paths may be live at once.
+
+### 0x88 is NOT the big-enemy death sound
+
+The sound is unchanged. That theory is closed. The remaining candidates are the two
+other commands GPGX implements and we mute - `0xB0 paprium_sprite_init` and
+`0xD6 paprium_music_special` - and whatever drives the grunt-name variation, which
+fails in the same "varying path does not vary" way.
+
+### Everything else confirmed
+
+All five firmware fixes and three RTL audio fixes verified on hardware: both punk
+TVs, the subway, the Block 888 door, stage-clear music, echo, amplify and the pan
+de-inversion.
