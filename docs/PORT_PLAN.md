@@ -2674,18 +2674,73 @@ command opcodes and small note values are being pooled.
 | Timing / tempo | Unknown |
 | 13 or 26 voices | Unknown |
 
+## Slot classification tried, and the sweep that followed
+
+Eight classifiers were tested - dropping octave 0, restricting the octave to
+1-10 / 1-8 / 2-6, primary slots only, secondary slots only, and note/octave
+swapped. **None reached significance.** Best mean own-rank 6.75 against a chance
+value of 8.5, with own-best stuck at 1/16 throughout.
+
+A wider sweep then tried all 8 byte lanes under three readings each - absolute,
+delta-unsigned and delta-signed, the last being what "pitch relative to an
+unknown base" would actually look like. Best of all 24: mean rank 6.62,
+own-best 1/16. Nothing works.
+
+**No simple per-byte interpretation of the pattern data reproduces the song's
+pitch content.**
+
+## The harness is sound - this was checked
+
+Before trusting a negative result, the feature was validated. Chroma of a
+*different 40-second segment* of the same recording, scored against all 16
+cached recordings:
+
+    own-best 8/8, mean rank 1.00, correlations +0.937 to +0.998
+
+and different recordings are genuinely distinct (mean pairwise +0.375, min
+-0.697). So the test identifies a song from pitch content perfectly when the
+pitch content is real. The decoded notes rank at chance. The instrument is not
+blunt; the signal is absent.
+
+## The one caveat on the ground truth
+
+The comparison assumes the released album preserves the cartridge's key. The
+names differ in a way that leaves room for doubt - module "90's Acid Dubstep" vs
+OST "02 90's Acid Dub Character Select", module "Bladerunner FM" vs OST "43 Blade
+FM". Same pieces, but plausibly a separately produced album rather than a render
+of the cart data. If any track was transposed for production, chroma comparison
+fails for that track - though not for all 16 at once, which is what was observed.
+
+## What this rules in
+
+The order list and pattern framing are unaffected - they were established by
+self-consistency across 52/52 modules, not by this test. What is now doubtful is
+that **the pattern bytes contain playable pitch at all**. Two readings survive:
+
+1. Notes need stateful decoding - through the instrument definitions in header
+   array B, or a per-voice table - so no fixed byte position carries pitch.
+2. The patterns are automation and structure, and pitch lives elsewhere. Worth
+   noting the wave bank is a **sampler** with a rate table `{2,4,5,8,9,10}`
+   giving 24000/12000/9600/6000/5333/4800 Hz. If pitch is chosen by sample rate
+   rather than by semitone, there may be no semitone field anywhere.
+
 ## Next step
 
-Separate note slots from command slots before anything else - every downstream
-measurement is being diluted by the mixture. The lever is the near-duplicate
-pattern pairs: slots whose deltas are musical (wrap-consistent with the octave
-byte) are notes; slots that change arbitrarily are commands. Classify slots on
-that basis, then re-run `validate_pitch.py` on notes alone. If the correlation
-against the real recordings rises above the controls, the model is right and the
-only remaining problem is timing. If it stays at chance, the note reading is
-wrong despite the interval evidence and the 4-byte framing needs revisiting.
+`scripts/validate_pitch.py` plus the cached chroma make any new hypothesis
+testable in seconds, which is the real asset from this round. Do not spend
+another pass guessing byte meanings - the cheap sweeps are exhausted.
 
-Do not build any RTL until that correlation test passes.
+The two moves with actual information in them:
+
+- **Check the ground-truth assumption.** Estimate tempo from the OST tracks and
+  look for a matching tempo field in the modules. Agreement would confirm the
+  album renders the same data and make the refutation final.
+- **Attack the instrument path instead.** Header array B is the only per-track
+  varying array and is sparse and small - likely instrument selection per voice.
+  Tying it to the wave bank's sampler would explain how a note becomes a sound,
+  and may reveal that pitch is a rate index rather than a semitone.
+
+Still no RTL until something passes the correlation test.
 
 ## 0xB0 does not fix the elevator - but the trigger is now known
 
