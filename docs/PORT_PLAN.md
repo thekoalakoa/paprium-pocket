@@ -555,7 +555,7 @@ and one-shot behaviour.
 | SFX inaudible while music plays | **CLOSED - settings, not headroom** | Refuted: at the same 294 gain the effects are clear once the game's own audio options are right |
 | Elevator corruption + priority | upstream firmware | Open, issue C |
 | Boss fight: sprite drops behind BG | upstream firmware | Open, sprite-attribute XOR |
-| "Saxophone guy" never appears | probably upstream | Candidate: issues A/B |
+| "Saxophone guy" never appears | **not yet tested** | He only spawns in ORIGINAL mode at Hard or above. Every test run so far has been Arcade/Easy, so the conditions have never been met |
 | Some SFX differ from real hardware | expected, partly | See below |
 
 **Elevator** is upstream issue C verbatim: *"Lots of graphical corruption in the
@@ -1928,3 +1928,28 @@ Room exists: IMEM is 32 KB and the firmware is 16,368 bytes.
 In the DIAGNOSTIC configuration - shipping has no 16 KB command log and no second
 data_unloader. Nothing further can be added to a cmdlog build without taking
 something out.
+
+
+---
+
+## "Saxophone guy": we have never tested the conditions
+
+He only appears in **Original mode, at Hard difficulty or above**.
+
+Every hardware run in this project has been **Arcade / Easy** - chosen early
+because it is the fastest route to the punk TVs and the big enemy, and then kept
+for comparability across runs. So the conditions for him to spawn have never once
+been met, and "never appears" is not evidence of anything.
+
+That retires the standing theory that it was upstream issues A/B (the MCU falling
+behind and missing events). It might still be, but nothing observed so far
+supports it.
+
+**To test:** Original mode, Hard or above, and play to wherever he appears. Worth
+folding into the next run that is not a controlled A/B, since changing mode and
+difficulty invalidates comparison with the Arcade/Easy captures.
+
+Worth noting the same trap may apply elsewhere: the mode/difficulty axis was only
+discovered at all because the punk-TV cue behaved differently across it. Any
+"never happens" observation from this project should be checked against whether
+the conditions were ever actually present.
