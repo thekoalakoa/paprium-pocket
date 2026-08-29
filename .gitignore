@@ -48,6 +48,7 @@ projects/output_files/
 # ---------------------------------------------------------------------------
 *.pcm
 wave-bank*.wv
+music-modules/
 wave-bank*.wav
 Paprium.md
 paprium.bin
