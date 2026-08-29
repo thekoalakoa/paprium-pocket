@@ -24,7 +24,13 @@ clears `looped`, and the game enables looping *later* — the punk-TV cue starts
 volume 0 and is only looped and ramped up as the player approaches, by which time
 the 4.99 s sample has run out and the channel is dead. Measured on hardware:
 29,920 PCM words pushed (exactly the sample length), FIFO empty, then the volume
-ramp climbing 0x00 → 0xC0 with nothing playing. **Fixes both punk TVs.**
+ramp climbing 0x00 → 0xC0 with nothing playing.
+
+**This is a general fix, not a punk-TV one.** It re-arms *any* channel that has
+already ended when looping is enabled on it, so every cue the game starts quiet and
+loops up by proximity benefits. Confirmed on hardware: **all** punk TVs now play,
+not only the two used to find the bug — and the looping area ambience (`0x4B`, the
+subway trains) was broken the same way and is fixed by the same change.
 
 **`mame.c` — real LZO decoder for format `0x81` (ported from Genesis Plus GX).**
 Stock mega-ppm carries MAME's reverse-engineered heuristic, whose loop terminates
