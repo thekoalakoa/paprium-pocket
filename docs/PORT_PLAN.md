@@ -2724,23 +2724,87 @@ that **the pattern bytes contain playable pitch at all**. Two readings survive:
    giving 24000/12000/9600/6000/5333/4800 Hz. If pitch is chosen by sample rate
    rather than by semitone, there may be no semitone field anywhere.
 
+## The OST is NOT ground truth - and that reverses the refutation
+
+Tempo was checked next, since tempo survives editing where duration does not: a
+stage theme loops forever and the album track is an edit of it, so its LENGTH is
+an arranging decision and says nothing about the module. (Duration was correlated
+first and gave +0.47, which measured nothing - recorded so the mistake is not
+repeated.)
+
+`scripts/validate_tempo.py` measures BPM from the audio alone - energy envelope
+at 43 fps, positive first difference as onset strength, autocorrelation over
+60-200 BPM. The estimator was controlled first: two different segments of the
+same track agree **11/12**, so the numbers are sound.
+
+Every header byte, u16, and pattern-command parameter was then tested for
+`BPM = field * 2^k` - robust to the octave errors the control exposed - against
+a 40-shuffle null:
+
+    best real field 0.496    mean null 0.501    best null 0.830
+
+The best real candidate scores **below the mean of the null**. No tempo field
+corresponds to the album's tempo.
+
+So the album fails on key AND on tempo, has different track names, and has
+lengths that are editorial. The reasonable conclusion is that **the released
+soundtrack is an independent studio production, not a render of the cartridge
+data** - which is what the differing names suggested all along
+("Bladerunner FM" vs "43 Blade FM").
+
+**Therefore the earlier "absolute pitch refuted" verdict does not stand.** It
+rested on the album being the same performance. A re-produced album in its own
+key would produce exactly the chance-level chroma result that was observed, with
+a perfectly correct decode.
+
+## Internal evidence, which needs no reference recording
+
+With the external reference discredited, the model was tested against itself.
+Real melodies move in small steps; shuffling a melody destroys that and nothing
+else. Over 30,608 successive note pairs in the same slot lane:
+
+    within +-2 semitones   real 45.0%   shuffled 27.0%   gap +18.0
+    within +-4 semitones   real 58.4%   shuffled 38.1%   gap +20.2
+    within +-7 semitones   real 70.4%   shuffled 53.8%   gap +16.7
+
+That is melodic motion. Together with the octave-wrap evidence (a note delta
+that wraps carries the matching octave step 65-84% of the time, every pair
+resolving to the same net interval), the note/octave reading is **well supported
+by internal evidence** and should be carried forward.
+
+The weak per-pattern scale fit (+7.9 where real music gives +15-25) remains the
+one internal result that is softer than expected, and is still best explained by
+command slots being pooled in with note slots.
+
+## Revised status
+
+| Claim | Standing |
+|---|---|
+| Order list, u16 absolute offsets, self-delimiting | Solid - 52/52 |
+| Patterns contiguous, rows of 8 bytes | Solid - 2509/2525 |
+| Row = 2 events of 4 bytes | Good |
+| note + octave fields, semitone pitch | **Good** - wrap evidence + melodic continuity |
+| The OST can validate the decode | **No** - independent production |
+| Which slots are notes vs commands | Open - eight classifiers all failed |
+| Timing / tempo | Open - no field found, and no valid reference to fit against |
+| 13 or 26 voices | Open |
+
 ## Next step
 
-`scripts/validate_pitch.py` plus the cached chroma make any new hypothesis
-testable in seconds, which is the real asset from this round. Do not spend
-another pass guessing byte meanings - the cheap sweeps are exhausted.
+The lesson from this round is that **there is no external reference for this
+format**. The album cannot validate it, so every future test must be internal
+(melodic continuity, scale fit, self-consistency) or against real hardware.
 
-The two moves with actual information in them:
+The one true reference available is the **pre-boot mini-game**, which plays music
+without the CDDA blob and therefore is synthesised on the cartridge. If its music
+comes from an MWMM module, it is the only case where our synthesis could be
+compared against hardware directly. Worth confirming whether mini-game music is
+audible on the core with no blob installed.
 
-- **Check the ground-truth assumption.** Estimate tempo from the OST tracks and
-  look for a matching tempo field in the modules. Agreement would confirm the
-  album renders the same data and make the refutation final.
-- **Attack the instrument path instead.** Header array B is the only per-track
-  varying array and is sparse and small - likely instrument selection per voice.
-  Tying it to the wave bank's sampler would explain how a note becomes a sound,
-  and may reveal that pitch is a rate index rather than a semitone.
-
-Still no RTL until something passes the correlation test.
+For the format itself, the melodic-continuity metric is now the tool of choice -
+it is internal, needs no audio, and is sensitive (a +20 point gap). Use it to
+settle the open questions: try slot classifications and pick whichever maximises
+melodic continuity rather than guessing, and test 13 vs 26 the same way.
 
 ## 0xB0 does not fix the elevator - but the trigger is now known
 
