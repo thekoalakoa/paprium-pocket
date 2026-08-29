@@ -221,10 +221,54 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..5090607 100644
+index 1a1de1d..496bb4c 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
-@@ -399,7 +399,12 @@ void cmd_8C_bgm_play() {
+@@ -11,6 +11,7 @@ void cmd_unknown_muted();
+ void cmd_00();
+ void cmd_81_init();
+ void cmd_84_sdram_off();
++void cmd_88_audio_cfg();
+ void cmd_8C_bgm_play();
+ void cmd_8D_bgm_cfg();
+ void cmd_AD_obj_add();
+@@ -133,7 +134,7 @@ void ppm_init_cmd_ptr() {
+     }
+ 
+     cmp_ptr[0x83] = cmd_unknown_muted; // unk startup thing
+-    cmp_ptr[0x88] = cmd_unknown_muted; // set audio config
++    cmp_ptr[0x88] = cmd_88_audio_cfg; // set audio config
+     cmp_ptr[0x95] = cmd_unknown_muted; // (bgm related)
+     cmp_ptr[0x96] = cmd_unknown_muted; // (bgm related)
+     cmp_ptr[0xA4] = cmd_unknown_muted; // megawire settings
+@@ -390,6 +391,26 @@ void cmd_F5_stamp_rescale() {
+ }
+ //============================================================================== audio
+ 
++void cmd_88_audio_cfg() {
++
++    // paprium-pocket: stock mega-ppm mutes this command, so the game's audio
++    // configuration is written and then read back as stale memory. GPGX
++    // implements it (paprium.h, paprium_audio_setting): the game stores its DAC
++    // and NTSC selection at cart RAM 0x1800/0x1801 and reads it back later.
++    // bit 0 is the DAC select - the in-game "VM DAC" option, choosing the
++    // YM2612 DAC over the cartridge's own. bit 1 is NTSC.
++    //
++    // Byte indices are GPGX's verbatim, which is correct here rather than
++    // lucky: ramdp_io.sv puts a 68000 byte at address A into MCU byte A^1, and
++    // GPGX's ram[] carries the same relationship, so the two agree. Observed on
++    // hardware firing five times during boot with args 0x02 and 0x0A.
++    u8 arg = ppmio.ramdp->reg_cmd;
++    vu8 *ram = (vu8 *) ppmio.ramdp;
++
++    ram[0x1801] = arg & 0x01;
++    ram[0x1800] = ((arg & 0x01) ? 0x80 : 0x00) + ((arg & 0x02) ? 0x40 : 0x00);
++}
++
+ void cmd_8C_bgm_play() {
+ 
+     // bgm play, check & 0x80
+@@ -399,7 +420,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {

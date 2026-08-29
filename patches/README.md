@@ -47,6 +47,18 @@ clear at the end of a stage, and 53 is one of the tracks the cue sheet marks
 `REM NOLOOP`. Adds `mdp_play_once()`, sending MD+ `$11xx` (`MDP_CMD_PLAY_S`),
 which this core's `paprium_mdp_adapter` already decodes as `track_loop = 0`.
 
+**`paprium.c` — implement `0x88 audio_setting` (ours).**
+Stock mega-ppm maps it to `cmd_unknown_muted` with the comment "set audio config",
+so the game writes its audio configuration and reads back stale memory. GPGX
+implements it (`paprium_audio_setting`): the DAC selection — the in-game "VM DAC"
+option, choosing the YM2612 DAC over the cartridge's own — and the NTSC bit are
+stored at cart RAM `0x1800`/`0x1801` for the game to read back. Observed on
+hardware firing five times during boot with arguments `0x02` and `0x0A`.
+
+GPGX's byte indices transcribe verbatim, which is correct rather than lucky:
+`ramdp_io.sv` places a 68000 byte at address A into MCU byte `A^1`, and GPGX's
+`ram[]` carries the same relationship, so the two agree.
+
 ## Not yet re-applied
 
 - **Field-wise sprite attribute composition** — MisterPezz82's V.04/V.05 change,
