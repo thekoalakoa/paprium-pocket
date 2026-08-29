@@ -108,7 +108,8 @@ def main():
         entries = entries[-60:]
 
     if frozen:
-        state = "FROZEN - a cue was seen and its window is preserved"
+        state = ("FROZEN - either the ring filled once (LOG_ALL) or a cue was"
+                 " seen and its window preserved")
     elif armed:
         state = "armed, not yet frozen - a cue was seen, tail still filling"
     else:
@@ -167,6 +168,17 @@ def main():
 
     ids = [p for p, _, _ in plays]
     print("sfx ids requested: " + " ".join("%02X" % i for i in sorted(set(ids))))
+
+    # With LOG_ALL the useful question is usually "which commands appear at all",
+    # so summarise the distribution and flag the ones this firmware mutes.
+    from collections import Counter
+    dist = Counter(((w0 >> 24) & 0xFF) for _, w0, _ in entries if (w0 >> 24) != 0xF7)
+    if len(dist) > 10:
+        print()
+        print("command distribution (LOG_ALL capture):")
+        for c, n in dist.most_common():
+            mark = "  <- MUTED in this firmware" if c in MUTED else ""
+            print("  %02X %-16s %5d%s" % (c, CMDS.get(c, "?"), n, mark))
 
     for sid, what in CUES:
         rows = [(m, f) for p, m, f in plays if p == sid]
