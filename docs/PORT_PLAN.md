@@ -2427,3 +2427,48 @@ from object data in cart RAM, which the command stream does not carry.
 Finding the mechanism needs a different diagnostic: snapshot the object table
 (`obj_data[64]` in the ramdp struct) around a spawn and compare entries between two
 grunts of the same type. That is a different capture shape from a command ring.
+
+
+## Why the commands were muted at all
+
+`cmd_unknown()` prints `"unknown cmd: %x"` over UART; `cmd_unknown_muted()` is the
+same function with that call commented out. **"Muted" means "known to occur, not
+implemented, stop spamming the debug log"** - a to-do list, not a design decision.
+That is why implementing them has been productive: they were never deliberately
+disabled.
+
+## 0xD6 is a feature waiting on the synth, not a bug
+
+GPGX's `paprium_music_special` is also effectively a no-op, but its comment gives
+the command away:
+
+    else if( flag == 2 ) {
+        //*(uint16 *)(ram + 0x1E10)  /* 4 = crisis, 0 = normal ? */
+
+**`0xD6` switches the music between normal and "crisis" state** - the out-of-tune
+variant the wafflenet guide describes, toggled with X in the Boom Box. That is why
+it fires hundreds of times during gameplay: it tracks the player's state.
+
+Neither GPGX nor this port can act on it, for the same reason: **both substitute
+pre-rendered audio, and an OST rip cannot be made to go out of tune.** Implementing
+the command would only store a flag nothing could use.
+
+It is worth recording because it argues for the synth. The game is actively
+requesting musical behaviour that no substitution can provide, several times a
+second, throughout play.
+
+### Scope of a synth, for when it is considered
+
+Have: the instrument bank (WavPack, decoded) and all 52 sequence modules
+(LZO, decompressed).
+
+Missing:
+
+1. **The program table.** Not found. GPGX reads 16-byte records from
+   `wave_ram + program*16`, but that code has never executed and the decoded bank
+   starts with audio, so its layout is an untested assumption.
+2. **The MWMM sequence encoding.** Header partly understood; the body is not.
+3. **A 26-voice renderer.** Would be RTL - a larger `audio_sfx` - with the bank in
+   SDRAM. Not the MCU, which already services the 68000 in real time.
+
+That is a project on its own branch, not something to ride along with a `memset`.
