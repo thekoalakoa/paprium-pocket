@@ -3169,3 +3169,58 @@ That combination - a scrolling background object, sprite priority, and block-sha
 artefacts - points at the VDP side rather than the MCU: plane priority, scroll
 tables, or VRAM allocation for the scrolling layer. The next diagnostic should look
 at what the game writes to the VDP during that scene, not at what the MCU is doing.
+
+
+## Strong elevator lead: the VRAM block budget is silently clamped
+
+The MCU firmware does the graphics assist WaterMelon's chipset was meant to -
+decompression, sprite composition, and **VRAM block allocation**. That last one has
+an acknowledged hack in it.
+
+`mame.c`, `ppm_vram_set_budget`:
+
+    // temp failsafe
+    if (blocks > 0x35) {
+        printf("Allocation error (0x%x blocks)
+", blocks);
+        blocks = 0x35;
+    }
+
+**krikzz's own "temp failsafe" clamps the VRAM budget at 53 blocks.** Ask for more
+and you get 53. `ppm_vram_load_block` then starts returning 0, `blocks_available`
+goes false, and the object falls back to its previous animation frame with whatever
+tiles happen to be resident.
+
+That predicts exactly the reported symptoms: **block-shaped artefacts** (wrong tiles
+resident) **and sprites behaving wrongly** (stale frames), during a scene with heavy
+tile demand - a scrolling background elevator.
+
+There are two further failure paths in the same function, invisible from the command
+stream: the DMA budget check (`dma_remaining < 0x110`) and "no free slot", both of
+which also return 0.
+
+### What the captures already show
+
+`0xEC` sets the budget from `cmd_args[1]` (cart RAM `0x1E12`). Across both LOG_ALL
+captures of the first room:
+
+    29 blocks, 1 block, 29 blocks, 49 blocks
+
+All under the clamp - **but 49 is close to 53**, and neither capture reaches the
+elevator.
+
+### The diagnostic
+
+Filter the logger to `0xEC` alone. It fires a handful of times per level, so the ring
+will comfortably survive to the elevator, and the requested budget is read directly
+from the capture. If the elevator scene asks for more than 53, the clamp is firing
+and this is the bug.
+
+That is a one-line change to `keep` in `paprium_cmd_log.sv`.
+
+If the budget stays under 53 there, the clamp is innocent and the next suspects are
+the DMA-budget and no-free-slot paths, which need firmware instrumentation rather
+than command logging.
+
+**This is a far better lead than anything MCU-bandwidth related**, because it
+predicts both halves of the symptom rather than just "things go wrong under load".
