@@ -1202,6 +1202,35 @@ corruption, the intro flicker and boss sprite priority were all re-checked with
 sessions were not clean either, and the attributions still stand unconfirmed.
 Anything that depends on decompressed state needs a power-cycle, not a relaunch.
 
+
+### Power-cycling does not trigger it either - so SDRAM is not the gate
+
+Tested: the Pocket was fully powered off and restarted, and the mini-game **still
+did not appear**. That rules out the workspace explanation above as the cause,
+though the workspace finding itself stands - a core relaunch genuinely does not
+clear `0x800000` upward, and the protocol correction remains valid.
+
+What it establishes is a constraint rather than an answer. A power cycle clears
+all of SDRAM, so whatever gates the mini-game either lives **on the SD card** or
+is not state at all. The only writable state on the card is the save:
+
+    data.json  "Save"  id 10  nonvolatile  0x20000000  size_maximum 0x1000
+    on card    /Saves/paprium/common/<romname>.sav
+
+backed by BRAM at `ADDR_BRM 0x5000000`, which the firmware reads and writes
+through `cmd_DF_eep_rd` / `cmd_E0_eep_wr` in banks of 0x200. Paprium's cartridge
+carries a real M24C64 EEPROM (`paprium-dump/ChipDocs/m24c64wp.pdf`), so a
+"first boot done" flag there would produce exactly the observed behaviour: the
+mini-game was seen during Test 1 on a fresh save and has not been seen since.
+
+**Next check: rename the .sav (it is the player's progress - rename, never
+delete) and cold boot.**
+
+If that also fails, the mini-game is not state-gated and something in this
+build changed it. The suspects are the two commands recently un-muted, `0x88
+audio_cfg` and `0xB0 sprite_init`, both of which now execute during boot where
+they previously did nothing. An older `.rbf` plus a cold boot separates those.
+
 ---
 
 ## Menu reduction: trading options for ALMs
