@@ -185,6 +185,59 @@ index b568843..064b4fe 100644
          satEntry++;
      }
  
+diff --git a/mcu/mdp.c b/mcu/mdp.c
+index 0678fb9..90c45a8 100644
+--- a/mcu/mdp.c
++++ b/mcu/mdp.c
+@@ -105,6 +105,18 @@ void mdp_play(u8 track) {
+     MDP->cmd = MDP_CMD_PLAY_L | track;
+ }
+ 
++// paprium-pocket: one-shot playback, for the bit-7-clear cues cmd_8C used to
++// throw away. MDP_CMD_PLAY_S ($11xx) is the MD+ play-once command, which this
++// core's paprium_mdp_adapter already decodes as track_loop = 0.
++void mdp_play_once(u8 track) {
++
++    if (!mdp_on) {
++        return;
++    }
++
++    MDP->cmd = MDP_CMD_PLAY_S | track;
++}
++
+ void mdp_stop() {
+ 
+     if (!mdp_on) {
+diff --git a/mcu/mdp.h b/mcu/mdp.h
+index fec3a4e..f570c7f 100644
+--- a/mcu/mdp.h
++++ b/mcu/mdp.h
+@@ -10,6 +10,7 @@
+ 
+ void mdp_init();
+ void mdp_play(u8 track);
++void mdp_play_once(u8 track);
+ void mdp_stop();
+ void mdp_set_vol(u8 vol);
+ 
+diff --git a/mcu/paprium.c b/mcu/paprium.c
+index 1a1de1d..5090607 100644
+--- a/mcu/paprium.c
++++ b/mcu/paprium.c
+@@ -399,7 +399,12 @@ void cmd_8C_bgm_play() {
+     if ((arg & 0x80)) {
+         mdp_play(arg & 0x7f);
+     } else {
+-        mdp_stop();
++        // paprium-pocket: bit 7 clear marks a ONE-SHOT cue - Stage Clear,
++        // Continue, Game Over, High Score, Ending. Stock mega-ppm stops the
++        // music instead of playing them, so those cues are simply silent.
++        // Captured on hardware: cmd_8C track 0x35 (53), bit 7 clear, at the end
++        // of a stage - and 53 is one of the tracks the cue sheet marks NOLOOP.
++        mdp_play_once(arg & 0x7f);
+     }
+ }
+ 
 diff --git a/mcu/sfx.c b/mcu/sfx.c
 index 1263606..b2d66c3 100644
 --- a/mcu/sfx.c
