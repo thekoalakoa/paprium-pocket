@@ -29,7 +29,7 @@ set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
 # The first fitting run used area settings and landed at 82% ALM, so there is
 # room to spend on Fmax. Trading it back: speed synthesis plus the physical
 # synthesis passes that were previously off because each one costs ALMs.
-set_global_assignment -name OPTIMIZATION_MODE "AGGRESSIVE PERFORMANCE"
+set_global_assignment -name OPTIMIZATION_MODE "AGGRESSIVE AREA"
 
 # ==============================================================================
 # Analysis & Synthesis Assignments
@@ -40,7 +40,7 @@ set_global_assignment -name OPTIMIZATION_MODE "AGGRESSIVE PERFORMANCE"
 # resources this device does not have; the recognition and state machine settings
 # push the 68000 microcode PLAs and the VDP state into M10K instead of ALMs, which
 # is the difference between fitting and not on a 5CEBA4.
-set_global_assignment -name OPTIMIZATION_TECHNIQUE SPEED
+set_global_assignment -name OPTIMIZATION_TECHNIQUE AREA
 set_global_assignment -name SYNTH_PROTECT_SDC_CONSTRAINT ON
 set_global_assignment -name SYNTH_GATED_CLOCK_CONVERSION ON
 set_global_assignment -name AUTO_RESOURCE_SHARING ON
@@ -105,3 +105,8 @@ set_parameter -name SVP '0 -entity core_top
 set_parameter -name PAPRIUM '1 -entity core_top
 set_parameter -name PAPRIUM_SFX '1 -entity core_top
 set_parameter -name PAPRIUM_CDDA_DBG '0 -entity core_top
+set_parameter -name PAPRIUM_CMD_LOG '0 -entity core_top
+set_global_assignment -name QII_AUTO_PACKED_REGISTERS "MINIMIZE AREA WITH CHAINS"
+set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
+set_global_assignment -name ALM_REGISTER_PACKING_EFFORT HIGH
+set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
