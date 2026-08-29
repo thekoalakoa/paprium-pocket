@@ -2168,3 +2168,66 @@ everyone assumed was permanent.
 Not solved: the program table, the sequence format, and the renderer. This is a
 real reverse-engineering project, not a weekend - but it is no longer gated on
 hardware nobody has dumped.
+
+
+## All 52 music modules decompress
+
+`scripts/dump_music.py` extracts and decompresses every one. The pointer table base
+is read from ROM `0x10054`; entry 0 is the track count (62) and entries 1..62 are
+offsets **relative to that base** - not absolute, which is what made track 1 appear
+to point at the ROM header on the first attempt.
+
+Each module begins `81 0E 57 4D 4D 4D 00 01`. The `0x81` is the decoder type byte,
+so the LZO stream starts one byte later and its first instruction emits the literal
+`WMMM` header. **All 52 decompress cleanly**, 2,712 to 12,984 bytes - which
+independently validates the LZO decoder ported into the firmware, beyond the subway
+test on hardware.
+
+Byte order is **plain file bytes, no `^1`** - the same as the `0x80` blocks and the
+opposite of the SFX table. Established empirically, not assumed.
+
+### Header, as far as it is understood
+
+    +0x00  "WMMM"
+    +0x04  00 01           version - constant across all 52
+    +0x06  BE xx           BE constant; second byte varies (03/04/05)
+    +0x08  xx xx           varies per track
+    +0x0A  xx 10 04 00 00 00
+    +0x10  26 bytes        per-voice array, 0x10 in EVERY module
+    +0x34  sequence data begins
+
+**26 is the voice count** in GPGX's synth loop, so that array is per-voice - most
+likely an initial volume, given every module ships the same value.
+
+### Why this matters
+
+The remaining unknown for music synthesis was the sequence format and the program
+table. We now hold all 52 sequences in decompressed form, which is the corpus
+needed to work out both: the program numbers a track references have to appear in
+this data, and comparing 52 modules gives far more signal than staring at one.
+
+## TO DO: the boot-time console check
+
+**Not investigated.** The game runs a check sequence at boot - separate from the
+mini-game - that identifies what it is running on: console model, attached hardware
+(Sega CD, 32X), and the state of the cartridge's own MAX 10 / STM32. It is
+understood to be anti-piracy, and it is believed to **enable or disable features**
+depending on what it finds.
+
+Why this is worth chasing rather than filing away:
+
+- It could explain the **big-enemy death sound**, the one open audio bug. The game
+  requests correctly and the sound is lost downstream - but if the game believes it
+  is on unexpected hardware it may take a different branch entirely.
+- It fits things already observed. `0x88 audio_setting` writes console
+  configuration bits to `ram[0x1800]`/`[0x1801]` (DAC select, NTSC) and **our
+  firmware ignores that command entirely**. The Boom Box is documented as showing
+  icons that vary "based on what console you are using, how many controllers are
+  attached, and whether or not you have a MegaWire connected" - so the game
+  certainly does detect its environment and surface it.
+- It may explain mode- and difficulty-linked oddities that looked like separate
+  bugs.
+
+Where to start: log the boot command sequence with `paprium_cmdlog` (it already
+captures `0x88` and `0xB0`), and read GPGX's handling of the `0xC6 paprium_boot`
+command and the `ram[0x1800]` region.
