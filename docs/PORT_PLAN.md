@@ -3910,3 +3910,54 @@ And the only prize is CPU Mate - an AI co-op partner. Worth knowing, but it is a
 feature, not a fix, and it buys nothing for any open bug here.
 
 (Add-on effects per the tester, citing Wikipedia; consistent with our own evidence.)
+
+## RESULT: no FM layer - the stage clear is entirely PCM
+
+Blob renamed away, so no music path exists and anything audible would be the 68000
+driving the YM2612 directly.
+
+    perfect health   no sound
+    damaged          no sound
+
+**Silence both times.** So the stage-clear cue - both versions - comes wholly from
+the cartridge PCM path. There is no FM fanfare being dropped, and the "additional
+layer" is not a YM2612 voice.
+
+The one caveat stated before the test still stands: a PCM sample routed through the
+YM2612's *DAC* would also be silent here, and that DAC path is independently broken
+(see the static to-do). So this is strong evidence rather than proof. It does
+however remove the FM-voice hypothesis, which was the version worth building for.
+
+### The cue sheet is not the explanation either
+
+Checked offline, no hardware needed: no cue index maps to the same file twice.
+`12 Stage Clear.wav` is reached only by index 52, and the ten `Blank.wav` entries
+are the ten indices where the cartridge's own pointer table is null.
+
+So we are not accidentally pointing two different requests at one recording. If the
+game asked for a different track at full health, we would have played a different
+file or silence - and the tester heard the ordinary cue. The game therefore asks
+for **track 52 both times**.
+
+### Where that leaves it
+
+The variation has to be produced *within* the render of track 52 - a synth
+difference, not a track difference. Substituting a fixed recording for that track
+loses it by construction. **This returns to the original position: not reproducible
+under OST substitution.** The softer reading offered mid-investigation was wrong,
+and the evidence now supports the first answer.
+
+One thing still worth a cheap capture, because it identifies the mechanism even
+though it probably cannot be fixed: whether a `0x8D music_setting` or `0xD6
+music_special` accompanies the full-health clear and not the ordinary one. `0xD6`
+is muted in our firmware. Knowing it is the modifier would close the question
+properly rather than by elimination.
+
+## NOT A BUG: enemy names repeating
+
+Recorded here as open ("grunt names do not vary, bosses do"). The tester found the
+cause: it is an **in-game option** - "Baptism of Fire" naming, in Paprium's own
+menu. Enabling it gives the varied names.
+
+Nothing to do with this port, and no object-table snapshot is needed. Removed from
+the issue list.
