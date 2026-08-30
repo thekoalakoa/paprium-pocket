@@ -139,7 +139,7 @@ module paprium_cmd_log (
 	//
 	// dma_remaining itself is MCU-written and invisible here; it is only ever
 	// budget - total, so it is reconstructed rather than snooped.
-	localparam DMA_ONLY = 1'b1;
+	localparam DMA_ONLY = 1'b0;
 
 	wire [7:0] cmd_hi = cpu_data[15:8];
 	wire keep_audio =
