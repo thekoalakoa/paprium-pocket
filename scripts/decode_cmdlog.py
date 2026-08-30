@@ -74,6 +74,70 @@ def flag_names(f):
     return ",".join(out) if out else "-"
 
 
+BUCKETS = [
+    (0xC000, 0xFFFF, "STREAM WINDOW  - collision with live VDP DMA plausible"),
+    (0x9000, 0xBFFF, "block staging  - collision with prior tiles plausible"),
+    (0x0000, 0x1FFF, "mailbox / low  - control, ignore"),
+]
+
+
+def bucket(a):
+    for lo, hi, name in BUCKETS:
+        if lo <= a <= hi:
+            return name
+    if a >= 0xF800:
+        return "0xF800+        - table smash territory even at budget 49"
+    return "elsewhere"
+
+
+def dest_report(entries):
+    """0xDA/0xDB destination analysis.
+
+    The two commands do NOT share an argument convention:
+
+        0xDA:  dst = cmd_args[0]                     bare 16-bit into a vu32
+        0xDB:  dst = swapshorts(cmd_args_long[0])    32-bit, halves swapped
+
+    swapshorts is (val >> 16) | (val << 16), so for 0xDB the pointer is either
+    (args0 << 16) | args1 or the reverse depending on how the 68000 laid it down.
+    Both are printed - decoding them alike would put every 0xDB dest in the wrong
+    half of the map, which is the failure this project has already hit with the
+    ^1 byte-order convention.
+    """
+    da = [(i, m) for i, c, m, v in entries if c == 0xDA]
+    db = [(i, m, v) for i, c, m, v in entries if c == 0xDB]
+    if not da and not db:
+        return
+
+    print()
+    print("0xDA destinations (cmd_args[0], 16-bit):  %d" % len(da))
+    from collections import Counter
+    for d, n in sorted(Counter(m for _, m in da).items()):
+        print("    %04X  x%-4d %s" % (d, n, bucket(d)))
+
+    print()
+    print("0xDB destinations (32-bit, BOTH orders):  %d" % len(db))
+    for (a, b), n in sorted(Counter((m, v) for _, m, v in db).items()):
+        w1 = (a << 16) | b
+        w2 = (b << 16) | a
+        print("    raw %04X %04X x%-4d" % (a, b, n))
+        print("        as (args0<<16)|args1 = %08X  %s" % (w1, bucket(w1 & 0xFFFF)))
+        print("        as (args1<<16)|args0 = %08X  %s" % (w2, bucket(w2 & 0xFFFF)))
+
+    win = [d for _, d in da if 0xC000 <= d <= 0xFFFF]
+    print()
+    if win:
+        print("  %d 0xDA destination(s) land in the STREAM WINDOW." % len(win))
+        print("  That keeps the pointer-disturbance theory alive: a decode writing")
+        print("  into the window can collide with a queued block DMA reading it.")
+    else:
+        print("  No 0xDA destination lands in the stream window (0xC000-0xFFFF).")
+        print("  Destinations only ever in the workspace KILLS the disturbance")
+        print("  theory and leaves decoder_ram / buffer reuse as the live lead.")
+    print("  Check 0xDB above the same way - if 0xDA decodes into workspace and")
+    print("  0xDB copies into the window, the copy path is where to look.")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     flags = {a for a in sys.argv[1:] if a.startswith('--')}
@@ -211,6 +275,9 @@ def main():
                   % hi)
             print("  run, so the clamp is NOT the cause. Confirm the capture actually")
             print("  reached the elevator before concluding; a short run proves nothing.")
+
+    dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
+                 for i, w0, w1 in entries if (w0 >> 24) in (0xDA, 0xDB)])
 
     if snaps:
         vols = [v for _, v, _, _ in snaps]
