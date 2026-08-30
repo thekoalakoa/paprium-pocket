@@ -4643,3 +4643,52 @@ residency hypothesis as a mapping problem.
 Treat "13-14 blocks/frame" as a **band, not a spec**: display-on fetches, 68000 bus
 traffic and the SAT DMA all draw on the same budget. The prediction that survives
 regardless is that a 53-block refill cannot happen in one vblank.
+
+## REMAP REFUTED: tiles 800-863 are NOT free - the game owns them
+
+Hardware, cap restored to 53 with a linear `(x + 1)` map putting slots 49-52 at
+tiles 800-863 (`0x6400-0x6BFF`): **the cell-room floor glitched immediately.** The
+residency canary fired a room earlier than the doorway. Reverted; `61d1ddd3`
+(cap-at-49, two-range map) is back on the card.
+
+### The arithmetic says what it is
+
+A 32x32 nametable at `0x6400` is `0x800` bytes = **tiles 800-863 exactly** - the
+range the remap wrote patterns into. A floor built from that plane would break in
+the cell room and nowhere else first, which is what happened.
+
+**So mega-ppm's `+0x4b` jump is deliberate, not an artefact of a partial
+reverse-engineering.** The gap it skips is not spare VRAM; the game already owns it.
+An earlier entry here read that gap as "1,184 unallocated tiles" and treated it as
+headroom. That was wrong, and the correction is the useful part: *the map skips
+those tiles because they are in use.*
+
+### What is isolated by this
+
+    cap-at-49, two-range map   cell room CLEAN
+    53 slots at 0xF800         cell room CLEAN  (elevator corrupt)
+    53 slots at 0x6400         cell room BROKEN
+
+Only the placement changed between the last two, so the failure is **the address,
+not the extra four blocks**.
+
+### What is NOT established
+
+**INTERCOM is not an untested LRU case.** The remap never became a valid slot-bound
+experiment - it broke before the shaft was reached. Slot-bound vs fill-bound remains
+open.
+
+### If the four blocks are still wanted
+
+Do **not** retry tiles 864-927. If the map is 64x32 it spans `0x6400-0x73FF` =
+tiles 800-927, and that slice is still inside it.
+
+- **Cheap discriminator:** a ONE-SLOT write at tile 864 (`0x6C00`). Floor dies ->
+  64x32. Floor lives -> 32x32, and 864-927 is usable.
+- **Otherwise** tiles 928-991 (`0x7400-0x7BFF`), which clears both a 32x32 and a
+  64x32 map based at `0x6400`.
+
+But the cheaper question first: an unchanged shaft still means logging
+`0xF88`/`0xF89` and comparing `budget - total` against ~3,800 words. If INTERCOM is
+fill-bound, the four blocks were never going to matter and none of this placement
+work is needed.
