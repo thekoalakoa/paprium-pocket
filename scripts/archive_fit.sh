@@ -12,7 +12,8 @@
 set -euo pipefail
 D="$(cd "$(dirname "$0")/.." && pwd)"
 [ $# -eq 1 ] || { sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 2; }
-OUT="$D/build_output/fits"; mkdir -p "$OUT"
+OUT="$D/build_output/fits"; mkdir -p "$OUT"   # scratch; the tracked
+                                             # reference is docs/BUILD_REFERENCE.md
 F="$D/projects/output_files/megadrive_pocket.fit.rpt"
 S="$D/projects/output_files/megadrive_pocket.sta.rpt"
 {
