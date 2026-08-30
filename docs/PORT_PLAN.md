@@ -4585,3 +4585,31 @@ So this is a **filter change** - the same kind as adding `0xEC` - not a 98% feat
 Likely dedup'd to on-change, since the budget probably moves only per scene, which
 pairs it naturally with the `0xEC` fences already in the ring. A `ramdp_io` counter
 is only needed if that reconstruction turns out to disagree with the symptom.
+
+### Units, reconciled before the measurement
+
+`0x110` per block reconciles cleanly, which matters because it fixes the units of
+any snooped budget:
+
+    dma_entry->lenH = 0x9401; lenL = 0x9300;   // VDP length 0x0100 WORDS
+                                               // = 512 bytes = 16 tiles
+    dma_remaining -= 0x110;                    // 0x100 payload + 0x10 overhead
+
+The `0x10` is the entry's own register writes (autoinc, lenH/L, srcH/M/L, cmdH/L),
+rounded up. `dma_total` is documented as "total size in words", and the payload is
+0x100 words - the two agree.
+
+**Pre-registered expectation, so the result is not fitted afterwards.** A real NTSC
+vblank moves roughly 7.5 KB to VRAM, about 3,800 words, i.e. **13-14 blocks per
+frame** - not 53. A full 53-slot refill would take about four frames.
+
+| snooped `budget - total` | reading |
+|---|---|
+| ~3,000-4,000 words | plausible; fill rate ~13-14 blocks/frame and the likely leftover |
+| much above 14,416 (53 x 0x110) | **units are wrong**, not the budget generous - reconcile first |
+| well under 3,000 | tighter than hardware allows; the game is being conservative |
+
+This also means the shaft symptom is explicable with **no collision at all**: if the
+scroll demands more than ~14 new blocks in a frame, the rest fail on
+`dma_remaining < 0x110`, return 0, and render as stale squares - and more slots
+would not change that.
