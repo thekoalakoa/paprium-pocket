@@ -108,6 +108,21 @@ def main():
         print("  Peak %d is inside the 53 clamp, never truncated." % ec_peak)
     print()
 
+    w92 = words[4092]
+    pitch_cnt, sfx_cnt = w92 >> 16, w92 & 0xFFFF
+    if sfx_cnt or pitch_cnt:
+        print("sfx commands (0xD1/0xD3) seen=%d   of which HALF-PITCH (0x2000)=%d"
+              % (sfx_cnt, pitch_cnt))
+        if pitch_cnt == 0:
+            print("  The game NEVER asked for half pitch. So the deeper big-enemy")
+            print("  death is not the 0x2000 flag, and our pitch path is not at")
+            print("  fault - look at the sfx id and the table's own rate field.")
+        else:
+            print("  Half pitch WAS requested %d time(s). If the deep death still" % pitch_cnt)
+            print("  sounds normal, the flag is reaching the mailbox and being lost")
+            print("  downstream - ours to fix in RTL.")
+        print()
+
     hdr = words[4095]
     magic, wr_idx = hdr >> 16, hdr & 0xFFF
     armed, frozen = bool(hdr & 0x8000), bool(hdr & 0x4000)

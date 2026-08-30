@@ -107,7 +107,7 @@ module paprium_cmd_log (
 	// is exactly VRAM: slots 0-48 map to tiles 16-799, slots 49-52 to 1984-2047.
 	// A request above 53 means the game expects a VRAM layout other than the one
 	// mega-ppm reconstructs, which would explain the elevator artefacts.
-	localparam BUDGET_ONLY = 1'b1;
+	localparam BUDGET_ONLY = 1'b0;
 
 	wire [7:0] cmd_hi = cpu_data[15:8];
 	wire keep_audio =
@@ -170,7 +170,8 @@ module paprium_cmd_log (
 	reg [15:0] ch7_wr_cnt;
 
 	wire ch7_changed = (ch7_vol != ch7_vol_d) | (ch7_empty != ch7_empty_d);
-	wire hit_snap    = ch7_changed & ~frozen & ~hit_cmd & ~BUDGET_ONLY;
+	localparam SNAP_ON = 1'b0;
+	wire hit_snap    = ch7_changed & ~frozen & ~hit_cmd & SNAP_ON;
 	wire hit_mask  = cpu_wr & (wr_word == A_MASK);
 	wire hit_vol   = cpu_wr & (wr_word == A_VOL);
 	wire hit_flags = cpu_wr & (wr_word == A_FLAGS);
@@ -184,6 +185,8 @@ module paprium_cmd_log (
 	reg [11:0] wr_idx;
 
 	reg [15:0] ec_cnt, ec_peak, ec_last, any_cmd_cnt;
+	reg [15:0] sfx_cnt, pitch_cnt;
+	wire       sfx_cmd = any_cmd & ((cmd_hi == 8'hD1) | (cmd_hi == 8'hD3));
 	wire       any_cmd = cpu_wr & (wr_word == A_CMD);
 	wire       ec_cmd  = any_cmd & (cmd_hi == 8'hEC);
 
@@ -212,6 +215,11 @@ module paprium_cmd_log (
 		end
 		else begin
 			if(any_cmd) any_cmd_cnt <= any_cmd_cnt + 1'd1;
+			if(sfx_cmd) begin
+				sfx_cnt <= sfx_cnt + 1'd1;
+				// flags[5] is 0x2000 - the half-pitch bit
+				if(last_flags[13]) pitch_cnt <= pitch_cnt + 1'd1;
+			end
 			if(ec_cmd) begin
 				ec_cnt  <= ec_cnt + 1'd1;
 				ec_last <= last_vol;
@@ -271,34 +279,39 @@ module paprium_cmd_log (
 	// Cycle after the command word: the flags/volume word. Cycle after that: the
 	// header, so a capture taken at any moment names the newest entry.
 	reg [31:0] snd_wdata;
-	reg        snd_we, hdr_we, hdr1_we, hdr2_we;
+	reg        snd_we, hdr_we, hdr1_we, hdr2_we, hdr3_we;
 	always @(posedge clk) begin
 		snd_we  <= mem_we;
 		hdr_we  <= snd_we;
 		hdr1_we <= hdr_we;
 		hdr2_we <= hdr1_we;
+		hdr3_we <= hdr2_we;
 	end
 
 	// The counters must also reach RAM when the ring is silent - in BUDGET_ONLY a
 	// whole run can log nothing, which is exactly the case being diagnosed. Tick
 	// them out periodically so an empty ring still carries a verdict.
 	reg [19:0] beat;
-	reg        beat_tick, beat_tick2;
+	reg        beat_tick, beat_tick2, beat_tick3;
 	always @(posedge clk) begin
 		beat       <= beat + 1'd1;
 		beat_tick  <= &beat;
 		beat_tick2 <= beat_tick;
+		beat_tick3 <= beat_tick2;
 	end
 	wire hdr1_any = hdr1_we | beat_tick;
 	wire hdr2_any = hdr2_we | beat_tick2;
+	wire hdr3_any = hdr3_we | beat_tick3;
 
-	wire        ram_we    = mem_we | snd_we | hdr_we | hdr1_any | hdr2_any;
-	wire [11:0] ram_waddr = hdr2_any ? 12'd4093
+	wire        ram_we    = mem_we | snd_we | hdr_we | hdr1_any | hdr2_any | hdr3_any;
+	wire [11:0] ram_waddr = hdr3_any ? 12'd4092
+	                      : hdr2_any ? 12'd4093
 	                      : hdr1_any ? 12'd4094
 	                      : hdr_we ? 12'd4095
 	                      : snd_we ? (mem_waddr + 1'd1)
 	                               : mem_waddr;
-	wire [31:0] ram_wdata = hdr2_any ? {ec_last, any_cmd_cnt}
+	wire [31:0] ram_wdata = hdr3_any ? {pitch_cnt, sfx_cnt}
+	                      : hdr2_any ? {ec_last, any_cmd_cnt}
 	                      : hdr1_any ? {ec_cnt, ec_peak}
 	                      : hdr_we ? {16'hC0DE, armed, frozen, 2'd0, wr_idx}
 	                      : snd_we ? snd_wdata
