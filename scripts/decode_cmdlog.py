@@ -49,6 +49,7 @@ CMDS = {
     0xDF: "sram_read",      0xE0: "sram_write",  0xEC: "VRAM_BUDGET",
     0xDA: "decode",         0xDB: "set_dma_ptr",  0xF2: "unpack(test menu)",
     0xF7: "[ch7 snapshot]",   # synthetic, not a Paprium command
+    0xF8: "[dma budget]",     # synthetic: dma_total / dma_budget snoop
 }
 
 MUTED = {0x88, 0xB0}
@@ -102,6 +103,61 @@ def classify(a):
     if not aligned:
         return n, False, "** UNALIGNED - can smear two blocks **"
     return n, True, "normal block unpack (rebuild of slot %d)" % n
+
+
+BLOCK_COST = 0x110          # 0x100 payload (16 tiles) + 0x10 command list
+VBLANK_WORDS = 3800         # a real NTSC vblank, order of magnitude
+
+
+def dma_report(entries):
+    """budget - total at each 0xEC fence: is the shaft fill-bound or slot-bound?
+
+    dma_budget and dma_total are game-written; dma_remaining is MCU-only and is
+    just budget - total, so it is reconstructed. Each block costs 0x110 WORDS.
+    """
+    rows = [r for r in entries if r[1] in (0xF8, 0xEC)]
+    if not any(r[1] == 0xF8 for r in rows):
+        return
+    print()
+    print("%-6s %-7s %-10s %-10s %-10s %s"
+          % ("word", "fence", "dma_total", "dma_budget", "headroom", "blocks/frame"))
+    fence = 0
+    seen = []
+    for i, c, m, v in rows:
+        if c == 0xEC:
+            fence += 1
+            print("%-6d %-7s scene fence: budget %d blocks" % (i, "--", v))
+            continue
+        total, budget = m, v
+        head = budget - total
+        blocks = head // BLOCK_COST if head > 0 else 0
+        seen.append((fence, head, blocks))
+        print("%-6d F%-6d %-10d %-10d %-10d %d"
+              % (i, fence, total, budget, head, blocks))
+    if not seen:
+        return
+    last_fence = max(f for f, _, _ in seen)
+    tail = [(h, b) for f, h, b in seen if f == last_fence]
+    print()
+    if tail:
+        h = min(h for h, _ in tail)
+        b = min(b for _, b in tail)
+        print("Final fence (F%d): tightest headroom %d words = %d blocks/frame"
+              % (last_fence, h, b))
+        if h > 53 * BLOCK_COST:
+            print("  ABOVE a full 53-block refill (%d words). Treat the UNITS as"
+                  % (53 * BLOCK_COST))
+            print("  suspect before treating the budget as generous - a real vblank")
+            print("  moves ~%d words, not that." % VBLANK_WORDS)
+        elif b >= 53:
+            print("  The scene CAN fill all 53 slots in a frame, so it is not")
+            print("  fill-bound. Slot-bound remains live: the placement probes.")
+        else:
+            print("  Cannot refill 53 slots in a frame (%d < 53). INTERCOM is" % b)
+            print("  FILL-BOUND, and the four blocks cap-at-49 costs were never")
+            print("  going to matter. Placement probes are pointless; the leftover")
+            print("  is fill rate, and only then do the three return-0 paths in")
+            print("  ppm_vram_load_block earn an MCU-side counter.")
 
 
 def dest_report(entries):
@@ -378,6 +434,8 @@ def main():
 
     dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
                  for i, w0, w1 in entries if (w0 >> 24) in (0xDA, 0xDB, 0xF2, 0xEC)])
+    dma_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 >> 16)
+                for i, w0, w1 in entries if (w0 >> 24) in (0xF8, 0xEC)])
 
     if snaps:
         vols = [v for _, v, _, _ in snaps]

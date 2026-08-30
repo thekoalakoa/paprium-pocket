@@ -118,7 +118,28 @@ module paprium_cmd_log (
 	//
 	// No dedup here: every occurrence carries its own destination, so collapsing
 	// repeats on (cmd,param) would throw the data away.
-	localparam DEST_ONLY = 1'b1;
+	localparam DEST_ONLY = 1'b0;
+
+	// DMA_ONLY: is INTERCOM fill-bound or slot-bound?
+	//
+	// dma_budget (0x1F12) and dma_total (0x1F10) are GAME-written - the firmware
+	// never assigns either, it only reads them in ppm_obj_frame_end to derive
+	// dma_remaining = budget - total. So both are visible to this 68000-side snoop,
+	// and the frame's starting headroom is (budget - total) words.
+	//
+	// Each block costs 0x110 words: 0x100 payload (512 bytes = 16 tiles, matching
+	// the DMA entry's 0x0100-word length) plus 0x10 for the entry's own register
+	// writes. So blocks fillable per frame = (budget - total) / 0x110.
+	//
+	// A real NTSC vblank moves roughly 3,800 words, i.e. 13-14 blocks - so a 53-slot
+	// refill cannot happen in one frame. If the measured ceiling is near that, the
+	// shaft is FILL-bound and the four blocks cap-at-49 costs were never going to
+	// matter. A ceiling far above 14,416 means the units are wrong, not the budget
+	// generous.
+	//
+	// dma_remaining itself is MCU-written and invisible here; it is only ever
+	// budget - total, so it is reconstructed rather than snooped.
+	localparam DMA_ONLY = 1'b1;
 
 	wire [7:0] cmd_hi = cpu_data[15:8];
 	wire keep_audio =
@@ -136,7 +157,8 @@ module paprium_cmd_log (
 	// 0xF2 is logged too: it is the third pointer-mover (sdram_ptr = 0x9000, and
 	// it unpacks to 0x9000/0x9200). Muting it changed nothing on hardware, so it
 	// is back to stock and measured rather than suppressed.
-	wire keep = DEST_ONLY   ? ((cmd_hi == 8'hDA) | (cmd_hi == 8'hDB)
+	wire keep = DMA_ONLY    ? (cmd_hi == 8'hEC)        // fences only; DMA is snooped below
+	          : DEST_ONLY   ? ((cmd_hi == 8'hDA) | (cmd_hi == 8'hDB)
 	                         | (cmd_hi == 8'hF2) | (cmd_hi == 8'hEC))
 	          : BUDGET_ONLY ? (cmd_hi == 8'hEC)
 	                        : (LOG_ALL | keep_audio);
@@ -189,6 +211,17 @@ module paprium_cmd_log (
 	wire ch7_changed = (ch7_vol != ch7_vol_d) | (ch7_empty != ch7_empty_d);
 	localparam SNAP_ON = 1'b0;
 	wire hit_snap    = ch7_changed & ~frozen & ~hit_cmd & SNAP_ON;
+	// dma_total 0x1F10 -> word 0xF88, dma_budget 0x1F12 -> word 0xF89
+	localparam [11:0] A_DMA_TOTAL  = 12'hF88;
+	localparam [11:0] A_DMA_BUDGET = 12'hF89;
+	reg [15:0] last_dtot, last_dbud;
+	wire hit_dtot = cpu_wr & (wr_word == A_DMA_TOTAL);
+	wire hit_dbud = cpu_wr & (wr_word == A_DMA_BUDGET);
+	// on CHANGE only - these are written every frame and would otherwise flood
+	wire hit_dma  = DMA_ONLY & ~frozen
+	              & ((hit_dtot & (cpu_data != last_dtot))
+	               | (hit_dbud & (cpu_data != last_dbud)));
+
 	wire hit_mask  = cpu_wr & (wr_word == A_MASK);
 	wire hit_vol   = cpu_wr & (wr_word == A_VOL);
 	wire hit_flags = cpu_wr & (wr_word == A_FLAGS);
@@ -280,6 +313,9 @@ module paprium_cmd_log (
 			ch7_empty_d <= ch7_empty;
 			if(ch7_wr) ch7_wr_cnt <= ch7_wr_cnt + 1'd1;
 
+			if(hit_dtot)  last_dtot  <= cpu_data;
+			if(hit_dbud)  last_dbud  <= cpu_data;
+
 			if(hit_mask)  last_mask  <= cpu_data;
 			if(hit_vol)   last_vol   <= cpu_data;
 			if(hit_flags) last_flags <= cpu_data;
@@ -312,6 +348,15 @@ module paprium_cmd_log (
 					wr_idx <= 12'd0;
 				end
 				else wr_idx <= wr_idx + 2'd2;
+			end
+			else if(hit_dma) begin
+				mem_we    <= 1'b1;
+				mem_waddr <= wr_idx;
+				//  [31:24] 0xF8 marker   [15:0] dma_total
+				mem_wdata <= {8'hF8, 8'd0, hit_dtot ? cpu_data : last_dtot};
+				//  [31:16] dma_budget    [15:0] unused
+				snd_wdata <= {hit_dbud ? cpu_data : last_dbud, 16'd0};
+				wr_idx <= (wr_idx >= 12'd4088) ? 12'd0 : wr_idx + 2'd2;
 			end
 			else if(hit_snap) begin
 				mem_we    <= 1'b1;
