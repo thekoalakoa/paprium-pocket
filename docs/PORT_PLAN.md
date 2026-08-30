@@ -4915,3 +4915,69 @@ keep an object coherent when its blocks cannot load. Trading a plausible frame f
 a visible absence may look better or worse, and it would affect every scene that
 ever misses, not just the shaft. A separate, explicit look - not folded into a
 revert.
+
+## RETRACTION: the fat-death row was inferred, not measured
+
+The entry above reads the capture as "the game requests `0x1A` with flag `0x0100`
+for a big enemy". **That identification was an inference and is withdrawn.**
+
+Word 292 was the last `0x1A`, it carried a flag the other three did not, and the
+tester killed a big enemy near the end of the run - so it was *treated* as the fat
+death. Nothing in the capture marks which row belonged to which enemy. The run
+contained several ordinary kills as well.
+
+A second, independent reading of the mailbox says `0xD1 1C` never appears and the
+68000 asks for a **small-enemy id**. Both claims cannot be the mechanism, and
+neither is established without a single-kill capture.
+
+### Three playback paths - do not merge them
+
+| Path | Where | How pitch happens | Pocket |
+|---|---|---|---|
+| SFX table | ROM 0x25ECA4, 127 clips | `sfx[5]` rate + flags[5]/[7] skip | implemented |
+| Wavbank sampler | ROM 0x1A0010 WavPack, 26 voices | STM32 clocks a slice at 48000/n | **not implemented** - the OST replaces it |
+| CDDA | paprium.pcm | none | implemented |
+
+Cart extras that "sound like the wavbank" are almost certainly path 2. A fat-enemy
+death could be path 1 with `0x0100`, or path 2, or a 68000 fallback to a grunt.
+**Those are different bugs with different fixes.**
+
+### Against the bit-0-is-a-rate-bit guess
+
+Boot sfx `0x01` was captured with flags `0x2100` - **bit 0 and bit 5 set
+together**. If bit 0 were the same halver as bit 5, setting both would be
+redundant. So they are probably not the same thing, and "bit 0 halves the rate"
+is weaker than it looked.
+
+### The decisive capture
+
+One kill of a fat enemy, and the last `0xD1` before it:
+
+    D1 1A (or 1C) + flags 0100  -> path 1; then a listen-only flags[0] probe
+    D1 <small-grunt id>         -> the 68000 took a no-synth / small-enemy branch;
+                                   stop touching the PCM RTL, look at object /
+                                   hardware-detect fallback
+    no 0xD1 near the kill       -> wavbank or a muted command; not the 8-voice engine
+
+**Until that row exists: do not change RTL, and do not implement `0xD6`.**
+
+### 0xD6 is not the death cue
+
+GPGX's `paprium_music_special` is a crisis/detune poke for the 26-voice wavbank
+synth. Its only "body" is a **commented-out write to `0x1E10`** - and that cell is
+also the SFX channel mask, so implementing the comment can smash the next `0xD1`.
+GPGX itself does nothing there. mega-ppm mutes it. This port has no MWMM engine for
+it to drive. Copying GPGX would be copying a comment.
+
+Crisis detune on cart is wavbank rate/step, not SFX `flags[0]`.
+
+### What the wavbank means for missing extras
+
+One recording becomes many pitches because the F446 walks `wave_ram` at
+48000/{2,4,5,8,9,10}. That is how one slap becomes several notes, and how "missing"
+effects exist without a new 4-bit id.
+
+The current 8-channel engine cannot do that - it has `srate` plus three pitch
+values - and CDDA will never bend those slices. **Extras that live only in the
+wavbank stay missing until someone implements sampler voices, which is a new
+engine, not a flag fix.**
