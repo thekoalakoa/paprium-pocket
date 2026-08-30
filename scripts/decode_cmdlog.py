@@ -105,34 +105,56 @@ def classify(a):
 
 
 def dest_report(entries):
-    """0xDA/0xDB destination analysis.
+    """0xDA / 0xDB / 0xF2 destinations, cut by 0xEC scene fences.
 
     0xDA:  dst = cmd_args[0]                    bare 16-bit into a vu32
-    0xDB:  dst = swapshorts(cmd_args_long[0])   32-bit, halves swapped
-
-    swapshorts is (val >> 16) | (val << 16), so 0xDB is printed BOTH ways and the
-    data picks the endianness - the right one clusters on 0x9xxx/0xAxxx/0xBxxx,
-    the wrong one looks like noise.
+    0xDB:  dst = swapshorts(cmd_args_long[0])   32-bit, halves swapped - printed
+           BOTH ways; the right one clusters in 0x9xxx-0xBxxx, the other is noise
+    0xF2:  dst is HARDCODED 0x9000 and 0x9200. cmd_args[0] is the BLOCK NUMBER,
+           not an address - reading it as one would produce nonsense. Always
+           on-grid, so it carries no alignment information: it can only answer
+           whether it fired in this scene at all.
+    0xEC:  not a destination - a scene fence. Budget is in cmd_args[1].
     """
-    rows = [(i, c, m, v) for i, c, m, v in entries if c in (0xDA, 0xDB, 0xF2)]
+    rows = [r for r in entries if r[1] in (0xDA, 0xDB, 0xF2, 0xEC)]
     if not rows:
         return
 
     print()
-    print("%-6s %-5s %-11s %-8s %-4s %-6s %s"
-          % ("word", "cmd", "raw", "dest", "n", "algn", "verdict"))
-    unaligned, slots = 0, {}
+    print("%-6s %-7s %-5s %-11s %-8s %-4s %-5s %s"
+          % ("word", "fence", "cmd", "raw", "dest", "n", "algn", "verdict"))
+
+    fence, since, fences = 0, 0, []
+    unaligned, slots, f2_by_fence = 0, {}, {}
     for i, c, m, v in rows:
-        if c == 0xDA:
-            cand = [("%04X" % m, m)]
-        else:
-            cand = [("%04X %04X" % (m, v), (m << 16) | v),
-                    ("%04X %04X" % (m, v), (v << 16) | m)]
+        if c == 0xEC:
+            fence += 1
+            since = 0
+            fences.append((fence, i, v))
+            print("%-6d %-7s %-5s %-11s %-8s %-4s %-5s scene fence: budget %d blocks"
+                  % (i, "--", "EC", "%04X" % v, "-", "-", "-", v))
+            continue
+        since += 1
+        tag = "F%d+%d" % (fence, since)
+
+        if c == 0xF2:
+            f2_by_fence[fence] = f2_by_fence.get(fence, 0) + 1
+            for d in (0x9000, 0x9200):
+                n, al, why = classify(d)
+                print("%-6d %-7s %-5s %-11s %05X    %-4s %-5s %s"
+                      % (i, tag, "F2", "blk %04X" % m, d, n, "yes",
+                         "fixed dest - " + why))
+            continue
+
+        cand = ([("%04X" % m, m)] if c == 0xDA else
+                [("%04X %04X" % (m, v), (m << 16) | v),
+                 ("%04X %04X" % (m, v), (v << 16) | m)])
         for raw, d in cand:
-            a = d & 0xFFFFF
-            n, al, why = classify(a)
-            print("%-6d %02X    %-11s %05X    %-4s %-6s %s"
-                  % (i, c, raw, a, "-" if n is None else n,
+            addr = d & 0xFFFFF
+            n, al, why = classify(addr)
+            print("%-6d %-7s %-5s %-11s %05X    %-4s %-5s %s"
+                  % (i, tag, "%02X" % c, raw, addr,
+                     "-" if n is None else n,
                      "-" if al is None else ("yes" if al else "NO"), why))
             if n is not None and not al:
                 unaligned += 1
@@ -140,26 +162,40 @@ def dest_report(entries):
                 slots[n] = slots.get(n, 0) + 1
 
     print()
-    if unaligned:
-        print("  %d UNALIGNED destination(s) inside staging. That is the corruption"
-              % unaligned)
-        print("  path: an unpack straddling two 16-tile blocks smears patterns the")
-        print("  VDP may still be showing. decoder_ram / a private unpack buffer is")
-        print("  the next cut - NOT a bigger cache.")
+    print("scene fences (0xEC): " +
+          (", ".join("F%d at word %d = %d blocks" % f for f in fences) or "none seen"))
+    if fences:
+        print("  Cut the INTERCOM slice by play position between fences - a budget")
+        print("  can repeat across levels, so 0xEC marks scenes, not which scene.")
+    print("0xF2 per fence: " + (", ".join("F%d x%d" % kv for kv in sorted(f2_by_fence.items()))
+                                or "NEVER FIRED"))
+    if not f2_by_fence:
+        print("  krikzz's 'sprites test menu' note stands for this run - the mute was")
+        print("  a no-op because the command was simply absent.")
     else:
-        print("  Every in-range destination is 0x200-aligned - all of them read as")
-        print("  'rebuild block n', which is the happy path. DEST COLLISION IS DEAD.")
-        print("  The residual squares are then better explained by LRU pressure: 49")
-        print("  blocks where the scene wants more. Next experiment is REMAP, not a")
-        print("  bigger cap - slots 49-52 to block indices 50-53 (tiles 800-863,")
-        print("  0x6400-0x6BFF) by dropping the two-range special case for x+1.")
+        print("  0xF2 DOES fire in play. The mute changing nothing then means its")
+        print("  unpack was redundant with something else that still parked the")
+        print("  pointer - not that the command is irrelevant.")
+
+    print()
+    if unaligned:
+        print("  %d UNALIGNED destination(s) inside staging - the corruption path."
+              % unaligned)
+        print("  An unpack straddling two 16-tile blocks smears patterns the VDP may")
+        print("  still be showing. Next cut is a private unpack buffer (decoder_ram),")
+        print("  NOT more cache slots.")
+    else:
+        print("  Every in-range destination is 0x200-aligned - all read as 'rebuild")
+        print("  block n', the happy path. Destination collision is dead, and the")
+        print("  residual squares point at LRU pressure: remap slots 49-52 to block")
+        print("  indices 50-53 (tiles 800-863), not a bigger cap.")
     if slots:
         hot = sorted(slots.items(), key=lambda kv: -kv[1])[:6]
         print()
         print("  slots rebuilt most: " + ", ".join("n=%d x%d" % kv for kv in hot))
-        print("  A slot rebuilt repeatedly while still on-screen would be the true")
-        print("  collision case; that needs slot liveness, which the 68000-side")
-        print("  logger cannot see. Correlate against when the squares appear.")
+        print("  A slot rebuilt repeatedly while still on-screen is the true collision")
+        print("  case; slot liveness is invisible from the 68000 side, so correlate")
+        print("  against when the squares appear.")
 
 
 def main():
@@ -241,7 +277,7 @@ def main():
             order = [(wr_idx + 2 * i) % 4094 for i in range(2047)]
             ent = [(i, words[i], words[i + 1]) for i in order if words[i] != 0]
             dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
-                         for i, w0, w1 in ent if (w0 >> 24) in (0xDA, 0xDB, 0xF2)])
+                         for i, w0, w1 in ent if (w0 >> 24) in (0xDA, 0xDB, 0xF2, 0xEC)])
             return 0
         print("sfx commands (0xD1/0xD3) seen=%d   of which HALF-PITCH (0x2000)=%d"
               % (sfx_cnt, pitch_cnt))
@@ -344,7 +380,7 @@ def main():
             print("  reached the elevator before concluding; a short run proves nothing.")
 
     dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
-                 for i, w0, w1 in entries if (w0 >> 24) in (0xDA, 0xDB, 0xF2)])
+                 for i, w0, w1 in entries if (w0 >> 24) in (0xDA, 0xDB, 0xF2, 0xEC)])
 
     if snaps:
         vols = [v for _, v, _, _ in snaps]
