@@ -3863,3 +3863,50 @@ The existing to-do "fake an expansion (`DISK = 1'h0` in md_board.v)" now has a
 **visible success criterion** for the first time: the terminal line itself. Worth
 running either way, but the risk is real - a game that believes a Sega CD is
 present may try to hand work to a sub-CPU that will never answer.
+
+## RESOLVED: what the add-ons actually gate, and why the reference stands
+
+The original-hardware reference playthrough was made with a **Sega CD attached**, so
+`SUB-CPU : M68000` is correct there and `NONE` is correct for us. **Not a bug**, and
+the open question above is closed.
+
+I raised a worry that add-on-gated content might confound the reference
+observations. **That worry was wrong and is withdrawn.** What the add-ons gate:
+
+| Add-on | What it changes |
+|---|---|
+| Sega CD | Unlocks **CPU Mate** only - the CD's sub-CPU drives a second player as an AI co-op partner |
+| 32X | Cosmetic item swaps: a 32X box appears, and Chavez throws 32Xs instead of bombs on ROOF-TOP |
+
+Neither touches audio, graphics streaming, or sprite composition. So every
+hardware observation recorded here - the doorway floor, the elevator, the
+big-enemy death sound, the full-health stage clear - is a **valid comparison**
+against our build, and no re-test without the CD is needed.
+
+### The audio architecture, and why it matters for the stage clear
+
+Paprium's sound is the cartridge's DATENMEISTER PCM channels **mixed with the
+console's own YM2612 and Z80**, with the cart's extra analog audio fed in through
+the cartridge slot pins.
+
+That is not PCM *instead of* FM - it is PCM *plus* FM. Which makes the
+"perfect-health finish is an additional layer" report structurally plausible rather
+than a stretch: **the game's audio design has an FM layer to add.** It strengthens
+the YM2612 hypothesis and leaves the zero-build rename test (see the stage-clear
+to-do) as the right next step.
+
+It also confirms the Sega CD would not have helped audio, independent of our own
+earlier finding that GPGX's Paprium code carries no Mega CD or 32X references.
+
+### Consequence for the Sega CD idea
+
+Implementing a Mega CD inside this core is not feasible - we are at 91% ALM
+(16,900/18,480) and 95% M10K (294/308), and a Mega CD needs a second 68000, gate
+array, CD controller, RF5C164, plus 512K PRG RAM, 256K word RAM, 64K PCM RAM and a
+BIOS. Pocket Mega CD cores exist, but each spends the whole FPGA on that; ours
+already spends the whole FPGA on the Mega Drive plus Paprium's cartridge hardware.
+
+And the only prize is CPU Mate - an AI co-op partner. Worth knowing, but it is a
+feature, not a fix, and it buys nothing for any open bug here.
+
+(Add-on effects per the tester, citing Wikipedia; consistent with our own evidence.)
