@@ -74,19 +74,29 @@ def flag_names(f):
     return ",".join(out) if out else "-"
 
 
-BUCKETS = [
-    (0xC000, 0xFFFF, "STREAM WINDOW  - collision with live VDP DMA plausible"),
-    (0x9000, 0xBFFF, "block staging  - collision with prior tiles plausible"),
-    (0x0000, 0x1FFF, "mailbox / low  - control, ignore"),
-]
+# SDRAM WORKSPACE OFFSETS, not 68000 addresses. ppm_unpack writes to
+# ppmio.sdram[dest_addr], and cmd_F2 passes the SAME value as both the unpack
+# destination and FPGAIO->sdram_ptr - so dst and the stream pointer index one
+# space. There is no fixed "window region" in SDRAM: the window is wherever
+# sdram_ptr currently points.
+#
+# What matters is therefore the BLOCK STAGING range, which a decode landing in
+# would corrupt directly:
+#
+#     0x9000 + 49 blocks * 0x200 = 0x9000 - 0xF1FF     (at the shipped cap of 49)
+#     0x9000 + 53 blocks * 0x200 = 0x9000 - 0xF9FF     (uncapped)
+STAGE_LO, STAGE_HI, STAGE_CAP = 0x9000, 0xF9FF, 0xF1FF
 
 
 def bucket(a):
-    for lo, hi, name in BUCKETS:
-        if lo <= a <= hi:
-            return name
-    if a >= 0xF800:
-        return "0xF800+        - table smash territory even at budget 49"
+    if STAGE_LO <= a <= STAGE_CAP:
+        return "** BLOCK STAGING (live at cap 49) - direct tile collision **"
+    if STAGE_LO <= a <= STAGE_HI:
+        return "staging tail (only live above cap 49)"
+    if a < STAGE_LO:
+        return "low workspace"
+    if a >= 0x10000:
+        return "setup data region (bgm/anm/sfx), unpacked once at boot"
     return "elsewhere"
 
 
@@ -124,18 +134,24 @@ def dest_report(entries):
         print("        as (args0<<16)|args1 = %08X  %s" % (w1, bucket(w1 & 0xFFFF)))
         print("        as (args1<<16)|args0 = %08X  %s" % (w2, bucket(w2 & 0xFFFF)))
 
-    win = [d for _, d in da if 0xC000 <= d <= 0xFFFF]
+    hits = [d for _, d in da if STAGE_LO <= d <= STAGE_CAP]
     print()
-    if win:
-        print("  %d 0xDA destination(s) land in the STREAM WINDOW." % len(win))
-        print("  That keeps the pointer-disturbance theory alive: a decode writing")
-        print("  into the window can collide with a queued block DMA reading it.")
+    if hits:
+        print("  %d 0xDA destination(s) land INSIDE THE LIVE BLOCK STAGING RANGE"
+              % len(hits))
+        print("  (0x%04X-0x%04X). A decode writing there overwrites staged tiles a"
+              % (STAGE_LO, STAGE_CAP))
+        print("  queued DMA has not fetched yet - buffer reuse, the decoder_ram lead.")
     else:
-        print("  No 0xDA destination lands in the stream window (0xC000-0xFFFF).")
-        print("  Destinations only ever in the workspace KILLS the disturbance")
-        print("  theory and leaves decoder_ram / buffer reuse as the live lead.")
-    print("  Check 0xDB above the same way - if 0xDA decodes into workspace and")
-    print("  0xDB copies into the window, the copy path is where to look.")
+        print("  No 0xDA destination lands in the live staging range 0x%04X-0x%04X."
+              % (STAGE_LO, STAGE_CAP))
+        print("  Destination collision is then DEAD for 0xDA, and the residual")
+        print("  elevator is better explained by LRU pressure - 49 blocks of cache")
+        print("  where the scene wants more. Next experiment is REMAP, not raising")
+        print("  the cap: slots 49-52 to block indices 50-53 (tiles 800-863,")
+        print("  0x6400-0x6BFF), still far below the nametable floor.")
+    print("  Read 0xDB the same way. If 0xDA decodes low and 0xDB copies into")
+    print("  staging, the copy path is where to look.")
 
 
 def main():
