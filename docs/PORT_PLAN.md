@@ -4560,9 +4560,28 @@ The remap raises the first and does nothing to the second. If INTERCOM is DMA-bo
 rather than slot-bound, it will look identical afterwards, because a block that
 fails to load returns 0 from `ppm_vram_find_block` exactly as an evicted one does.
 
-**Instrumenting it needs a new readout.** These are MCU-side failures and the
-command logger snoops 68000 writes only. Counters on the three return-0 paths would
-have to reach us either through a snoop on the MCU write port in `ramdp_io.sv`, or
-by parking them somewhere that already flushes to SD. Cheaper than a VDP tap
-either way, but it is a new instrument rather than a filter change - budget it as
-one, on a logger build that already starts at ~98%.
+**But it does NOT need a new instrument.** Checked before costing one: two of the
+three DMA fields are written by the GAME, in the same 68k-visible RAM the logger
+already snoops.
+
+    dma_total      0x1F10   never written by firmware -> game-written  (wr_word 0xF88)
+    dma_budget     0x1F12   never written by firmware -> game-written  (wr_word 0xF89)
+    dma_remaining  0x1F14   firmware-written          -> MCU-private, invisible
+
+The addresses come from the struct naming itself: `unk_1f1a` fixes 0x1F1A, and
+`cmd_args[128]` starting at the confirmed 0x1E10 runs to 0x1F0F, so the two meet
+exactly at `dma_total` = 0x1F10.
+
+`dma_remaining` is only ever `budget - total`, recomputed each frame in
+`ppm_obj_frame_end`, so it can be reconstructed rather than snooped. That gives the
+decisive number:
+
+    blocks fillable per frame = (dma_budget - dma_total) / 0x110
+
+If that is below what INTERCOM needs, the scene is DMA-bound and the four extra
+slots cannot help.
+
+So this is a **filter change** - the same kind as adding `0xEC` - not a 98% feature.
+Likely dedup'd to on-change, since the budget probably moves only per scene, which
+pairs it naturally with the `0xEC` fences already in the ring. A `ramdp_io` counter
+is only needed if that reconstruction turns out to disagree with the symptom.
