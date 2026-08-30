@@ -55,11 +55,12 @@ SOUND = {0x88, 0x8C, 0x8D, 0xC9, 0xCA, 0xD1, 0xD2, 0xD3, 0xD6}
 
 FLAGS = [
     (0x8000, "pitch31/32", True),
-    (0x4000, "ECHO",       False),
+    (0x4000, "ECHO",       True),
     (0x2000, "pitchHalf",  True),
     (0x0800, "f800",       True),
     (0x0400, "f400",       True),
-    (0x0100, "AMPLIFY",    False),
+    (0x0100, "AMPLIFY?",   True),   # rendered as x1.25 gain per GPGX - see PORT_PLAN,
+                                    # hardware suggests this reading is wrong
 ]
 
 CUES = ((0x1C, "boss / large-enemy death"), (0x4A, "punk-TV cue"))
