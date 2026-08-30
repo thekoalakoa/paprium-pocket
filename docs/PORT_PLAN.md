@@ -4872,3 +4872,34 @@ on `load_block` failure render `MISS_BASE + offset` instead of restoring
 `previous_offset`. Only after this look shows the squares survived - and note it is
 a bigger behavioural change, since the fallback exists to keep objects coherent
 when their blocks cannot load, not merely to hide a miss.
+
+## MISS_BLOCK RESULT: path 2 confirmed. Reverted.
+
+Hardware: **the elevator behaves exactly as before.** Per the pre-registered
+discriminator that is a positive identification, not a dud.
+
+`MISS_BLOCK` never ran on those squares. `ppm_vram_load_block` failed,
+`blocks_available` went false, and the object redrew with `previous_offset` - its
+last good animation frame - which then rides the scroll. That path never reaches
+`ppm_vram_find_block`, so blanking the miss target could not change it.
+
+    residual elevator = fill-bound (10-16 blocks/frame) + previous-frame fallback
+    NOT find_block == 0
+
+**Reverted**, and removed rather than left behind an `#if 0`: it cost a resident
+slot (48 instead of 49) and did no work. Firmware back to 4,191 words, matching
+`61d1ddd3`. The full implementation is in git - "EXPERIMENT: reserved MISS_BLOCK
+for cache misses" (163076b) - which is the right archive for it.
+
+**The `0xF800` fix (cap-at-49) remains the real shipping change.**
+
+### The only follow-up that would change the picture
+
+Replace the `previous_offset` restore with the dummy block on load failure, so
+wrong-but-plausible shaft tiles become holes.
+
+That is a **behaviour change, not a presentation tweak**: the fallback exists to
+keep an object coherent when its blocks cannot load. Trading a plausible frame for
+a visible absence may look better or worse, and it would affect every scene that
+ever misses, not just the shaft. A separate, explicit look - not folded into a
+revert.
