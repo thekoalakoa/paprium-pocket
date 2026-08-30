@@ -3733,3 +3733,57 @@ growing into the 800-1983 tile gap would land on the plane maps and sprite table
 
 The doorway is now the cheapest known reproduction: 30 seconds in, versus a full
 level to reach the elevator.
+
+## Big-enemy death: probably not a missing cue, but a missing PITCH
+
+Observed on **original hardware**: the big-enemy death sound is the standard
+enemy death sound played **lower / deeper**, not a different sample.
+
+If that is right it dissolves the puzzle that has blocked this all along -
+**`0x1C` never appears in any capture**, and we kept looking for a cue that may
+not exist. The game would instead be requesting the ordinary death sfx with a
+pitch flag set.
+
+Paprium has exactly such a flag:
+
+    0x8000  pitch 31/32   slightly slower
+    0x2000  HALF PITCH    half rate = one octave down = "deeper"
+    0x4000  echo
+    0x0100  amplify
+
+### Our implementation of it is correct
+
+`rtl/PAPRIUM/audio_sfx.sv`:
+
+```systemverilog
+pitch <= flags[7] ? 5'd31 : flags[5] ? 5'd1 : 5'd0;
+if(!fifo_empty & next_sample & (pitch_ctr != 1)) addr_rd <= addr_rd + 1'd1;
+if(next_sample) pitch_ctr <= pitch_ctr >= pitch ? 5'd0 : pitch_ctr + 1'd1;
+```
+
+Traced by hand:
+
+- `pitch=0`  - ctr stays 0, never equals 1, a sample every tick. Full speed.
+- `pitch=1`  - ctr alternates 0,1,0,1; consumed only when 0. **Half speed.**
+- `pitch=31` - ctr runs 0..31, skips at 1. 31/32 speed.
+
+So the RTL does what the flag asks. The open question is whether the flag arrives.
+
+### The diagnostic
+
+An audio-filter capture during a big-enemy kill, reading the **flags column** on
+the `0x1A` request rather than hunting for `0x1C`:
+
+    0x1A with flags 0x2000, but it sounds normal  -> our flag path drops it; RTL/ours
+    0x1A with flags 0x0000                        -> the game never asks; firmware or
+                                                     game state, and 0x1C stays a
+                                                     red herring
+    a different id entirely                       -> the table lookup is wrong
+
+Third possibility worth keeping in view: the depth may come from the SFX table's
+own rate field (`srate <= typev[6:4]`) rather than the flag, in which case a wrong
+byte order on the table read would give the wrong rate. The SFX table needs the
+`^1` byte swap, so that path is worth checking if the flags come back empty.
+
+Cheap to run: kill one big enemy early, exit immediately, so the ring is short and
+readable.
