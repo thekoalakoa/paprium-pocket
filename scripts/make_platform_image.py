@@ -22,7 +22,7 @@ monochrome blue on black, so a full-colour or greyscale image will stand out
 from the rest of the list. Purely cosmetic; the plain conversion is faithful.
 """
 import sys
-from PIL import Image
+from PIL import Image, ImageOps
 
 W, H = 521, 165
 
@@ -30,12 +30,18 @@ W, H = 521, 165
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     blue = '--blue' in sys.argv[1:]
+    invert = '--invert' in sys.argv[1:]
+    crop = next((a.split('=', 1)[1] for a in sys.argv[1:]
+                 if a.startswith('--crop=')), None)
     if len(args) != 2:
         print(__doc__)
         return 2
     src, dst = args
 
     im = Image.open(src).convert('RGB')
+
+    if crop:
+        im = im.crop(tuple(int(v) for v in crop.split(',')))
 
     # scale to fill, then centre-crop to the frame
     sw, sh = im.size
@@ -46,6 +52,15 @@ def main():
 
     if blue:
         g = im.convert('L')
+        if invert:
+            # Analogue's stock images are BRIGHT art on a BLACK ground. A source
+            # with a light background and dark subject (dark logo on a pale sky)
+            # comes out backwards - the artwork reads as a hole. Inverting first
+            # puts the subject bright and the ground black, as the house style has
+            # it. Also lifts contrast, since a 521px-wide downscale of a detailed
+            # image goes muddy otherwise.
+            g = ImageOps.invert(g)
+            g = ImageOps.autocontrast(g, cutoff=1)
         im = Image.merge('RGB', (g.point(lambda v: 0),
                                  g.point(lambda v: v // 5),
                                  g))

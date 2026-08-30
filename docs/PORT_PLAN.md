@@ -4172,3 +4172,18 @@ Also worth knowing: **every stock platform image is monochrome blue on black.** 
 colour or greyscale image is legible but visibly different from the rest of the
 list. `scripts/make_platform_image.py --blue` renders in that house style; the
 default conversion is faithful to the source.
+
+### Producing ours
+
+    python scripts/make_platform_image.py <source> pkg/pocket/Platforms/_images/paprium.bin         --blue --invert --crop=1154,201,2334,575
+
+Three lessons, all learned by looking at the result rather than reasoning about it:
+
+1. **Crop to the logo.** Analogue's images are a logo or a console render on black.
+   A full-bleed painted banner scaled to 521x165 stays busy and reads as mush at
+   that size, whatever the colour treatment.
+2. **Invert when the source is dark-on-light.** Paprium's logo is black text on a
+   pale sky, so a straight luminance-to-blue map puts the artwork dark on a bright
+   ground - backwards from every stock image, and the logo reads as a hole.
+3. **Match the aspect in the crop, not the resize.** The frame is 3.158:1; the crop
+   above is 3.155:1, so nothing of the tagline is lost to centre-cropping.
