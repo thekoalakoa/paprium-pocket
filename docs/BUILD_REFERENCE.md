@@ -35,7 +35,14 @@ never implied by the numbers.
 **Hard:**
 
 - M10K = 308 for a cmdlog build (the variant fingerprint)
-- worst slack >= about -2.67   (less negative is better; -2.8 fails, -2.5 passes)
+- worst slack >= about -2.67   **LESS NEGATIVE IS BETTER**
+
+      -2.50  PASSES   (less negative than -2.67)
+      -2.90  FAILS    (more negative than -2.67)
+
+  Written out because it has been inverted twice in this project. "<= -2.67" reads
+  naturally as a threshold and admits -3.0, which is Probe-B-v1 class - a bitstream
+  that glitched at boot. The comparison is on the number line, not on badness.
 - TNS >= about -1,600
 - smoke in order: **boot -> cell room -> INTERCOM**. Garbage at boot, pull it
 
