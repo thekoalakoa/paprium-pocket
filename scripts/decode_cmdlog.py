@@ -213,6 +213,9 @@ def main():
             print("  0xDB seen    = %d,  unaligned_db = %d" % (db_cnt, db_bad))
             print("                       counted only on the reconstruction that")
             print("                       lands in 0x9000-0xF1FF; neither in range -> 0")
+            if db_cnt == 0:
+                print("  NOTE: 0xDB never fired. unaligned_db = 0 is UNINFORMATIVE,")
+                print("        not clean - the branch rests on unaligned_da alone.")
             print()
             if pitch_cnt:
                 print("  Off-grid unpacks DID happen. An unaligned write straddles two")
@@ -225,9 +228,11 @@ def main():
                 print("  survives discarding the wrong half-swap, the COPY path is dirty")
                 print("  rather than the decode - look at 0xDB before adding cache.")
             else:
-                print("  Every destination was 0x200-aligned. Destination collision is")
-                print("  dead, and the residual squares point at LRU pressure - the")
-                print("  remap experiment (slots 49-52 to tiles 800-863), not a bigger cap.")
+                print("  Every destination seen was 0x200-aligned%s."
+                      % (" (0xDA only - 0xDB never fired)" if db_cnt == 0 else ""))
+                print("  Destination collision is dead, and the residual squares point")
+                print("  at LRU pressure - the remap experiment (slots 49-52 to tiles")
+                print("  800-863), not a bigger cap.")
             print()
             hdr = words[4095]
             magic, wr_idx = hdr >> 16, hdr & 0xFFF
