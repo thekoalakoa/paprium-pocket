@@ -4348,3 +4348,66 @@ destination:
 One destination in the window during the INTERCOM scroll keeps the disturbance
 theory alive. Destinations only ever in the workspace kill it and leave
 `decoder_ram` / buffer reuse as the live lead.
+
+## Probe B design, and a correction to the address-space assumption
+
+A reviewer flagged that `0xDA` and `0xDB` must not be bucketed against one map,
+since they use different argument conventions. Correct on the decoding. But
+checking `ppm_unpack` shows **both destinations live in the SAME space, and it is
+neither a 68000 address nor 0x800000**:
+
+```c
+uint32_t ppm_unpack(uint32_t source_addr, uint32_t dest_addr)
+    unpacked_data = (uint8_t *) ppmio.sdram;     // dest_addr INDEXES this
+...
+cmd_F2:  ppm_unpack(..., 0x9000);  FPGAIO->sdram_ptr = 0x9000;   // same value both
+blocks:  ppm_unpack(..., ppm_block_unpack_addr);                  // 0x9000 + n*0x200
+```
+
+`dst` and `sdram_ptr` are both **offsets into the SDRAM workspace**, and `cmd_F2`
+passes the identical value as both - so they index one space. `0xDB` is 32-bit and
+half-swapped, `0xDA` is a bare 16-bit, but they address the same thing.
+
+### That makes the test more sensitive, not less
+
+There is no fixed "window region" in SDRAM - the window is wherever `sdram_ptr`
+points. So bucketing against `0xC000-0xFFFF` would test the wrong thing. What
+matters is the **block staging range**, which a decode landing in would corrupt
+directly:
+
+    0x9000 + 49 blocks * 0x200  =  0x9000 - 0xF1FF    (at the shipped cap of 49)
+    0x9000 + 53 blocks * 0x200  =  0x9000 - 0xF9FF    (uncapped)
+
+A destination anywhere in `0x9000-0xF200` overwrites staged tiles a queued DMA has
+not fetched yet. That is a far wider target than `0xC000-0xFFFF`, and it is the
+collision that would actually produce wrong tiles.
+
+`0xDB`'s two reconstructions are both printed and the data picks the endianness -
+one should cluster in plausible workspace, the other look like noise.
+
+## If Probe B is clean: REMAP, do not raise the cap
+
+The residual "scrolling sprite squares" after cap-at-49 is exactly what a 16-tile
+block cache looks like when it is too small: a still-visible block is evicted, the
+stale pattern stays mapped, and the shaft scroll carries the square with it. Probe
+B does not measure that - a clean dest capture only proves the decode is not
+landing on staged tiles.
+
+The fix is to give the four blocks back **somewhere safe**, not to restore the
+collision:
+
+    current  slots 0-48   -> block indices 1-49    -> tiles 16-799   -> 0x0200-0x63FF
+    REMAP    slots 49-52  -> block indices 50-53   -> tiles 800-863  -> 0x6400-0x6BFF
+
+which is simply dropping mega-ppm's two-range special case and using `x + 1`
+throughout. Still far below the usual nametable floor, and it never touches
+`0xF800-0xFFFF`.
+
+If the squares shrink or vanish, the residual was LRU pressure. If they stay and a
+nametable or window tears instead, that hole is not empty on Paprium and the next
+slice further up gets tried - still below `0xC000`. **Do not** jump to tiles
+1920-1983; that is against the same high-VRAM tables we just stopped hitting.
+
+Note the headroom this opens if it works: a linear `x + 1` mapping stays below
+`0xC000` all the way to block index 95, i.e. **95 slots against today's 53** - but
+only as much of that hole as testing proves is actually free.
