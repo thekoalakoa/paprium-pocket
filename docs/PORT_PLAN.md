@@ -3961,3 +3961,58 @@ menu. Enabling it gives the varied names.
 
 Nothing to do with this port, and no object-table snapshot is needed. Removed from
 the issue list.
+
+## Elevator: the corruption is REAL SPRITE GRAPHICS in the wrong place
+
+Best description of this bug recorded so far, from hardware:
+
+> The tiles all look like they are the sprites of the game scrambled in the wrong
+> place, but it is not interactable. The actual battle stage can move around and
+> still fight the bosses.
+
+Three things follow, and together they discriminate between the surviving theories:
+
+1. **The garbage is real decompressed graphics, not noise.** So the decompressor
+   works - consistent with MisterPezz82 verifying `0x80`/`0x81` against GPGX.
+2. **Game logic is untouched** - movement and combat are normal. Nothing is
+   corrupting game state; this is purely VRAM/display.
+3. **Sprite graphics appear where background block tiles belong.**
+
+### Why that points at 0xF2 rather than a bad destination
+
+`cmd_F2_unpack` does not change where a DMA lands - it changes where the data comes
+from:
+
+```c
+void cmd_F2_unpack() {
+    // used in sprites test menu      <- krikzz's own comment
+    ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9000);
+    ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9200);
+    FPGAIO->sdram_ptr = 0x9000;       // repoints the streaming window
+}
+```
+
+Correct destination, wrong source, so a block slot is filled from the wrong place in
+the workspace: **intact sprite graphics rendered as background blocks**, in a
+structurally valid location, leaving the scene underneath to render and play
+normally. A wrong *destination* would scatter data across VRAM and break more than
+one thing at once.
+
+It also explains why the slot cap helped but did not fix it - that was a genuine
+but separate destination collision.
+
+krikzz's comment marks `0xF2` as a **sprites test menu** feature, and GPGX disables
+it as a debug viewer. We implement it. If the game issues it during normal play,
+the streaming window is silently redirected.
+
+### The probe
+
+One line, and MisterPezz82 recommended it but never ran it:
+
+    cmp_ptr[0xF2] = cmd_unknown_muted;
+
+If the elevator's garbage disappears, `0xF2` is the cause. If a genuine sprite test
+menu stops working, that is the expected cost and tells us the mute is effective.
+
+Run after the sfx capture - this one needs a run to the elevator, the sfx capture
+needs a short run, and they cannot share a ring.
