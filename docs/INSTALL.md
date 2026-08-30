@@ -50,8 +50,8 @@ file from the Pocket's menu when the core loads.
 Eject the card, put it in the Pocket, and the core appears under
 **Openfpga → Others → Paprium**.
 
-> The platform has no artwork, so it shows as a plain entry. If you want an image,
-> drop a 521×165 `paprium.bin` into `/Platforms/_images/`. Purely cosmetic.
+> Platform artwork ships with the core and installs to `/Platforms/_images/`.
+> Purely cosmetic - the core runs identically without it.
 
 > **Copy the whole `Cores/Koala_Koa.Paprium/` directory, not just the bitstream.**
 > The menu lives in `interact.json` and the display modes in `video.json`. Copying
