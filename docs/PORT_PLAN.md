@@ -4139,7 +4139,27 @@ default conversion is faithful to the source.
 
 ### Producing ours
 
-    python scripts/make_platform_image.py <1280x720 key art>         pkg/pocket/Platforms/_images/paprium.bin --blue --value --crop=0,20,1280,425
+    python scripts/make_platform_composite.py <character.png> <keyart.jpg>         pkg/pocket/Platforms/_images/paprium.bin
+
+A COMPOSITE, character plus logo, because neither source fits 3.16:1 alone. The
+character art is 768x768 - scaling him to fill keeps about 32% of his height, a
+band through his chest, and letterboxing leaves two thirds of the frame empty.
+Pairing him with the logo uses the width the frame actually has.
+
+The two halves need DIFFERENT channels, which is the non-obvious part:
+
+- **character: invert luminance.** His ground is white, so a straight map makes
+  the background the brightest thing on screen - backwards from every stock image.
+- **logo: HSV value, no invert.** The magenta has high brightness but low
+  luminance, so a plain greyscale conversion leaves it dimmer than the pixel art
+  beside it.
+
+Both are floored to true black so neither crop shows as a rectangle against the
+canvas - visible box edges were the first attempt's giveaway.
+
+`scripts/make_platform_image.py` remains for single-source images and gained
+`--fit` (letterbox instead of centre-crop) for sources whose aspect is nowhere
+near the frame's.
 
 Shipped from the pixel-art key art (logo plus the three characters). **The source
 image is deliberately NOT in the repo** - it is WaterMelon's artwork, and this
