@@ -112,3 +112,5 @@ set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 set_global_assignment -name SEED 2
 
 set_global_assignment -name SEED 3
+
+set_global_assignment -name SEED 4
