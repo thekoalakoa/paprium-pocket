@@ -114,6 +114,13 @@ def dma_report(entries):
 
     dma_budget and dma_total are game-written; dma_remaining is MCU-only and is
     just budget - total, so it is reconstructed. Each block costs 0x110 WORDS.
+
+    SAMPLE PHASE CAVEAT. Rows are taken on a free-running beat wrap (~19.5 ms,
+    about one per frame), so each row is "whatever was last written this frame",
+    NOT "the value at ppm_obj_frame_end". If the game stores dma_total after the
+    wrap, that row belongs to the following frame. A single row is therefore not
+    authoritative for a specific frame - which is why every conclusion below is
+    drawn from the MINIMUM within a fence, where the phase offset does not matter.
     """
     rows = [r for r in entries if r[1] in (0xF8, 0xEC)]
     if not any(r[1] == 0xF8 for r in rows):
@@ -167,7 +174,9 @@ def dma_report(entries):
     print("  first dma_budget      %d" % buds[0])
     print("  min(budget - total)   %d words" % hmin)
     print("  blocks/frame          %d      (at 0x%X words per block)" % (bmin, BLOCK_COST))
-    print("  0xF8 rows in fence    %d" % len(rows))
+    print("  0xF8 rows in fence    %d   (beat-sampled ~1/frame; each row is the" % len(rows))
+    print("                            last value written that frame, not the value")
+    print("                            at frame end - hence the minimum, not a row)")
     if len(set(buds)) > 1:
         print("  NOTE: dma_budget itself varies across %d values %s - not averaged."
               % (len(set(buds)), sorted(set(buds))[:6]))
