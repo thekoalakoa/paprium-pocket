@@ -12,8 +12,11 @@
 set -euo pipefail
 D="$(cd "$(dirname "$0")/.." && pwd)"
 [ $# -eq 1 ] || { sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 2; }
-OUT="$D/build_output/fits"; mkdir -p "$OUT"   # scratch; the tracked
-                                             # reference is docs/BUILD_REFERENCE.md
+# Archives live in their OWN directory, never beside the installable bitstreams
+# in build_output/. A gate archive is evidence, not a candidate: seed 2 archived
+# here measured -2.715 and DID NOT BOOT. Anything installed from this directory
+# has, by definition, not passed a gate.
+OUT="$D/build_output/gate-archive"; mkdir -p "$OUT"
 F="$D/projects/output_files/megadrive_pocket.fit.rpt"
 S="$D/projects/output_files/megadrive_pocket.sta.rpt"
 {
@@ -21,3 +24,12 @@ S="$D/projects/output_files/megadrive_pocket.sta.rpt"
   awk '/^; Fitter Summary/,/^\+=+\+$/' "$F" | grep -E "Fitter Status|Logic utilization \(in ALMs\)|Total RAM Blocks|Total registers"
   grep -E "Worst-case Slack|Design-wide TNS" "$S" | head -2
 } | tee "$OUT/$1.txt"
+
+# Keep the bitstream too. Without this the .rbf is overwritten by the next build,
+# which nearly cost us the seed-2 evidence: its assembler output survived only
+# because the following seed was still in the fitter.
+R="$D/projects/output_files/megadrive_pocket.rbf"
+if [ -f "$R" ]; then
+    python "$D/scripts/reverse_bitstream.py" "$R" "$OUT/$1.NOT-FOR-INSTALL.rbf_r" >/dev/null
+    echo "  bitstream archived: build_output/gate-archive/$1.NOT-FOR-INSTALL.rbf_r"
+fi
