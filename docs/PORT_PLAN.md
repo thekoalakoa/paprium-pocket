@@ -4692,3 +4692,67 @@ But the cheaper question first: an unchanged shaft still means logging
 `0xF88`/`0xF89` and comparing `budget - total` against ~3,800 words. If INTERCOM is
 fill-bound, the four blocks were never going to matter and none of this placement
 work is needed.
+
+## ANSWERED STATICALLY: INTERCOM is fill-bound. dma_budget is in the ROM
+
+The DMA ceiling did not need a logger at all. `dma_budget` is written by the game
+from two immediate constants, findable in the ROM:
+
+    0310A2:  2079 000A F83C     movea.l $000AF83C,a0        ; a0 = cart-RAM base
+    0310A8:  317C 0B00 1F12     move.w  #$0B00,($1F12,a0)   ; dma_budget = 2816
+    0310AE:  0C39 0032 00FF99B5 cmpi.b  #$32,$00FF99B5
+    0310B6:  660E               bne.s   $310C6
+    0310C0:  317C 1200 1F12     move.w  #$1200,($1F12,a0)   ; dma_budget = 4608
+
+`317C` is `move.w #imm,(d16,A0)`, and the base long at `0xAF83C` is **0x00000000** -
+a value from the address table already dumped at `0xAF810`. So `ramdp` is at 68000
+address 0 and `0x1F12` is `dma_budget`, exactly as the struct predicted.
+
+| | words | blocks/frame at 0x110 |
+|---|---|---|
+| default | 2,816 | **10** |
+| conditional | 4,608 | **16** |
+
+Minus `dma_total`, so real headroom is lower. **Against 53 slots the ceiling is
+10-16.** This brackets the pre-registered ~3,800-word vblank band, so the units are
+confirmed as words.
+
+`$FF99B5` is **not identified**. `$32` is 50, so 50 Hz is plausible but unproven -
+the byte is `clr.b`'d at `0x0810EC` and read at `0x08CD50` with no direct
+`move.b #$32` store, so it is set indirectly. Do not label the branch. It does not
+affect the verdict: both constants are far below 53.
+
+### Verdict
+
+**INTERCOM is fill-bound under mega-ppm's allocator.** 53 resident slots cannot be
+refreshed in one vblank at any slot count we can give it. Cap-at-49 remains
+shipping.
+
+The leftover squares are fully compatible with: shaft churn exceeds ~10-16 new
+blocks per frame -> `dma_remaining < 0x110` -> `ppm_vram_load_block` returns 0 ->
+`ppm_vram_find_block` returns 0 -> a stale 16-tile square that scrolls with the
+shaft.
+
+**Qualification, so this is not read as cleaner than it is:** slots and fill rate
+are not independent. More residents mean less churn and so less DMA demand, so the
+four blocks could have reduced pressure - they simply cannot raise a 10-16 block
+ceiling to 53.
+
+This is also why the original MAX 10 may look cleaner on the same scene: it can
+pack or DMA at finer grain than a fixed 16-tile, `0x110`-word charge. mega-ppm
+cannot spend more vblank than the VDP has.
+
+### Stop conditions
+
+- **No more dmalog builds for this question.** Four failed the timing gate; the
+  answer was in the ROM the whole time and should have been looked for first.
+- **No tile-864 or 928-991 slide to "fix INTERCOM".** Placement probes stay queued
+  and need a different justification than "maybe four more slots help".
+- The `dmalog3` hold failure (-0.004, a single 4 ps path) is congestion plus a
+  rounding miss. Leave it; the bitstream is not needed.
+
+### Cheap follow-up, later
+
+Identify `$FF99B5` and which branch this core takes. An Export/NTSC default may
+lock us to `0x0B00` = 10 blocks/frame, which refines the band. It does **not**
+reopen remapping.
