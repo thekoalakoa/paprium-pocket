@@ -241,32 +241,23 @@ def main():
         dest_mode = any(((w >> 24) & 0xFF) in (0xDA, 0xDB, 0xF2)
                         for w in words[:4090:2] if w)
         if dest_mode:
-            w91 = words[4091]
-            db_bad, db_cnt = w91 >> 16, w91 & 0xFFFF
+            db_cnt = db_bad = 0
             print("0xDA/0xDB seen=%d" % sfx_cnt)
             print("  unaligned_da = %d   (0xDA only - no endian question; this alone"
                   % pitch_cnt)
-            print("                       can decide the branch)")
-            print("  0xDB seen    = %d,  unaligned_db = %d" % (db_cnt, db_bad))
-            print("                       counted only on the reconstruction that")
-            print("                       lands in 0x9000-0xF1FF; neither in range -> 0")
-            if db_cnt == 0:
-                print("  NOTE: 0xDB never fired. unaligned_db = 0 is UNINFORMATIVE,")
-                print("        not clean - the branch rests on unaligned_da alone.")
+            print("                       decides the branch)")
+            print("  0xDB has no sticky counter - it cost ~68 ALMs and broke the")
+            print("  build at 99%. Its rows are in the ring and analysed below.")
             print()
             if pitch_cnt:
                 print("  Off-grid unpacks DID happen. An unaligned write straddles two")
                 print("  16-tile blocks and smears patterns the VDP may still show -")
                 print("  buffer reuse. Next cut is a private unpack buffer")
                 print("  (decoder_ram), NOT more cache slots.")
-            elif db_bad:
-                print("  0xDA is clean but 0xDB has %d off-grid destination(s). If that"
-                      % db_bad)
-                print("  survives discarding the wrong half-swap, the COPY path is dirty")
-                print("  rather than the decode - look at 0xDB before adding cache.")
             else:
-                print("  Every destination seen was 0x200-aligned%s."
-                      % (" (0xDA only - 0xDB never fired)" if db_cnt == 0 else ""))
+                print("  Every 0xDA destination was 0x200-aligned. Check the 0xDB")
+                print("  rows below before concluding - absence of 0xDB rows is")
+                print("  uninformative, not clean.")
                 print("  Destination collision is dead, and the residual squares point")
                 print("  at LRU pressure - the remap experiment (slots 49-52 to tiles")
                 print("  800-863), not a bigger cap.")
