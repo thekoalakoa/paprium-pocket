@@ -152,11 +152,17 @@ def dest_report(entries):
         for raw, d in cand:
             addr = d & 0xFFFFF
             n, al, why = classify(addr)
+            # 0xDB is cmd_DB_set_dma_ptr - it SETS A READ POINTER, it does not
+            # unpack anything. Block-grid alignment is meaningless for it: the
+            # game may point the window wherever it likes. Applying the unpack
+            # test to it reported 168 false 'smears' on the first run.
+            if c == 0xDB and n is not None:
+                al, why = None, "read pointer (alignment N/A) - slot %d region" % n
             print("%-6d %-7s %-5s %-11s %05X    %-4s %-5s %s"
                   % (i, tag, "%02X" % c, raw, addr,
                      "-" if n is None else n,
                      "-" if al is None else ("yes" if al else "NO"), why))
-            if n is not None and not al:
+            if c != 0xDB and n is not None and not al:
                 unaligned += 1
             if n is not None and al:
                 slots[n] = slots.get(n, 0) + 1
