@@ -4225,3 +4225,73 @@ The painted banner fought the format; this one fits it:
 - **Aspect forces a choice.** 1280x720 is 1.78:1 against a 3.158:1 frame, so about
   half the height goes. Framing high keeps the whole logo and the characters' upper
   bodies; framing lower cuts the logo in half. No crop holds both in full.
+
+## 0xF2 mute: no effect. The lead is the STREAM POSITION, not the decoder
+
+Hardware: elevator unchanged with `cmd_F2_unpack` muted. So `0xF2` is not the cause,
+and MisterPezz82's recommended probe is answered - negatively, but answered.
+
+In hindsight the null result is consistent with krikzz's own comment calling `0xF2`
+the **sprites test menu** unpack: if it never fires during normal play, muting it
+could not change anything.
+
+### What the block DMA actually depends on
+
+Reading `ppm_vram_load_block` closely:
+
+```c
+ppm_block_unpack_addr = 0x9000;                       // reset once
+...
+ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
+ppm_block_unpack_addr += 0x200;                       // each block to the NEXT slot
+dma_entry->srcH = 0x9700; srcM = 0x9660; srcL = 0x9500;   // every DMA reads 0xC000
+```
+
+Every block is unpacked to a **different** address, yet every DMA reads the **same**
+address. That only works because the `0xC000` window streams **linearly** - reading it
+advances the position. MisterPezz82 established this is what the game expects: they
+implemented GPGX's paged model instead, the elevator was unchanged and boss
+animations regressed, and they rolled it back.
+
+**So the block DMAs depend on the window position not being disturbed between the
+unpack and the DMA.** The DMAs are queued for the 68000 to execute later, so what
+matters is the position at execution time, not at queue time.
+
+### And 0xDA disturbs it
+
+```c
+void cmd_DA_unpack() {
+    u32 src = (cmd_args[1] << 16) + cmd_args[2];
+    u32 dst = cmd_args[0];
+    ppm_unpack(src, dst);
+    FPGAIO->sdram_ptr = ppmio.ramdp->cmd_args[0];   // optional ?
+}
+```
+
+**krikzz marked that line `// optional ?` himself** - he was not sure it belonged.
+
+If the game issues `0xDA` between queued block DMAs, the stream position jumps and
+the pending DMAs fetch whatever now sits at the new offset: **real decompressed
+graphics delivered into the wrong block slots.** That is precisely the reported
+symptom - recognisable game sprites scrambled into the wrong place, with the scene
+underneath rendering and playing normally, because game state is untouched.
+
+A second argument: **`0xDB` exists solely to set that pointer**
+(`cmd_DB_set_dma_ptr`). A dedicated command for the job makes `0xDA` doing it as
+well redundant - and a redundant pointer write is exactly what desynchronises a
+linear stream.
+
+### The probe
+
+Drop one line - the one its author already doubted:
+
+    // FPGAIO->sdram_ptr = ppmio.ramdp->cmd_args[0];   // optional ?
+
+Risk, stated plainly: if the game does rely on `0xDA` leaving the pointer at the
+decoded data, reads afterwards will come from the wrong place and something else
+breaks. `0xDB`'s existence argues against that, but it is a real risk and the test
+is what settles it.
+
+Worth pairing with a capture that logs `0xDA`/`0xDB` against `0xAE`/`0xAF` frame
+boundaries, to see whether `0xDA` really does land mid-frame while blocks are
+queued. That would confirm the mechanism rather than just its removal.
