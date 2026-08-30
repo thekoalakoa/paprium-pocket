@@ -618,7 +618,14 @@ module core_top (
 
   // Defaults to 6-button because that is what this core has always presented, and
   // the Pocket has the face buttons for it. A handful of games misread the pad
-  reg cfg_6btn = 1;
+  // paprium: TIED OFF. Paprium's own pad read is a 3-button read that bails after
+  // one TH toggle, so X/Y/Z/Mode never worked and the menu option did nothing.
+  // Upstream's fix is a ROM-read substitution injecting X/Y/Z into the game's pad
+  // struct, which bypasses this protocol entirely - so tying MODE low does not
+  // foreclose it. With MODE constant, pad_io's JCNT state machine, the ~1.5 ms
+  // JTMR counter (11600*7) and the extra protocol frames all fold away, on both
+  // ports. See docs/PORT_PLAN.md.
+  localparam cfg_6btn = 1'b0;
 
   // paprium: CRAM Dots and Composite Blend menus removed and both tied off. The dot is
   // a Mega Drive artefact the VDP produces when CRAM is written mid-line; cofi is a
@@ -650,9 +657,6 @@ module core_top (
         end
         32'h0000000C: begin
           cfg_region <= bridge_wr_data[1:0];
-        end
-        32'h0000001C: begin
-          cfg_6btn <= bridge_wr_data[0];
         end
         32'h00000028: begin
           cfg_arcorr <= bridge_wr_data[0];

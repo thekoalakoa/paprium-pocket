@@ -4128,3 +4128,23 @@ answers it outright.
 Also fixed here: `decode_cmdlog.py` still labelled ECHO and AMPLIFY
 "(unimplemented)" long after both were implemented in RTL, which is actively
 misleading when reading a capture.
+
+## DECIDED: no 6-button support; the option is removed
+
+Superseding the porting to-do above - **not doing it, and the menu option is gone.**
+
+The option never worked. Paprium's pad read is a 3-button read that bails after one
+TH toggle, so X/Y/Z/Mode did nothing whatever the setting said. Presenting a control
+that does nothing is worse than not presenting it.
+
+Tying `cfg_6btn` low also lets the fitter drop real logic in `pad_io`, on both
+ports: the `JCNT` state machine, the ~1.5 ms `JTMR` counter (`11600*7`, 17 bits) and
+the extra protocol frames. On a core at 91% ALM with the elevator work still to
+land, that matters more than an inert checkbox.
+
+**This does not foreclose the proper fix.** Upstream's cave v3 injects X/Y/Z
+straight into the game's pad struct by ROM-read substitution, bypassing the pad
+protocol entirely - so it never needed `pad_io`'s 6-button support and would not
+need it restored. If it is ever ported, the option comes back with it.
+
+The game plays fully with three buttons, which is how it reads the pad.
