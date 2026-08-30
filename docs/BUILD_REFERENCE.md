@@ -9,14 +9,26 @@ for the other already caused a gate to be set on the wrong baseline.
 | variant  | build             | ALM    | M10K | slack  | TNS    | boots? |
 |----------|-------------------|--------|------|--------|--------|--------|
 | shipping | `61d1ddd3` CURRENT| 16,900 | 294  | -2.539 | -1,201 | YES |
+| shipping | remap (reverted)  | 16,900 | 294  | -2.539 | -1,201 | boots, but cell-room floor breaks - see PORT_PLAN |
 | shipping | 6-btn tied off    | 18,051 | 294  | -2.666 | -1,559 | YES |
 | cmdlog   | budget capture    | 18,117 | 308  | ?      | ?      | YES |
 | cmdlog   | sticky counters   | 18,141 | 308  | ?      | ?      | YES |
 | cmdlog   | Probe B v1        | 18,209 | 308  | -2.957 | -2,844 | **NO - garbage at boot** |
-| cmdlog   | Probe B v2        | 18,283 | 308  | -2.576 | -1,204 | testing |
+| cmdlog   | Probe B v2        | 18,283 | 308  | -2.576 | -1,204 | **YES - valid capture** |
 
 The two `?` rows had their reports overwritten before `scripts/archive_fit.sh`
 existed. Archive every build from now on.
+
+**Probe B v2 is the first cmdlog build with archived timing that is confirmed to
+boot** - it produced a valid 1,243-entry capture. So a cmdlog is now judged against
+a cmdlog, not a borrowed shipping-variant threshold. Note it passed the agreed
+gate on timing while sitting 142 ALM over the old proxy ceiling, which is what
+retired ALM as a gate.
+
+**A passing gate is not a passing build.** The remap row above cleared every timing
+criterion identically to shipping and still broke the cell-room floor - because the
+fault was firmware placement, which timing cannot see. Smoke is a separate hurdle,
+never implied by the numbers.
 
 ## Install rule
 
