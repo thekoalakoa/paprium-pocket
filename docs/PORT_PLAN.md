@@ -4175,9 +4175,10 @@ default conversion is faithful to the source.
 
 ### Producing ours
 
-    python scripts/make_platform_image.py <source> pkg/pocket/Platforms/_images/paprium.bin --blue --invert
+    python scripts/make_platform_image.py docs/platform_art_source.jpg         pkg/pocket/Platforms/_images/paprium.bin --blue --value --crop=0,20,1280,425
 
-Shipped as the full banner, characters included, INVERTED.
+Shipped from the pixel-art key art (logo plus the three characters), source kept at
+`docs/platform_art_source.jpg` so it is reproducible.
 
 Three lessons, all learned by looking at the result rather than reasoning about it:
 
@@ -4210,3 +4211,17 @@ version has enough dark area to hold its own.
 A preview on a dark editor background is therefore misleading for this decision -
 the only test that counts is the menu itself. The negative-look characters are the
 accepted cost.
+
+### Why the pixel-art source beats the painted banner
+
+The painted banner fought the format; this one fits it:
+
+- **Already bright-on-dark**, which IS the house style, so no `--invert` is needed -
+  and it keeps enough dark area to hold against the Analogue menu's WHITE
+  background, the exact failure of the un-inverted banner.
+- **`--value`, not luminance.** The magenta logo has high HSV *brightness* but low
+  *luminance*, so a normal greyscale conversion left it dimmer than the near-white
+  pixel art beside it. Mapping V keeps saturated artwork as prominent as it looks.
+- **Aspect forces a choice.** 1280x720 is 1.78:1 against a 3.158:1 frame, so about
+  half the height goes. Framing high keeps the whole logo and the characters' upper
+  bodies; framing lower cuts the logo in half. No crop holds both in full.
