@@ -4148,3 +4148,27 @@ protocol entirely - so it never needed `pad_io`'s 6-button support and would not
 need it restored. If it is ever ported, the option comes back with it.
 
 The game plays fully with three buttons, which is how it reads the pad.
+
+
+## Platform artwork: the Pocket's .bin format, decoded
+
+Worked out by decoding Analogue's own files, since the format is not documented
+anywhere we could find:
+
+    521 x 165 pixels, 16bpp RGB565 LITTLE-ENDIAN   ->  exactly 171,930 bytes
+    stored COLUMN-MAJOR, as a 165-wide x 521-tall buffer
+
+**The column-major part is the trap.** The byte count matches 521x165x2 exactly, so
+it is tempting to write it row-major - and that produces horizontal streaks rather
+than an obviously wrong image, which is the kind of failure that gets shipped. Read
+as 165x521 and rotated -90, Analogue's files resolve into clean console art.
+Writing is the inverse: rotate the finished 521x165 artwork +90, then emit
+row-major.
+
+Verified by round-tripping our own output back through the decoder used on
+Analogue's files, rather than by inspection alone.
+
+Also worth knowing: **every stock platform image is monochrome blue on black.** A
+colour or greyscale image is legible but visibly different from the rest of the
+list. `scripts/make_platform_image.py --blue` renders in that house style; the
+default conversion is faithful to the source.

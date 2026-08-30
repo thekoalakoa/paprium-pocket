@@ -19,6 +19,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 CORE_SRC="$PROJECT_DIR/pkg/pocket/Cores/Koala_Koa.Paprium"
 PLAT_SRC="$PROJECT_DIR/pkg/pocket/Platforms/paprium.json"
+IMG_SRC="$PROJECT_DIR/pkg/pocket/Platforms/_images/paprium.bin"
 
 if [ $# -ne 1 ]; then
     sed -n '2,9p' "$0" | sed 's/^# \?//'
@@ -37,10 +38,11 @@ if [ ! -f "$CORE_SRC/paprium.rbf_r" ]; then
     exit 1
 fi
 
-mkdir -p "$SD/Cores/Koala_Koa.Paprium" "$SD/Platforms" "$SD/Assets/paprium/common"
+mkdir -p "$SD/Cores/Koala_Koa.Paprium" "$SD/Platforms/_images" "$SD/Assets/paprium/common"
 
 cp -f "$CORE_SRC"/* "$SD/Cores/Koala_Koa.Paprium/"
 cp -f "$PLAT_SRC"   "$SD/Platforms/"
+[ -f "$IMG_SRC" ] && cp -f "$IMG_SRC" "$SD/Platforms/_images/"
 
 echo "Installed to $SD:"
 ls -la "$SD/Cores/Koala_Koa.Paprium/" | tail -n +2
