@@ -133,7 +133,11 @@ module paprium_cmd_log (
 		|| (cmd_hi == 8'hD3)   // sfx_loop
 		|| (cmd_hi == 8'hD6);  // music_special
 
-	wire keep = DEST_ONLY   ? ((cmd_hi == 8'hDA) | (cmd_hi == 8'hDB) | (cmd_hi == 8'hEC))
+	// 0xF2 is logged too: it is the third pointer-mover (sdram_ptr = 0x9000, and
+	// it unpacks to 0x9000/0x9200). Muting it changed nothing on hardware, so it
+	// is back to stock and measured rather than suppressed.
+	wire keep = DEST_ONLY   ? ((cmd_hi == 8'hDA) | (cmd_hi == 8'hDB)
+	                         | (cmd_hi == 8'hF2) | (cmd_hi == 8'hEC))
 	          : BUDGET_ONLY ? (cmd_hi == 8'hEC)
 	                        : (LOG_ALL | keep_audio);
 
