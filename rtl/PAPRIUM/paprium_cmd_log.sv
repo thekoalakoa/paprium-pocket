@@ -217,10 +217,20 @@ module paprium_cmd_log (
 	reg [15:0] last_dtot, last_dbud;
 	wire hit_dtot = cpu_wr & (wr_word == A_DMA_TOTAL);
 	wire hit_dbud = cpu_wr & (wr_word == A_DMA_BUDGET);
-	// on CHANGE only - these are written every frame and would otherwise flood
-	wire hit_dma  = DMA_ONLY & ~frozen
-	              & ((hit_dtot & (cpu_data != last_dtot))
-	               | (hit_dbud & (cpu_data != last_dbud)));
+
+	// SAMPLED, not change-detected. Comparing cpu_data against the last latched
+	// value put two 16-bit comparators AND a third write-path arbiter in the same
+	// cycle as the write decision: TNS went to -4,872 against Probe B v2's -1,204,
+	// worse than the build that failed to boot.
+	//
+	// Instead emit one row per `beat` wrap. The beat is 20 bits at ~53.7 MHz, so
+	// that is roughly one sample per frame - which is the natural rate anyway,
+	// since dma_remaining is recomputed once per frame in ppm_obj_frame_end. The
+	// write data comes from registers latched on a previous cycle, so nothing
+	// combinational from cpu_data reaches the write path.
+	//
+	// Sampling at beat==0 keeps it off the header ticks, which fire at &beat.
+	wire hit_dma  = DMA_ONLY & ~frozen & (beat == 20'd0);
 
 	wire hit_mask  = cpu_wr & (wr_word == A_MASK);
 	wire hit_vol   = cpu_wr & (wr_word == A_VOL);
@@ -353,9 +363,9 @@ module paprium_cmd_log (
 				mem_we    <= 1'b1;
 				mem_waddr <= wr_idx;
 				//  [31:24] 0xF8 marker   [15:0] dma_total
-				mem_wdata <= {8'hF8, 8'd0, hit_dtot ? cpu_data : last_dtot};
+				mem_wdata <= {8'hF8, 8'd0, last_dtot};
 				//  [31:16] dma_budget    [15:0] unused
-				snd_wdata <= {hit_dbud ? cpu_data : last_dbud, 16'd0};
+				snd_wdata <= {last_dbud, 16'd0};
 				wr_idx <= (wr_idx >= 12'd4088) ? 12'd0 : wr_idx + 2'd2;
 			end
 			else if(hit_snap) begin
