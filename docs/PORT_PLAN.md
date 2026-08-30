@@ -3787,3 +3787,79 @@ byte order on the table read would give the wrong rate. The SFX table needs the
 
 Cheap to run: kill one big enemy early, exit immediately, so the ring is short and
 readable.
+
+## RESULT: field-wise attrs fixes the door; the slot cap improves the elevator
+
+Hardware, both probes in one run.
+
+**Door: FIXED.** The doorway floor renders correctly. So the all-XOR attribute
+composition was scrambling the palette, exactly as MisterPezz82's analysis said it
+would, and **we had regressed against their V.04 by not carrying the field-wise
+change.** Their fix was real - it was simply never described as a door fix, because
+for them it was a failed elevator attempt that incidentally repaired this.
+
+**Elevator: better, not fixed.** The player no longer stays stuck behind the
+background as long, and the game reportedly runs smoother with better collision
+response. So slots 49-52 *were* colliding with the top of VRAM - partial
+confirmation - but they are not the whole cause. The smoother play is consistent
+with capping the budget: fewer block DMAs means less bus contention.
+
+Both changes are shipping candidates. No missing graphics were reported despite
+the four-block reduction.
+
+## The NX terminal is a readable diagnostic - and it says a sub-CPU is missing
+
+The boot terminal on **original hardware** reports:
+
+    ROM        : OK
+    SRAM       : OK
+    MODEM      : MW4.0
+    SUB-CPU    : M68000
+
+Ours - and reportedly every other replacement-firmware build - reports
+`SUB-CPU : NONE`.
+
+### The terminal text is XOR 0xFF at 0x12C6EC
+
+A new and generally useful capability: the game's diagnostic strings decode with a
+simple `^ 0xFF`, and the full table is readable. It enumerates exactly two options
+per line, so the terminal is a **direct readout of what the game detected**:
+
+    MODEM      : NONE / MW4.0
+    SUB-CPU    : NONE / M68000
+    SRAM       : OK / EMPTY
+    ROM        : OK
+
+`MODEM` is already spoofed by our firmware - `reg_status_2.bits.mwire_status = 7`
+with the comment "let's pretend MW is plugged & connected" - so there is precedent
+for these lines being satisfied by the cart rather than measured.
+
+### SUB-CPU is probed on the console, not asked of the cart
+
+There is no sub-CPU field anywhere in the cart's shared structures, so the game
+tests the machine. An address table at 0xAF810 confirms it knows the relevant
+hardware:
+
+    0AF814  $420000   Sega CD PRG RAM
+    0AF830  $A12000   Sega CD gate array
+    0AF874  $A10001   version register (the /DISK expansion bit)
+
+`btst #5,$A10001` does not appear literally, so the test is assembled differently
+or computed - but the game plainly probes for a Sega CD.
+
+### Open question that decides whether this is a bug at all
+
+**Was the original-hardware playthrough on a machine with a Mega CD attached?**
+
+- **Yes** - then `M68000` is simply correct there, `NONE` is correct for us, and
+  there may be nothing to fix. What would still be worth knowing is whether the
+  game takes a different code path when it sees one, since the elevator corruption
+  is recorded as Original-mode-only.
+- **No** - then a plain Mega Drive reports a sub-CPU we cannot account for, and
+  the detection is something other than the expansion bit. That would be a real
+  divergence worth chasing.
+
+The existing to-do "fake an expansion (`DISK = 1'h0` in md_board.v)" now has a
+**visible success criterion** for the first time: the terminal line itself. Worth
+running either way, but the risk is real - a game that believes a Sega CD is
+present may try to hand work to a sub-CPU that will never answer.
