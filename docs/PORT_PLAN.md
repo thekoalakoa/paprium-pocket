@@ -4456,3 +4456,26 @@ and RTL cost are independent.
 
 Lesson worth keeping: **tying a signal off is not automatically an area win.** Verify
 by measurement, not by reasoning about what the fitter should do.
+
+## Core icon: the logo's actual cross
+
+`pkg/pocket/Cores/Koala_Koa.Paprium/icon.bin` was a solid plus with a **spike out
+to the right** - the signature of a hand crop that caught part of the adjacent
+letter. Paprium's cross is not a plus at all: it is a Latin cross with a **hollow
+centre** and a long lower stem.
+
+Rebuilt by the same colour key as the wordmark (`scripts/make_core_icon.py`): the
+logo is a flat `#FF006A`, so the glyphs isolate exactly, and the cross is cut at
+the last run of empty columns - the gap between the M and the cross - rather than
+by eye.
+
+**The icon format is NOT the platform-image format**, which cost a moment to
+establish:
+
+    icon.bin      36x36, RGB565 LE, ROW-MAJOR
+    platform .bin 521x165, RGB565 LE, COLUMN-MAJOR
+
+Verified by decoding the shipped icon both ways - only row-major renders upright.
+Colour matched to the shipped icon exactly: `0x00FF`, rgb(0,28,255) on black.
+
+The previous icon is kept at `build_output/icon_old_backup.bin`.
