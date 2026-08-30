@@ -206,14 +206,33 @@ module paprium_cmd_log (
 	//               a ring wrap and a mid-run reset.
 	//   otherwise : {pitch_cnt, sfx_cnt}     - sfx commands, and half-pitch ones
 	reg [15:0] sfx_cnt, pitch_cnt;
+	reg [15:0] db_cnt,  db_bad;
 	wire       sfx_cmd = any_cmd & (DEST_ONLY ? ((cmd_hi == 8'hDA) | (cmd_hi == 8'hDB))
 	                                          : ((cmd_hi == 8'hD1) | (cmd_hi == 8'hD3)));
 
-	// 0xDA's destination is cmd_args[0] = the word latched from 0x1E10. Staging
-	// runs 0x9000..0xF1FF at the shipped 49-block cap, and 0x9000 is itself
-	// 0x200-aligned, so any of the low 9 bits set means off-grid.
-	wire       dst_in_stage  = (last_mask >= 16'h9000) & (last_mask <= 16'hF1FF);
-	wire       dst_unaligned = dst_in_stage & (|last_mask[8:0]);
+	// Staging runs 0x9000..0xF1FF at the shipped 49-block cap. 0x9000 is itself on
+	// the 0x200 grid, so once the range is required, `dest[8:0] != 0` IS the
+	// off-grid test.
+	//
+	// 0xDA and 0xDB MUST be counted separately. 0xDA's destination is cmd_args[0],
+	// a bare 16-bit word - no endian question, and this is the number that can
+	// decide the branch on its own. 0xDB's is swapshorts(cmd_args_long[0]), so it
+	// has two reconstructions, and judging it on half a 32-bit value would read as
+	// unaligned nearly every time - a false positive pushing us to the
+	// private-buffer path wrongly.
+	//
+	// The endianness resolves itself in hardware: for a 32-bit reconstruction to
+	// land in 0x9000..0xF1FF one half must be ZERO, so the in-range one identifies
+	// itself. If neither lands in range, 0xDB contributes nothing.
+	wire        da_in_stage  = (last_mask >= 16'h9000) & (last_mask <= 16'hF1FF);
+	wire        da_unaligned = da_in_stage & (|last_mask[8:0]);
+
+	wire        db_in_hi = (last_mask == 16'd0)
+	                     & (last_vol  >= 16'h9000) & (last_vol  <= 16'hF1FF);
+	wire        db_in_lo = (last_vol  == 16'd0)
+	                     & (last_mask >= 16'h9000) & (last_mask <= 16'hF1FF);
+	wire [15:0] db_dst   = db_in_hi ? last_vol : last_mask;
+	wire        db_unaligned = (db_in_hi | db_in_lo) & (|db_dst[8:0]);
 	wire       any_cmd = cpu_wr & (wr_word == A_CMD);
 	wire       ec_cmd  = any_cmd & (cmd_hi == 8'hEC);
 
@@ -244,9 +263,15 @@ module paprium_cmd_log (
 			if(any_cmd) any_cmd_cnt <= any_cmd_cnt + 1'd1;
 			if(sfx_cmd) begin
 				sfx_cnt <= sfx_cnt + 1'd1;
-				// DEST_ONLY: count off-grid destinations. Otherwise: half pitch.
-				if(DEST_ONLY ? dst_unaligned : last_flags[13])
+				// DEST_ONLY: 0xDA off-grid only. Otherwise: half pitch.
+				if(DEST_ONLY ? (da_unaligned & (cmd_hi == 8'hDA)) : last_flags[13])
 					pitch_cnt <= pitch_cnt + 1'd1;
+			end
+
+			// 0xDB counted apart, on the reconstruction that lands in staging
+			if(DEST_ONLY & any_cmd & (cmd_hi == 8'hDB)) begin
+				db_cnt <= db_cnt + 1'd1;
+				if(db_unaligned) db_bad <= db_bad + 1'd1;
 			end
 			if(ec_cmd) begin
 				ec_cnt  <= ec_cnt + 1'd1;
@@ -307,38 +332,43 @@ module paprium_cmd_log (
 	// Cycle after the command word: the flags/volume word. Cycle after that: the
 	// header, so a capture taken at any moment names the newest entry.
 	reg [31:0] snd_wdata;
-	reg        snd_we, hdr_we, hdr1_we, hdr2_we, hdr3_we;
+	reg        snd_we, hdr_we, hdr1_we, hdr2_we, hdr3_we, hdr4_we;
 	always @(posedge clk) begin
 		snd_we  <= mem_we;
 		hdr_we  <= snd_we;
 		hdr1_we <= hdr_we;
 		hdr2_we <= hdr1_we;
 		hdr3_we <= hdr2_we;
+		hdr4_we <= hdr3_we;
 	end
 
 	// The counters must also reach RAM when the ring is silent - in BUDGET_ONLY a
 	// whole run can log nothing, which is exactly the case being diagnosed. Tick
 	// them out periodically so an empty ring still carries a verdict.
 	reg [19:0] beat;
-	reg        beat_tick, beat_tick2, beat_tick3;
+	reg        beat_tick, beat_tick2, beat_tick3, beat_tick4;
 	always @(posedge clk) begin
 		beat       <= beat + 1'd1;
 		beat_tick  <= &beat;
 		beat_tick2 <= beat_tick;
 		beat_tick3 <= beat_tick2;
+		beat_tick4 <= beat_tick3;
 	end
 	wire hdr1_any = hdr1_we | beat_tick;
 	wire hdr2_any = hdr2_we | beat_tick2;
 	wire hdr3_any = hdr3_we | beat_tick3;
+	wire hdr4_any = hdr4_we | beat_tick4;
 
-	wire        ram_we    = mem_we | snd_we | hdr_we | hdr1_any | hdr2_any | hdr3_any;
-	wire [11:0] ram_waddr = hdr3_any ? 12'd4092
+	wire        ram_we    = mem_we | snd_we | hdr_we | hdr1_any | hdr2_any | hdr3_any | hdr4_any;
+	wire [11:0] ram_waddr = hdr4_any ? 12'd4091
+	                      : hdr3_any ? 12'd4092
 	                      : hdr2_any ? 12'd4093
 	                      : hdr1_any ? 12'd4094
 	                      : hdr_we ? 12'd4095
 	                      : snd_we ? (mem_waddr + 1'd1)
 	                               : mem_waddr;
-	wire [31:0] ram_wdata = hdr3_any ? {pitch_cnt, sfx_cnt}
+	wire [31:0] ram_wdata = hdr4_any ? {db_bad, db_cnt}
+	                      : hdr3_any ? {pitch_cnt, sfx_cnt}
 	                      : hdr2_any ? {ec_last, any_cmd_cnt}
 	                      : hdr1_any ? {ec_cnt, ec_peak}
 	                      : hdr_we ? {16'hC0DE, armed, frozen, 2'd0, wr_idx}
