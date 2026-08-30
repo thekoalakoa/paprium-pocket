@@ -4295,3 +4295,56 @@ is what settles it.
 Worth pairing with a capture that logs `0xDA`/`0xDB` against `0xAE`/`0xAF` frame
 boundaries, to see whether `0xDA` really does land mid-frame while blocks are
 queued. That would confirm the mechanism rather than just its removal.
+
+## PROBE A RESULT: 0xDA's pointer write is LOAD-BEARING. Reverted.
+
+Hardware, with `FPGAIO->sdram_ptr = cmd_args[0]` dropped from `cmd_DA_unpack`:
+
+    cell room   background GLITCHED  (it was clean before)
+    intercom    glitched
+    elevator    unchanged, scrolling sprite squares still present
+
+So the freeze **regressed** the game and did not help the elevator. Reverted.
+
+### What that establishes
+
+Despite krikzz marking the line `// optional ?`, and despite `0xDB` existing
+solely to set that pointer, **the game genuinely relies on `0xDA` leaving the
+stream pointer at the decoded data.** `0xDA` is a real consumer of the window, not
+a stray write. That is a fact worth having: it was a reasonable hypothesis, it was
+cheap to test, and it is now closed.
+
+It also matches the reviewer's middle row - "0xDA is a real consumer; freeze
+desyncs later DMA -> do not ship the freeze, go to dest capture / decoder_ram."
+
+### What it does NOT establish
+
+The elevator was unchanged, so this scene is not pointer disturbance **by 0xDA**.
+It says nothing about `0xDB`, which also writes the pointer and was never touched.
+An unchanged elevator does not clear the window.
+
+Note the two commands do not even share an argument convention:
+
+```c
+0xDB:  sdram_ptr = swapshorts(cmd_args_long[0]);   // full 32-bit, byte-swapped
+0xDA:  sdram_ptr = cmd_args[0];                    // bare 16-bit, zero-extended
+```
+
+`sdram_ptr` is `vu32`, so `0xDA` can only ever place it in 0x0000-0xFFFF, while its
+own `src` is assembled as a full 32-bit value. A capture must therefore decode each
+command's arguments its own way - decoding both alike would put every `0xDB`
+destination in the wrong half of the map.
+
+### Next: Probe B, the destination capture
+
+Filter the logger to `0xDA` and `0xDB` only, record raw words, and bucket each
+destination:
+
+    0xC000-0xFFFF   stream window     -> collision with live VDP DMA plausible
+    0x9000-0xBFFF   block staging     -> collision with prior tiles plausible
+    mailbox / low   control, ignore
+    0xF800+ / tile 1984+   leftover table smash even at budget 49
+
+One destination in the window during the INTERCOM scroll keeps the disturbance
+theory alive. Destinations only ever in the workspace kill it and leave
+`decoder_ram` / buffer reuse as the live lead.
