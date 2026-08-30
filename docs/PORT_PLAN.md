@@ -4175,7 +4175,9 @@ default conversion is faithful to the source.
 
 ### Producing ours
 
-    python scripts/make_platform_image.py <source> pkg/pocket/Platforms/_images/paprium.bin         --blue --invert --crop=1154,201,2334,575
+    python scripts/make_platform_image.py <source> pkg/pocket/Platforms/_images/paprium.bin --blue
+
+Shipped as the full banner, characters included, WITHOUT --invert.
 
 Three lessons, all learned by looking at the result rather than reasoning about it:
 
@@ -4187,3 +4189,18 @@ Three lessons, all learned by looking at the result rather than reasoning about 
    ground - backwards from every stock image, and the logo reads as a hole.
 3. **Match the aspect in the crop, not the resize.** The frame is 3.158:1; the crop
    above is 3.155:1, so nothing of the tagline is lost to centre-cropping.
+
+### Why the full banner is not inverted, though the logo crop was
+
+The source pulls both ways: the logo is dark text on a pale sky, while the
+characters are light-toned against darkness. Whichever way luminance maps to blue,
+one of the two reads bright and the other reads dark.
+
+- **Not inverted** - characters render correctly (dark linework, proper faces) and
+  the logo stays legible as dark text on a bright ground. Background is bright,
+  which is backwards from the house style, but it looks like the artwork.
+- **Inverted** - the logo is bright and correct, but the characters come out as
+  photo negatives: light hair, inverted faces. Obviously wrong.
+
+So `--invert` is right for a text-only crop and wrong once people are in frame.
+Chosen by looking at both rather than by rule.
