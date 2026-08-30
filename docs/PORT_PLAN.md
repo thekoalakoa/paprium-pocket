@@ -4175,9 +4175,9 @@ default conversion is faithful to the source.
 
 ### Producing ours
 
-    python scripts/make_platform_image.py <source> pkg/pocket/Platforms/_images/paprium.bin --blue
+    python scripts/make_platform_image.py <source> pkg/pocket/Platforms/_images/paprium.bin --blue --invert
 
-Shipped as the full banner, characters included, WITHOUT --invert.
+Shipped as the full banner, characters included, INVERTED.
 
 Three lessons, all learned by looking at the result rather than reasoning about it:
 
@@ -4202,5 +4202,11 @@ one of the two reads bright and the other reads dark.
 - **Inverted** - the logo is bright and correct, but the characters come out as
   photo negatives: light hair, inverted faces. Obviously wrong.
 
-So `--invert` is right for a text-only crop and wrong once people are in frame.
-Chosen by looking at both rather than by rule.
+**Settled on hardware: inverted.** Judged in previews the un-inverted version looks
+more faithful, but the Analogue menu draws platform art on a WHITE background, and
+there the un-inverted image is too light and washes out against it. The inverted
+version has enough dark area to hold its own.
+
+A preview on a dark editor background is therefore misleading for this decision -
+the only test that counts is the menu itself. The negative-look characters are the
+accepted cost.
