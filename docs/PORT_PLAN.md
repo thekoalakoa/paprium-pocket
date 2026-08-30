@@ -4780,13 +4780,31 @@ reopen remapping.
 
 **Could, in rough order of promise:**
 
-1. **Stop rendering a miss as garbage.** `ppm_vram_find_block` returns 0 on a miss,
-   so `tileIdx = 0 + spr_data->offset` - the sprite draws from tiles 0-15. The
-   allocator never uses that region (slot 0 maps to block index 1 = tile 16), so if
-   those tiles held blank data every miss would render as *nothing* rather than a
-   stale 16-tile square. **Open question first:** the allocator reserving 0-15 does
-   not prove the GAME does not use them. That is precisely the assumption that
-   broke the cell-room floor, so establish it before blanking anything.
+1. **Stop rendering a miss as garbage - with a reserved MISS_BLOCK, NOT by
+   blanking tiles 0-15.**
+
+   On a miss `ppm_vram_find_block` returns 0, so `tileIdx = 0 + spr_data->offset`.
+   That does **not** land on tile 0 - it lands anywhere in tiles 0-15 depending on
+   the offset. On a real Genesis tile 0 is often the blank cell but 1-15 commonly
+   hold font, HUD or the first pattern row, so **a miss may already be drawing the
+   game's own tiles, and that may be the garbage we see.**
+
+   Blanking 0-15 because "the allocator never uses them" is the 800-1983 mistake
+   again: the allocator not using a region does not mean the game does not.
+
+   The safe version does not need that question answered at all:
+
+   - reserve one slot inside the allocator's own range as `MISS_BLOCK`
+   - fill it blank once at init
+   - a miss returns **that block's base**, not 0
+
+   Cost is 48 residents instead of 49; the fill ceiling is unchanged. Every miss
+   then becomes a hole in our own patterns rather than a stab at the game's tile 0.
+
+   If someone still wants to know whether 0-15 are live, the checks are: do the
+   cell-room and INTERCOM plane maps contain tile indices 0-15, does the SAT use
+   them, and does a VRAM peek of patterns `0x0000-0x01FF` come back zeroed
+   (interesting) or font-shaped (a veto). But `MISS_BLOCK` makes that optional.
 
 2. **Charge by dirty tiles, not a fixed block.** A block costs `0x110` = `0x100`
    payload + `0x10` setup regardless of how many of its 16 tiles actually changed.
@@ -4802,5 +4820,14 @@ reopen remapping.
 4. **Pack into genuinely free VRAM** - but only once the nametable map is *known*,
    not guessed.
 
-Note 1 and 2 are different in kind: 1 makes the failure invisible, 2 makes it rarer.
-Neither needs a chip we do not have.
+Note 1 and 2 are different in kind: 1 makes the failure **look like absence**, 2
+makes it **rarer**. Neither needs a chip we do not have.
+
+**Sequencing:** before spending effort on 2, measure whether INTERCOM's misses are
+whole 16-tile blocks. If they are, merging consecutive DMAs saves only the `0x10`
+setup per extra block and will not change the scene.
+
+**Expectation for 1, stated plainly:** it is cosmetic. The misses still happen at
+the same rate - the shaft would show empty cells instead of stale shaft. That may
+look better or worse, and it is worth deciding whether that is wanted before
+building it.
