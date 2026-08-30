@@ -31,6 +31,7 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     blue = '--blue' in sys.argv[1:]
     invert = '--invert' in sys.argv[1:]
+    value  = '--value'  in sys.argv[1:]
     crop = next((a.split('=', 1)[1] for a in sys.argv[1:]
                  if a.startswith('--crop=')), None)
     if len(args) != 2:
@@ -51,7 +52,11 @@ def main():
     im = im.crop(((sw - W) // 2, (sh - H) // 2, (sw - W) // 2 + W, (sh - H) // 2 + H))
 
     if blue:
-        g = im.convert('L')
+        # --value maps HSV brightness rather than luminance. A saturated hue like
+        # Paprium's magenta logo has high brightness but LOW luminance, so a normal
+        # greyscale conversion renders it dim next to near-white pixel art. Using V
+        # keeps saturated artwork as prominent as it looks in the original.
+        g = im.convert('HSV').getchannel('V') if value else im.convert('L')
         if invert:
             # Analogue's stock images are BRIGHT art on a BLACK ground. A source
             # with a light background and dark subject (dark logo on a pale sky)
@@ -60,7 +65,10 @@ def main():
             # it. Also lifts contrast, since a 521px-wide downscale of a detailed
             # image goes muddy otherwise.
             g = ImageOps.invert(g)
-            g = ImageOps.autocontrast(g, cutoff=1)
+        # Normalise either way. A saturated colour (Paprium's magenta logo) carries
+        # less luminance than it appears to, so a straight map leaves it dim against
+        # a dark ground; autocontrast pulls the subject back up.
+        g = ImageOps.autocontrast(g, cutoff=1)
         im = Image.merge('RGB', (g.point(lambda v: 0),
                                  g.point(lambda v: v // 5),
                                  g))
