@@ -27,6 +27,10 @@ rather than loop.
 Fits a Cyclone V `5CEBA4F23C8` at **91% ALM**, on a device with less than half the
 logic of the MiSTer board this was ported from.
 
+There is no 6-button option: Paprium's own controller read is a 3-button read, so
+X, Y, Z and Mode never did anything. The setting was removed rather than left
+looking functional.
+
 ## What this is not
 
 Not a faithful reproduction of the cartridge but an  attempt with what we have. Paprium's "DATENMEISTER" chipset —
@@ -47,10 +51,14 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 
 | Issue | Status |
 |---|---|
-| Elevator level: palette corruption, sprite priority | Open — upstream firmware |
+| Elevator level: residual corruption, scrolling tile squares | **Improved** — slots 49–52 were overwriting the sprite and scroll tables at `0xF800`; capping the budget removed that. What remains is under investigation |
 | Roof top Boss fight: player sprite drops behind the background during bombing phase | Open — upstream firmware |
-| Big enemies play a normal enemy's death sound | Open — the game requests it correctly, so the loss is downstream |
+| Big enemies play a normal enemy's death sound | **Diagnosed** — the game asks for the same sample with flag `0x0100`, which we render as a ×1.25 gain. Hardware sounds deeper, so our reading of that flag is wrong |
+| Full-health stage clear plays the ordinary cue | Not reproducible — the variation is inside the cartridge synth's render of one track, and the soundtrack has a single Stage Clear recording |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
+
+Enemy names repeating is **not** a fault — it is Paprium's own *Baptism of Fire*
+naming option, in the game's menu.
 
 ### Fixed here
 
@@ -61,7 +69,7 @@ core this forks. All verified on real hardware, in both Arcade and Original mode
 |---|---|
 | All punk-TV cues, and the looping area ambience | Silent. `sfx_player_update` abandons a channel once it empties, so the game's later `sfx_loop` — which enables looping and ramps the volume — landed on a dead channel |
 | Subway and other `0x81` assets | Corrupted. Stock `mega-ppm` ships MAME's reverse-engineered guess at the LZ decoder; replaced with the real LZO decoder |
-| Block 888 door | Wrong palette |
+| The Block 888 doorway, and sprite colours generally | Wrong palette. The sprite attribute was composed by XORing tile and object words together, which scrambles the palette whenever both set those bits; now composed field-wise with tile precedence, as GPGX does |
 | Stage Clear, Continue, Game Over, High Score, Ending | Silent. `cmd_8C` stopped one-shot cues instead of playing them |
 | Echo and amplify on sound effects | Never implemented, though the game requests them constantly |
 | Stereo imaging on every off-centre effect | One side was phase-inverted, cancelling on the Pocket's mono speaker |
