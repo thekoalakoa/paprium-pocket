@@ -4139,10 +4139,13 @@ default conversion is faithful to the source.
 
 ### Producing ours
 
-    python scripts/make_platform_image.py docs/platform_art_source.jpg         pkg/pocket/Platforms/_images/paprium.bin --blue --value --crop=0,20,1280,425
+    python scripts/make_platform_image.py <1280x720 key art>         pkg/pocket/Platforms/_images/paprium.bin --blue --value --crop=0,20,1280,425
 
-Shipped from the pixel-art key art (logo plus the three characters), source kept at
-`docs/platform_art_source.jpg` so it is reproducible.
+Shipped from the pixel-art key art (logo plus the three characters). **The source
+image is deliberately NOT in the repo** - it is WaterMelon's artwork, and this
+project does not carry game-derived material. The generated 171,930-byte
+`paprium.bin` is committed because the core needs it; the crop parameters above
+make it reproducible from any copy of the same 1280x720 art.
 
 Three lessons, all learned by looking at the result rather than reasoning about it:
 

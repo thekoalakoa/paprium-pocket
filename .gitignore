@@ -51,7 +51,11 @@ wave-bank*.wv
 music-modules/
 wave-bank*.wav
 Paprium.md
-paprium.bin
+# ROM dumps only. Deliberately NOT a bare `paprium.bin`: that also excluded
+# pkg/pocket/Platforms/_images/paprium.bin, the core's own platform artwork, so
+# the repo shipped no artwork while a clone silently lost it.
+**/Assets/**/paprium.bin
+/paprium.bin
 *.sav
 *.srm
 sfx-dump/
