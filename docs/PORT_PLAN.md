@@ -3655,3 +3655,81 @@ stage 1 at full health, then exit.
 That is inside the shared RAM - but it is written by the MCU, not the 68000, and the
 command logger snoops 68000 writes only. Reading actual sprite attributes would need
 a snoop on the MCU write port, not the existing one.
+
+## RESULT: the VRAM clamp is innocent, and the door fix is not the door bug
+
+One run, two experiments, both conclusive.
+
+### The clamp never fires
+
+    mailbox commands seen  23899      <- the control: the snoop was alive
+    0xEC seen                 26
+    peak budget requested     53 (0x35)
+    last                      53
+
+The logger records the value the 68000 writes to `0x1E12`, i.e. the **request**,
+before the firmware clamps it. The peak request across a full run to the elevator
+is **exactly 53** and never above. Budgets seen: 1, 2, 29, 40, 49, 53.
+
+**So `ppm_vram_set_budget`'s "temp failsafe" never truncates anything, and the
+clamp cannot be the elevator's cause.** That line is closed.
+
+This is the answer the previous capture could not give: `any_cmd_cnt` at 23899
+proves the snoop was working, so "0xEC never exceeded 53" is a fact about the
+game rather than a fact about our filter.
+
+### The door fix is refuted as the door's cause
+
+With `PPM_DOOR_FIX` compiled out: **floor still red, panel still correct.**
+
+That refutes the hypothesis directly. If `x == 4` were the floor sprite, removing
+the palette-bit clear would have changed the floor's colour. It did not, so
+`x == 4` is not the floor - and since the panel is correct without the fix too,
+the fix is a visual no-op at this door.
+
+Restored to enabled for shipping parity: there is no evidence it helps here, but
+none that it harms either, and it came from upstream for a case we may not have
+reproduced.
+
+### What both results point at instead
+
+Not the budget, but **block residency**. `ppm_vram_find_block` returns **0** when a
+block is not resident (mame.c, confirmed), and that 0 feeds the sprite attribute
+XOR:
+
+```c
+satEntry->attrs = ((spr_data->attrs & 0xf8) << 8) ^ intf_obj->attrs
+                ^ (ppm_vram_find_block(spr_data->blockNum) + spr_data->offset);
+```
+
+In an XOR chain 0 is not "no change" - it silently alters **the tile index and the
+palette bits together**. A missing block therefore renders as *wrong graphics in
+wrong colours*, which is precisely both reported symptoms: the elevator's block
+artefacts with sprite priority loss, and the doorway's red floor.
+
+`ppm_vram_load_block` has three paths that leave a block absent:
+
+1. `dma_remaining < 0x110`  - the per-frame DMA budget is spent
+2. `block_index == 0xffff`  - no free slot (every slot has `usage` set)
+3. `!num`                   - block 0
+
+And the capture makes 2 plausible for the first time: **the game asks for the full
+53 slots**, the exact ceiling the layout supports. It is running at the limit, so
+exhaustion is no longer hypothetical.
+
+### Next, and why in this order
+
+Do **not** grow the slot pool blindly. Slots past 52 run off the end of VRAM, and
+growing into the 800-1983 tile gap would land on the plane maps and sprite table.
+
+1. **Read the VDP's own layout.** Snoop register writes 2 (plane A), 3 (window),
+   4 (plane B), 5 (sprite table) and 13 (hscroll) from our RTL - we have the VDP,
+   so what occupies tiles 800-1983 is directly measurable rather than guessed. That
+   decides whether there is room to grow at all.
+2. **Find out which failure path fires.** Firmware counters on the DMA-budget and
+   no-free-slot returns. Needs a readout: `sat_data` and friends are MCU-written,
+   so this needs a snoop on the MCU write port, not the existing 68000-side one.
+3. Only then consider extending the slot map into whatever is genuinely free.
+
+The doorway is now the cheapest known reproduction: 30 seconds in, versus a full
+level to reach the elevator.
