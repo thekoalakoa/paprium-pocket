@@ -53,7 +53,7 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 |---|---|
 | Elevator level: residual corruption, scrolling tile squares | **Improved, and the remainder is explained.** Slots 49–52 were overwriting the sprite and scroll tables at `0xF800`; capping the budget removed that. What is left is a DMA limit, not a bug: the game grants 2,816–4,608 words per frame, so at 272 words per 16-tile block only 10–16 blocks can load per frame. A scrolling shaft that needs more leaves stale squares, and no slot-count change can lift that ceiling |
 | Roof top Boss fight: player sprite drops behind the background during bombing phase | Open — upstream firmware |
-| Big enemies play a normal enemy's death sound | **Diagnosed** — the game asks for the same sample with flag `0x0100`, which we render as a ×1.25 gain. Hardware sounds deeper, so our reading of that flag is wrong |
+| Big enemies play a normal enemy's death sound | Open — not yet isolated to a mechanism. A capture of a single kill is needed to say what the game actually requests |
 | Full-health stage clear plays the ordinary cue | Not reproducible — the variation is inside the cartridge synth's render of one track, and the soundtrack has a single Stage Clear recording |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
