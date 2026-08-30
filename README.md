@@ -57,9 +57,6 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 | Full-health stage clear plays the ordinary cue | Not reproducible — the variation is inside the cartridge synth's render of one track, and the soundtrack has a single Stage Clear recording |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
-Enemy names repeating is **not** a fault — it is Paprium's own *Baptism of Fire*
-naming option, in the game's menu.
-
 ### Fixed here
 
 Bugs present in every other Paprium build on this hardware, including the MiSTer

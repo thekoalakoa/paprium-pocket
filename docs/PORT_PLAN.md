@@ -2403,22 +2403,6 @@ playthrough capture, interleaved with the audio traffic, and we discard every on
 GPGX implements it as `paprium_music_special`. `0xB0` is `paprium_sprite_init`, and
 MisterPezz82 suspected it in the elevator corruption without following up.
 
-## Observed: enemy names do not vary
-
-**Reported on hardware comparison:** in this port every enemy of a given type shares
-one name; on original hardware each enemy has its own.
-
-That is a behavioural difference, a different class from the audio bugs, and it is
-what a lookup returning a constant looks like. No mechanism identified yet - and
-guessing at one is the mistake this project keeps making - but the muted command
-list above is a far better suspect set than nothing.
-
-**Diagnostic:** the command logger currently filters to audio commands, deliberately,
-so a capture survives a playthrough. A short capture with the filter OFF, taken while
-a few enemies spawn, would show what actually fires at a spawn. That is a small
-change to `paprium_cmd_log.sv`'s `keep` expression.
-
-
 ## 0x88 confirmed on hardware: the game DOES act on configuration
 
 Tested with the shipping build carrying the `0x88` fix (md5 `bb0cb54c`).
@@ -2450,7 +2434,7 @@ both paths may be live at once.
 
 The sound is unchanged. That theory is closed. The remaining candidates are the two
 other commands GPGX implements and we mute - `0xB0 paprium_sprite_init` and
-`0xD6 paprium_music_special` - and whatever drives the grunt-name variation, which
+`0xD6 paprium_music_special`, which
 fails in the same "varying path does not vary" way.
 
 ### Everything else confirmed
@@ -2578,17 +2562,6 @@ single clear:
 112 bytes of the DMA/sprite table. Without it, stale entries survive initialisation.
 Now implemented here. MisterPezz82 suspected this command in the elevator corruption
 and never followed it up, so it is worth retesting the elevator against this build.
-
-### The grunt-name question is NOT answered
-
-Stated plainly because the temptation is to force a conclusion. The capture shows
-sprites being rendered but not *what* they render - names are almost certainly drawn
-from object data in cart RAM, which the command stream does not carry.
-
-Finding the mechanism needs a different diagnostic: snapshot the object table
-(`obj_data[64]` in the ramdp struct) around a spawn and compare entries between two
-grunts of the same type. That is a different capture shape from a command ring.
-
 
 ## Why the commands were muted at all
 
@@ -3952,15 +3925,6 @@ though it probably cannot be fixed: whether a `0x8D music_setting` or `0xD6
 music_special` accompanies the full-health clear and not the ordinary one. `0xD6`
 is muted in our firmware. Knowing it is the modifier would close the question
 properly rather than by elimination.
-
-## NOT A BUG: enemy names repeating
-
-Recorded here as open ("grunt names do not vary, bosses do"). The tester found the
-cause: it is an **in-game option** - "Baptism of Fire" naming, in Paprium's own
-menu. Enabling it gives the varied names.
-
-Nothing to do with this port, and no object-table snapshot is needed. Removed from
-the issue list.
 
 ## Elevator: the corruption is REAL SPRITE GRAPHICS in the wrong place
 
