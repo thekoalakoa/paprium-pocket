@@ -47,6 +47,7 @@ CMDS = {
     0xD1: "SFX_PLAY",       0xD2: "sfx_off",        0xD3: "SFX_LOOP",
     0xD6: "music_special",  0xDA: "decoder",        0xDB: "decoder_copy",
     0xDF: "sram_read",      0xE0: "sram_write",  0xEC: "VRAM_BUDGET",
+    0xDA: "decode",         0xDB: "set_dma_ptr",  0xF2: "unpack(test menu)",
     0xF7: "[ch7 snapshot]",   # synthetic, not a Paprium command
 }
 
@@ -113,7 +114,7 @@ def dest_report(entries):
     data picks the endianness - the right one clusters on 0x9xxx/0xAxxx/0xBxxx,
     the wrong one looks like noise.
     """
-    rows = [(i, c, m, v) for i, c, m, v in entries if c in (0xDA, 0xDB)]
+    rows = [(i, c, m, v) for i, c, m, v in entries if c in (0xDA, 0xDB, 0xF2)]
     if not rows:
         return
 
@@ -201,7 +202,7 @@ def main():
     if sfx_cnt or pitch_cnt:
         # In DEST_ONLY these are 0xDA/0xDB seen and unaligned-destination count.
         # A capture whose entries are 0xDA/0xDB is in that mode.
-        dest_mode = any(((w >> 24) & 0xFF) in (0xDA, 0xDB)
+        dest_mode = any(((w >> 24) & 0xFF) in (0xDA, 0xDB, 0xF2)
                         for w in words[:4090:2] if w)
         if dest_mode:
             w91 = words[4091]
@@ -240,7 +241,7 @@ def main():
             order = [(wr_idx + 2 * i) % 4094 for i in range(2047)]
             ent = [(i, words[i], words[i + 1]) for i in order if words[i] != 0]
             dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
-                         for i, w0, w1 in ent if (w0 >> 24) in (0xDA, 0xDB)])
+                         for i, w0, w1 in ent if (w0 >> 24) in (0xDA, 0xDB, 0xF2)])
             return 0
         print("sfx commands (0xD1/0xD3) seen=%d   of which HALF-PITCH (0x2000)=%d"
               % (sfx_cnt, pitch_cnt))
@@ -343,7 +344,7 @@ def main():
             print("  reached the elevator before concluding; a short run proves nothing.")
 
     dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
-                 for i, w0, w1 in entries if (w0 >> 24) in (0xDA, 0xDB)])
+                 for i, w0, w1 in entries if (w0 >> 24) in (0xDA, 0xDB, 0xF2)])
 
     if snaps:
         vols = [v for _, v, _, _ in snaps]
