@@ -4613,3 +4613,33 @@ This also means the shaft symptom is explicable with **no collision at all**: if
 scroll demands more than ~14 new blocks in a frame, the rest fail on
 `dma_remaining < 0x110`, return 0, and render as stale squares - and more slots
 would not change that.
+
+### PRE-REGISTERED: the remap makes two separate claims
+
+Written before the hardware result, so a partial outcome is not read as a failure.
+
+**Claim 1 - correctness. Already proven, independent of the shaft.** Slots 49-52
+must not sit on `0xF800-0xFFFF`, the sprite attribute and hscroll tables.
+Cap-at-49 established that by removing the collision and visibly improving the
+elevator. The remap keeps those four blocks *without* the collision, so it is
+strictly better than the cap whatever the shaft does.
+
+**Claim 2 - the visible shaft. Conditional.** The leftover squares vanish only if
+INTERCOM is **slot-bound**. If it is **fill-bound**, more residents do nothing and
+the squares stay.
+
+Both are consistent with what hardware already showed: cap-at-49 improved the
+elevator (collision removed) and left scrolling squares (churn remaining).
+
+    clean doorway + shaft improved   -> slot-bound. LRU confirmed, done
+    clean doorway + shaft UNCHANGED  -> A RESULT, NOT A FAILED REMAP. Claim 1 stands;
+                                        claim 2 is refuted, and INTERCOM is fill-bound
+    doorway wrong                    -> 0x6400-0x6BFF is NOT free on this game
+
+**On an unchanged shaft, do NOT slide the window to tiles 864-927.** Measure
+`budget - total` against ~3,800 words first. Sliding would be treating a refuted
+residency hypothesis as a mapping problem.
+
+Treat "13-14 blocks/frame" as a **band, not a spec**: display-on fetches, 68000 bus
+traffic and the SAT DMA all draw on the same budget. The prediction that survives
+regardless is that a 53-block refill cannot happen in one vblank.
