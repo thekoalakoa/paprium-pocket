@@ -4893,6 +4893,18 @@ for cache misses" (163076b) - which is the right archive for it.
 
 **The `0xF800` fix (cap-at-49) remains the real shipping change.**
 
+### The pin itself was harmless - which de-risks the follow-up
+
+Confirmed on hardware: boot, cell room, doorway and on-screen text were all clean
+on this bitstream, with no new glitching. (The single missing pixel on the logo
+screen is the pre-existing intro flicker, present on every build.)
+
+So slot 48 really was spare, the blank DMA landed at the right address, and
+queueing it first in the frame did **not** desync the linear stream - which was the
+stated risk. That matters beyond this experiment: the pinning mechanism is proven,
+so if the `previous_offset` follow-up is ever attempted it does not also have to
+prove that a reserved blank block can be created safely.
+
 ### The only follow-up that would change the picture
 
 Replace the `previous_offset` restore with the dummy block on load failure, so
