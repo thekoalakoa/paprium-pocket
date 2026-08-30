@@ -4531,3 +4531,38 @@ to try is tiles 864-927, still below `0xC000`. **Do not send them back to
 
 Built on a shipping-timing bitstream, not the 99% logger. Smoke boot -> cell room
 -> doorway before trusting INTERCOM.
+
+### If INTERCOM is unchanged after a clean smoke
+
+Do not try another tile slice yet. The next suspect is `ppm_vram_load_block`
+returning 0 on `dma_remaining < 0x110`, which evicts the same way LRU does and
+would survive a perfect remap.
+
+The remap makes that path **more** likely, not less: 53 blocks demand more DMA per
+frame than 49.
+
+```c
+void ppm_obj_frame_end() {
+    ppm_block_unpack_addr = 0x9000;                       // staging restarts each frame
+    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
+```
+
+`dma_budget` is **never written by the firmware** - the game sets it, and mame.h
+calls it "per frame budget (depends on system)". So the per-frame FILL RATE is
+capped at `(budget - total) / 0x110` blocks, independently of how many SLOTS exist.
+
+Two separate constraints:
+
+- **slots** - how many blocks stay resident, i.e. how often eviction happens
+- **DMA budget** - how many can be loaded per frame
+
+The remap raises the first and does nothing to the second. If INTERCOM is DMA-bound
+rather than slot-bound, it will look identical afterwards, because a block that
+fails to load returns 0 from `ppm_vram_find_block` exactly as an evicted one does.
+
+**Instrumenting it needs a new readout.** These are MCU-side failures and the
+command logger snoops 68000 writes only. Counters on the three return-0 paths would
+have to reach us either through a snoop on the MCU write port in `ramdp_io.sv`, or
+by parking them somewhere that already flushes to SD. Cheaper than a VDP tap
+either way, but it is a new instrument rather than a filter change - budget it as
+one, on a logger build that already starts at ~98%.
