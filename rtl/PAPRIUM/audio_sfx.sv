@@ -192,9 +192,13 @@ module sfx_chan
 	//
 	// Gain was never it: the fat death measures 0.90x the grunt's amplitude -
 	// slightly QUIETER - where x1.25 would be louder.
+	// REGISTERED, not combinational. Computing the step in front of the aclk mux
+	// put an adder and a saturating comparator directly in the sample-clock select
+	// path: setup went to -3.040 against shipping's -2.539, Probe-B-v1 class, and
+	// ALM jumped 1,241 for ~100 ALMs of real logic. The mux select is now a plain
+	// register.
 	reg  rate_step;
-	wire [3:0] srate_up = {1'b0, srate} + {3'b0, rate_step};
-	wire [2:0] srate_eff = srate_up > 4'd5 ? 3'd5 : srate_up[2:0];
+	reg [2:0] srate_eff;
 	wire next_sample = aclk[srate_eff];
 
 	wire fifo_empty = addr_rd == addr_wr;
@@ -229,6 +233,11 @@ module sfx_chan
 			rate_step <= flags[0];
 			sfx.amp   <= 1'b0;
 		end
+
+		// one cycle behind srate/rate_step, which is harmless: both are written
+		// when a voice is configured, long before it is clocked.
+		srate_eff <= (srate + {2'd0, rate_step}) > 3'd5
+		           ? 3'd5 : srate + {2'd0, rate_step};
 
 		if(vol_we)
 			sfx.vol <= vol;
