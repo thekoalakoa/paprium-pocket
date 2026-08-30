@@ -35,10 +35,10 @@ never implied by the numbers.
 **Hard:**
 
 - M10K = 308 for a cmdlog build (the variant fingerprint)
-- worst slack >= about -2.67   **LESS NEGATIVE IS BETTER**
+- worst slack >= about **-2.60**   **LESS NEGATIVE IS BETTER**
 
-      -2.50  PASSES   (less negative than -2.67)
-      -2.90  FAILS    (more negative than -2.67)
+      -2.50  PASSES   (less negative than -2.60)
+      -2.90  FAILS    (more negative than -2.60)
 
   Written out because it has been inverted twice in this project. "<= -2.67" reads
   naturally as a threshold and admits -3.0, which is Probe-B-v1 class - a bitstream
@@ -69,3 +69,32 @@ intervention. Timing is what separated the build that failed to boot from the on
 that did, and timing is what to gate on.
 
 **Never gate against Probe B v1.** It is the failure, not the reference.
+
+
+## The boot threshold, measured
+
+Three shipping-variant bitstreams have now been run on hardware, which brackets
+where a build stops working:
+
+| build | worst setup | boots? |
+|---|---|---|
+| `61d1ddd3` shipping | **-2.539** | **YES** |
+| ratestep2 seed 2 | **-2.715** | **NO - glitches at boot** |
+| Probe B v1 (cmdlog) | -2.957 | NO - garbage at boot |
+
+**So the boundary is between -2.539 and -2.715**, and the earlier `-2.67` gate sat
+*inside* that untested band. It has been tightened to **-2.60**, which is inside
+the region where a build is known to work rather than inside the region where we
+had never looked.
+
+Seed 2 was installed deliberately, against the gate and against the reviewer's
+advice, as a listen test - the reasoning being that "does the fix work" and "can we
+ship it" are separate questions. It did not boot, so it answered neither. The gate
+was right and the shortcut bought nothing.
+
+Two things follow:
+
+- **A near-miss is not a soft miss.** -2.715 is 0.045 outside the old gate and
+  still does not run.
+- **The remaining seeds need to reach about -2.54, not -2.67.** That is a much
+  narrower target than the seed spread so far (-2.961 to -2.715) has hit.
