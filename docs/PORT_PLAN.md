@@ -4738,9 +4738,18 @@ are not independent. More residents mean less churn and so less DMA demand, so t
 four blocks could have reduced pressure - they simply cannot raise a 10-16 block
 ceiling to 53.
 
-This is also why the original MAX 10 may look cleaner on the same scene: it can
-pack or DMA at finer grain than a fixed 16-tile, `0x110`-word charge. mega-ppm
-cannot spend more vblank than the VDP has.
+The original MAX 10 may look cleaner on the same scene because it can pack or DMA
+at finer grain than a fixed 16-tile, `0x110`-word charge.
+
+**That is a POLICY difference, not a hardware one, and it is not a route.** The
+Pocket is a Cyclone V - wrong family for a MAX 10 bitstream - and the Datenmeister
+bitstream has never been dumped; it is still inside an epoxied 10M02. There is no
+file to instantiate and no reverse-engineered command set to reimplement. What is
+missing is the packing and DMA policy, not a chip. GPGX looks cleaner for a
+different reason again: emulated VRAM writes are free. EverDrive Pro, MiSTer and
+Pocket all push the real VDP pipe.
+
+So the leftover is an **allocator** problem.
 
 ### Stop conditions
 
@@ -4756,3 +4765,42 @@ cannot spend more vblank than the VDP has.
 Identify `$FF99B5` and which branch this core takes. An Export/NTSC default may
 lock us to `0x0B00` = 10 blocks/frame, which refines the band. It does **not**
 reopen remapping.
+
+
+## What could still change the squares - and what cannot
+
+**Cannot:**
+
+- Emulating the MAX 10 as a core-in-a-core. No bitstream, no RE of its command set,
+  wrong FPGA family.
+- Raising the slot cap into nametable space. `0x6400-0x6BFF` is live; the rest of
+  800-1983 is **unknown, not free**. Guessing that range is what broke the
+  cell-room floor.
+- More cmdlog builds to re-measure `0x0B00` / `0x1200`. That is settled in the ROM.
+
+**Could, in rough order of promise:**
+
+1. **Stop rendering a miss as garbage.** `ppm_vram_find_block` returns 0 on a miss,
+   so `tileIdx = 0 + spr_data->offset` - the sprite draws from tiles 0-15. The
+   allocator never uses that region (slot 0 maps to block index 1 = tile 16), so if
+   those tiles held blank data every miss would render as *nothing* rather than a
+   stale 16-tile square. **Open question first:** the allocator reserving 0-15 does
+   not prove the GAME does not use them. That is precisely the assumption that
+   broke the cell-room floor, so establish it before blanking anything.
+
+2. **Charge by dirty tiles, not a fixed block.** A block costs `0x110` = `0x100`
+   payload + `0x10` setup regardless of how many of its 16 tiles actually changed.
+   Sizing honestly: merging consecutive blocks into one DMA saves `0x10` per block
+   after the first - roughly one extra block out of ten, ~10%. Charging by dirty
+   tiles could save far more, but only if the workload really is partial-block, and
+   that is unmeasured.
+
+3. **Take the 4,608-word branch** if `$FF99B5` turns out to be a mode flag we can
+   satisfy: 16 blocks/frame instead of 10. Will not reach 53, may cut the worst
+   frames.
+
+4. **Pack into genuinely free VRAM** - but only once the nametable map is *known*,
+   not guessed.
+
+Note 1 and 2 are different in kind: 1 makes the failure invisible, 2 makes it rarer.
+Neither needs a chip we do not have.
