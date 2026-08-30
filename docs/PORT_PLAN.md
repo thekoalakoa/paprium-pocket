@@ -4069,3 +4069,62 @@ Prefer cave v3 over the V.04 combo injection. The combo version only reaches
 simultaneous inputs - motion inputs such as forward-forward-B dashes stay
 unreachable - and it needs the 6-button menu option turned OFF, which is a
 confusing thing to ship.
+
+## SOLVED (diagnosis): the big-enemy death is 0x1A + flag 0x0100
+
+The capture settles it. `0x1A` was requested four times:
+
+    word 214   SFX_PLAY 1A   flags 0000
+    word 228   SFX_PLAY 1A   flags 0000
+    word 258   SFX_PLAY 1A   flags 0000
+    word 292   SFX_PLAY 1A   flags 0100     <- the big enemy, killed last
+
+The flags value changed immediately before word 292, so it is genuine rather than a
+stale latch. **The entire difference between an ordinary and a big enemy death is
+the single flag `0x0100`.**
+
+Three things die with this:
+
+- **`0x1C` is not the big-enemy cue.** Absent from this capture too, as from every
+  other. There is no separate cue and never was - the search for one is closed.
+- **It is not half pitch.** `0x2000` appears just twice in 236 sfx commands, on ids
+  `0x01` and `0x06`. Never on `0x1A`.
+- **It is not a table or id problem.** The game asks for the same id both times.
+
+### Why ours sounds like an ordinary death
+
+We render `0x0100` as amplify - x1.25 on the running mix, following GPGX
+(`l = (l * 125) / 100` inside the voice loop). So our big-enemy death is the
+ordinary death very slightly louder, which is indistinguishable in play. That is
+exactly the original report: "when killing bosses or large enemies the sound effect
+is that of a normal enemy".
+
+Hardware says it should sound **deeper**. Gain alone cannot do that, so **our
+reading of `0x0100` is wrong or incomplete** - and GPGX is a plausible place for it
+to be wrong, since its Paprium support is reverse-engineered. We already had to
+replace MAME's guessed `0x81` decoder for the same reason.
+
+### Blast radius, if the reading is wrong
+
+`0x0100` appears on 15 of 83 sfx requests, across ids `01, 08, 1A, 23, 40, 7D`,
+with `7D` alone accounting for 9. So this is not an obscure corner - if the flag is
+mis-rendered, a number of sounds are subtly wrong in the same way, and fixing it
+should be broadly audible.
+
+### Next step: MEASURE it, do not guess
+
+The tester has original hardware. A short recording of **an ordinary enemy death and
+a big enemy death**, from the cartridge, settles what `0x0100` does without a single
+build:
+
+    same pitch, ~25% louder        -> GPGX is right and something else is wrong
+    exactly half frequency, 2x long -> it is a rate change; render it like 0x2000
+    some other ratio                -> read the ratio off the recording directly
+
+ffmpeg plus the existing analysis tooling can measure the ratio directly. Guessing
+in RTL would cost a build per attempt and change 15 sounds each time; one recording
+answers it outright.
+
+Also fixed here: `decode_cmdlog.py` still labelled ECHO and AMPLIFY
+"(unimplemented)" long after both were implemented in RTL, which is actively
+misleading when reading a capture.
