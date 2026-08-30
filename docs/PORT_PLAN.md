@@ -4139,23 +4139,39 @@ default conversion is faithful to the source.
 
 ### Producing ours
 
-    python scripts/make_platform_composite.py <character.png> <keyart.jpg>         pkg/pocket/Platforms/_images/paprium.bin
+    python scripts/make_platform_logo.py <keyart.jpg>         pkg/pocket/Platforms/_images/paprium.bin
 
-A COMPOSITE, character plus logo, because neither source fits 3.16:1 alone. The
-character art is 768x768 - scaling him to fill keeps about 32% of his height, a
-band through his chest, and letterboxing leaves two thirds of the frame empty.
-Pairing him with the logo uses the width the frame actually has.
+**The logo alone, colour-keyed off its background.** In the key art the logo is a
+single flat magenta, `#FF006A`, which keys out exactly - so the glyphs and the
+cross lift with nothing attached: no sky, no cityscape, no character, and no crop
+rectangle showing against the canvas.
 
-The two halves need DIFFERENT channels, which is the non-obvious part:
+Two things a crop cannot do:
 
-- **character: invert luminance.** His ground is white, so a straight map makes
-  the background the brightest thing on screen - backwards from every stock image.
-- **logo: HSV value, no invert.** The magenta has high brightness but low
-  luminance, so a plain greyscale conversion leaves it dimmer than the pixel art
-  beside it.
+- **Search the logo's own region first.** The character sprites contain the same
+  magenta, so keying the whole image drags them in - the naive bounding box comes
+  out 1188x656 instead of the logo's real 941x264.
+- **Produce a mask**, so the background is true black by construction rather than
+  by thresholding something that was merely nearly black. Every earlier attempt
+  showed a faint rectangle where its crop met the canvas.
 
-Both are floored to true black so neither crop shows as a rectangle against the
-canvas - visible box edges were the first attempt's giveaway.
+Rendered bright on black, which is the house style and holds against the menu's
+white background - the light version washed out there.
+
+### Superseded approaches, kept for the reasoning
+
+A composite of character plus logo (`make_platform_composite.py`) and single-source
+crops (`make_platform_image.py`, with `--fit` to letterbox) both work and are still
+in the tree. They were superseded because a 768x768 character cannot fill a 3.16:1
+frame - scaling him to fill keeps ~32% of his height, a band through his chest -
+and any crop drags its own background along with it. The colour key sidesteps both.
+
+Channel choice still matters if either is used again:
+
+- **A white-ground source needs `--invert`**, or the background becomes the
+  brightest thing on screen - backwards from every stock image.
+- **A saturated logo needs `--value`, not luminance.** Magenta has high HSV
+  brightness but low luminance, so plain greyscale renders it dim.
 
 `scripts/make_platform_image.py` remains for single-source images and gained
 `--fit` (letterbox instead of centre-crop) for sources whose aspect is nowhere
