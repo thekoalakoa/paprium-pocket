@@ -4831,3 +4831,26 @@ setup per extra block and will not change the scene.
 the same rate - the shaft would show empty cells instead of stale shaft. That may
 look better or worse, and it is worth deciding whether that is wanted before
 building it.
+
+### A SECOND stale path, found while implementing MISS_BLOCK
+
+A failed **load** never reaches `find_block` at all:
+
+```c
+if (!ppm_vram_load_block(spr_data->blockNum)) blocks_available = false;
+...
+if (!blocks_available) { if (previous_offset) { /* restore offset/counter */ } }
+```
+
+The object re-renders its **previous animation frame** instead. So there are two
+independent sources of a stale appearance:
+
+1. `find_block` returning 0 on a lookup miss -> draws tiles 0-15 + offset
+2. `load_block` failing -> the object repeats its previous frame
+
+`MISS_BLOCK` only addresses (1). If the shaft looks identical afterwards, (2) is
+the mechanism - which fits a scrolling scene better anyway, since a repeated
+animation frame carried along by the scroll is exactly "a stale 16-tile square
+that scrolls with the shaft".
+
+That is the pre-registered null result, now with a named cause rather than a shrug.
