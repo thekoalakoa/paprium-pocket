@@ -4479,3 +4479,55 @@ Verified by decoding the shipped icon both ways - only row-major renders upright
 Colour matched to the shipped icon exactly: `0x00FF`, rgb(0,28,255) on black.
 
 The previous icon is kept at `build_output/icon_old_backup.bin`.
+
+## PROBE B RESULT: decode is clean. Remap, do not add a private buffer
+
+Capture: 1,223 `0xDA`/`0xDB` commands, 27,807 mailbox commands as the control.
+
+    unaligned_da = 0        every real unpack destination is 0x200-aligned
+    0xF2         NEVER FIRED in any of the 20 scene fences
+    0xEC peak    53         the REQUEST - cap-at-49 was clamping INTERCOM
+
+**Destination collision is dead.** The decode path lands exactly where blocks
+belong, so a private unpack buffer (`decoder_ram`) would fix nothing.
+
+### A false positive of ours, corrected
+
+The decoder first reported **168 unaligned destinations**, all of them `0xDB`. That
+was a classifier bug, not a finding: `0xDB` is `cmd_DB_set_dma_ptr`, which **sets a
+read pointer and unpacks nothing**. Block-grid alignment is meaningless for it -
+the game may point the window wherever it likes. Applying the unpack test to a
+pointer-set command produced a confident result pointing straight at `decoder_ram`,
+which is exactly the wrong direction.
+
+`0xDB` rows now read `algn=n/a`. Its volume also scales with the budget-53 scenes
+(F10 464, F18 187, F20 376, against 4 in a budget-29 scene) with `+0x40` walks and
+`-0x80` rewinds - which is what a long stream looks like, not corruption. Do not
+freeze it; `0xDA` already proved these pointer writes are load-bearing.
+
+### The remap
+
+Cap-at-49 helped only because slots 49-52 took the `+0x4b` jump onto tiles
+1984-2047 (`0xF800-0xFFFF`) - the sprite attribute and hscroll tables. But capping
+cost four blocks of cache while INTERCOM asks for all 53, so the residual squares
+are small-cache pressure: a still-visible 16-tile square is evicted and scrolls
+with the shaft.
+
+Give the four slots back in the hole the two-range map skipped, rather than
+restoring the collision. Linear `(x + 1)` throughout, cap back to `0x35`:
+
+| Slots | Block idx | Tiles | VRAM |
+|---|---|---|---|
+| 0-48 | 1-49 | 16-799 | `0x0200-0x63FF` (unchanged) |
+| 49-52 | 50-53 | 800-863 | `0x6400-0x6BFF` (was `0xF800-0xFFFF`) |
+
+Top of the new range is `0x6BFF`, still far below the usual `0xC000` nametable
+floor.
+
+**Read the result as:** squares shrink or vanish -> LRU confirmed. A nametable or
+the window tears -> `0x6400-0x6BFF` is not empty on this game, and the next slice
+to try is tiles 864-927, still below `0xC000`. **Do not send them back to
+`0xF800`.**
+
+Built on a shipping-timing bitstream, not the 99% logger. Smoke boot -> cell room
+-> doorway before trusting INTERCOM.
