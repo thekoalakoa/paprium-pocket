@@ -4378,9 +4378,26 @@ directly:
     0x9000 + 49 blocks * 0x200  =  0x9000 - 0xF1FF    (at the shipped cap of 49)
     0x9000 + 53 blocks * 0x200  =  0x9000 - 0xF9FF    (uncapped)
 
-A destination anywhere in `0x9000-0xF200` overwrites staged tiles a queued DMA has
-not fetched yet. That is a far wider target than `0xC000-0xFFFF`, and it is the
-collision that would actually produce wrong tiles.
+**CORRECTION: being in the staging range is not itself a collision.**
+`0x9000 + n*0x200` is exactly where blocks are supposed to land, `cmd_F2` parks the
+pointer at `0x9000` deliberately, and Probe A proved the game wants the pointer left
+on the decoded bytes. Flagging the whole range would have called the happy path a
+bug.
+
+A hit matters only if it is the **wrong kind** of write:
+
+| Dest | Meaning |
+|---|---|
+| `0x9000 + n*0x200`, n < 49, aligned | Normal block unpack. Ignore |
+| Inside staging, **not** 0x200-aligned | **Overlap** - can smear two blocks |
+| Inside staging, aligned, but n is a live slot not being rebuilt | **True collision** - the tile-corrupt case |
+| Below `0x9000` | Private / decoder scratch. Interesting only if `sdram_ptr` is left there while the VDP still consumes |
+| >= `0xF200` | Outside the 49-block arena; pointer moved off staging |
+
+So each in-range destination is reported as `cmd, raw, dest, n, aligned?`, where
+`n = (dest - 0x9000) / 0x200`. Slot liveness is not visible from the 68000 side, so
+the third row is detected by correlation - a slot rebuilt repeatedly while still
+on-screen - rather than directly.
 
 `0xDB`'s two reconstructions are both printed and the data picks the endianness -
 one should cluster in plausible workspace, the other look like noise.
@@ -4411,3 +4428,28 @@ slice further up gets tried - still below `0xC000`. **Do not** jump to tiles
 Note the headroom this opens if it works: a linear `x + 1` mapping stays below
 `0xC000` all the way to block index 95, i.e. **95 slots against today's 53** - but
 only as much of that hole as testing proves is actually free.
+
+## SETTLED: tying cfg_6btn off COST 1,151 ALMs
+
+Controlled experiment, three builds:
+
+| Build | ALMs | Worst slack | TNS |
+|---|---|---|---|
+| 6-button tied off | 18,051 (98%) | -2.666 | -1,559 |
+| same, clean db/incremental_db wipe | 18,051 (98%) | -2.666 | -1,559 |
+| **6-button RTL restored** | **16,900 (91%)** | **-2.539** | **-1,201** |
+
+Exact recovery of ALMs, timing and TNS. So the tie-off genuinely cost 1,151 ALMs
+**while verifiably removing the logic** - `JCNT` and `JTMR` appear zero times in the
+tied-off build's fit report. Counterintuitive, reproduced twice, and not fitter
+noise: the clean-wipe rebuild was identical to the digit.
+
+`mcu.txt` was eliminated as a cause for free along the way - the 0xDA probe changed
+the firmware and produced an identical 18,051.
+
+**The menu entry stays removed.** The option never did anything, since Paprium's pad
+read is a 3-button read, so the register simply sits at its default. Menu presence
+and RTL cost are independent.
+
+Lesson worth keeping: **tying a signal off is not automatically an area win.** Verify
+by measurement, not by reasoning about what the fitter should do.

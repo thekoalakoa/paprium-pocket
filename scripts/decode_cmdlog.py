@@ -77,81 +77,88 @@ def flag_names(f):
 # SDRAM WORKSPACE OFFSETS, not 68000 addresses. ppm_unpack writes to
 # ppmio.sdram[dest_addr], and cmd_F2 passes the SAME value as both the unpack
 # destination and FPGAIO->sdram_ptr - so dst and the stream pointer index one
-# space. There is no fixed "window region" in SDRAM: the window is wherever
-# sdram_ptr currently points.
+# space. The 68000 window is simply "wherever sdram_ptr currently is".
 #
-# What matters is therefore the BLOCK STAGING range, which a decode landing in
-# would corrupt directly:
-#
-#     0x9000 + 49 blocks * 0x200 = 0x9000 - 0xF1FF     (at the shipped cap of 49)
-#     0x9000 + 53 blocks * 0x200 = 0x9000 - 0xF9FF     (uncapped)
-STAGE_LO, STAGE_HI, STAGE_CAP = 0x9000, 0xF9FF, 0xF1FF
+# BEING IN THE STAGING RANGE IS NOT A COLLISION. 0x9000 + n*0x200 is exactly
+# where blocks are supposed to land, cmd_F2 parks the pointer at 0x9000 on
+# purpose, and the freeze probe proved the game wants the pointer left on the
+# decoded bytes. A hit only matters if it is the WRONG KIND of write.
+STAGE_LO   = 0x9000
+BLOCK_SZ   = 0x200
+CAP_SLOTS  = 49                       # the shipped budget cap
+STAGE_CAP  = STAGE_LO + CAP_SLOTS * BLOCK_SZ - 1     # 0xF1FF
 
 
-def bucket(a):
-    if STAGE_LO <= a <= STAGE_CAP:
-        return "** BLOCK STAGING (live at cap 49) - direct tile collision **"
-    if STAGE_LO <= a <= STAGE_HI:
-        return "staging tail (only live above cap 49)"
+def classify(a):
+    """-> (slot n or None, aligned?, verdict)"""
     if a < STAGE_LO:
-        return "low workspace"
-    if a >= 0x10000:
-        return "setup data region (bgm/anm/sfx), unpacked once at boot"
-    return "elsewhere"
+        return None, None, ("private / decoder scratch - only interesting if "
+                            "sdram_ptr is left here while the VDP still consumes")
+    if a > STAGE_CAP:
+        return None, None, "outside the %d-block arena - pointer moved off staging" % CAP_SLOTS
+    off = a - STAGE_LO
+    n, aligned = off // BLOCK_SZ, (off % BLOCK_SZ == 0)
+    if not aligned:
+        return n, False, "** UNALIGNED - can smear two blocks **"
+    return n, True, "normal block unpack (rebuild of slot %d)" % n
 
 
 def dest_report(entries):
     """0xDA/0xDB destination analysis.
 
-    The two commands do NOT share an argument convention:
+    0xDA:  dst = cmd_args[0]                    bare 16-bit into a vu32
+    0xDB:  dst = swapshorts(cmd_args_long[0])   32-bit, halves swapped
 
-        0xDA:  dst = cmd_args[0]                     bare 16-bit into a vu32
-        0xDB:  dst = swapshorts(cmd_args_long[0])    32-bit, halves swapped
-
-    swapshorts is (val >> 16) | (val << 16), so for 0xDB the pointer is either
-    (args0 << 16) | args1 or the reverse depending on how the 68000 laid it down.
-    Both are printed - decoding them alike would put every 0xDB dest in the wrong
-    half of the map, which is the failure this project has already hit with the
-    ^1 byte-order convention.
+    swapshorts is (val >> 16) | (val << 16), so 0xDB is printed BOTH ways and the
+    data picks the endianness - the right one clusters on 0x9xxx/0xAxxx/0xBxxx,
+    the wrong one looks like noise.
     """
-    da = [(i, m) for i, c, m, v in entries if c == 0xDA]
-    db = [(i, m, v) for i, c, m, v in entries if c == 0xDB]
-    if not da and not db:
+    rows = [(i, c, m, v) for i, c, m, v in entries if c in (0xDA, 0xDB)]
+    if not rows:
         return
 
     print()
-    print("0xDA destinations (cmd_args[0], 16-bit):  %d" % len(da))
-    from collections import Counter
-    for d, n in sorted(Counter(m for _, m in da).items()):
-        print("    %04X  x%-4d %s" % (d, n, bucket(d)))
+    print("%-6s %-5s %-11s %-8s %-4s %-6s %s"
+          % ("word", "cmd", "raw", "dest", "n", "algn", "verdict"))
+    unaligned, slots = 0, {}
+    for i, c, m, v in rows:
+        if c == 0xDA:
+            cand = [("%04X" % m, m)]
+        else:
+            cand = [("%04X %04X" % (m, v), (m << 16) | v),
+                    ("%04X %04X" % (m, v), (v << 16) | m)]
+        for raw, d in cand:
+            a = d & 0xFFFFF
+            n, al, why = classify(a)
+            print("%-6d %02X    %-11s %05X    %-4s %-6s %s"
+                  % (i, c, raw, a, "-" if n is None else n,
+                     "-" if al is None else ("yes" if al else "NO"), why))
+            if n is not None and not al:
+                unaligned += 1
+            if n is not None and al:
+                slots[n] = slots.get(n, 0) + 1
 
     print()
-    print("0xDB destinations (32-bit, BOTH orders):  %d" % len(db))
-    for (a, b), n in sorted(Counter((m, v) for _, m, v in db).items()):
-        w1 = (a << 16) | b
-        w2 = (b << 16) | a
-        print("    raw %04X %04X x%-4d" % (a, b, n))
-        print("        as (args0<<16)|args1 = %08X  %s" % (w1, bucket(w1 & 0xFFFF)))
-        print("        as (args1<<16)|args0 = %08X  %s" % (w2, bucket(w2 & 0xFFFF)))
-
-    hits = [d for _, d in da if STAGE_LO <= d <= STAGE_CAP]
-    print()
-    if hits:
-        print("  %d 0xDA destination(s) land INSIDE THE LIVE BLOCK STAGING RANGE"
-              % len(hits))
-        print("  (0x%04X-0x%04X). A decode writing there overwrites staged tiles a"
-              % (STAGE_LO, STAGE_CAP))
-        print("  queued DMA has not fetched yet - buffer reuse, the decoder_ram lead.")
+    if unaligned:
+        print("  %d UNALIGNED destination(s) inside staging. That is the corruption"
+              % unaligned)
+        print("  path: an unpack straddling two 16-tile blocks smears patterns the")
+        print("  VDP may still be showing. decoder_ram / a private unpack buffer is")
+        print("  the next cut - NOT a bigger cache.")
     else:
-        print("  No 0xDA destination lands in the live staging range 0x%04X-0x%04X."
-              % (STAGE_LO, STAGE_CAP))
-        print("  Destination collision is then DEAD for 0xDA, and the residual")
-        print("  elevator is better explained by LRU pressure - 49 blocks of cache")
-        print("  where the scene wants more. Next experiment is REMAP, not raising")
-        print("  the cap: slots 49-52 to block indices 50-53 (tiles 800-863,")
-        print("  0x6400-0x6BFF), still far below the nametable floor.")
-    print("  Read 0xDB the same way. If 0xDA decodes low and 0xDB copies into")
-    print("  staging, the copy path is where to look.")
+        print("  Every in-range destination is 0x200-aligned - all of them read as")
+        print("  'rebuild block n', which is the happy path. DEST COLLISION IS DEAD.")
+        print("  The residual squares are then better explained by LRU pressure: 49")
+        print("  blocks where the scene wants more. Next experiment is REMAP, not a")
+        print("  bigger cap - slots 49-52 to block indices 50-53 (tiles 800-863,")
+        print("  0x6400-0x6BFF) by dropping the two-range special case for x+1.")
+    if slots:
+        hot = sorted(slots.items(), key=lambda kv: -kv[1])[:6]
+        print()
+        print("  slots rebuilt most: " + ", ".join("n=%d x%d" % kv for kv in hot))
+        print("  A slot rebuilt repeatedly while still on-screen would be the true")
+        print("  collision case; that needs slot liveness, which the 68000-side")
+        print("  logger cannot see. Correlate against when the squares appear.")
 
 
 def main():
