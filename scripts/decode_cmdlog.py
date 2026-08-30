@@ -199,6 +199,31 @@ def main():
     w92 = words[4092]
     pitch_cnt, sfx_cnt = w92 >> 16, w92 & 0xFFFF
     if sfx_cnt or pitch_cnt:
+        # In DEST_ONLY these are 0xDA/0xDB seen and unaligned-destination count.
+        # A capture whose entries are 0xDA/0xDB is in that mode.
+        dest_mode = any(((w >> 24) & 0xFF) in (0xDA, 0xDB)
+                        for w in words[:4090:2] if w)
+        if dest_mode:
+            print("0xDA/0xDB seen=%d   of which UNALIGNED inside staging=%d"
+                  % (sfx_cnt, pitch_cnt))
+            if pitch_cnt:
+                print("  Off-grid unpacks DID happen. An unaligned write straddles two")
+                print("  16-tile blocks and smears patterns the VDP may still show -")
+                print("  buffer reuse. Next cut is a private unpack buffer")
+                print("  (decoder_ram), NOT more cache slots.")
+            else:
+                print("  Every destination was 0x200-aligned. Destination collision is")
+                print("  dead, and the residual squares point at LRU pressure - the")
+                print("  remap experiment (slots 49-52 to tiles 800-863), not a bigger cap.")
+            print()
+            hdr = words[4095]
+            magic, wr_idx = hdr >> 16, hdr & 0xFFF
+            armed, frozen = bool(hdr & 0x8000), bool(hdr & 0x4000)
+            order = [(wr_idx + 2 * i) % 4094 for i in range(2047)]
+            ent = [(i, words[i], words[i + 1]) for i in order if words[i] != 0]
+            dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
+                         for i, w0, w1 in ent if (w0 >> 24) in (0xDA, 0xDB)])
+            return 0
         print("sfx commands (0xD1/0xD3) seen=%d   of which HALF-PITCH (0x2000)=%d"
               % (sfx_cnt, pitch_cnt))
         if pitch_cnt == 0:

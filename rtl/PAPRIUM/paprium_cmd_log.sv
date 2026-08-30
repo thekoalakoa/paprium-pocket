@@ -109,6 +109,17 @@ module paprium_cmd_log (
 	// mega-ppm reconstructs, which would explain the elevator artefacts.
 	localparam BUDGET_ONLY = 1'b0;
 
+	// DEST_ONLY (Probe B): log 0xDA and 0xDB destinations, plus 0xEC as a rare
+	// SCENE MARKER - the budget changes per scene and fires only a handful of
+	// times per level, so it costs almost no ring and shows which entries belong
+	// to INTERCOM rather than boot or the cell room. Frame markers (0xAE/0xAF)
+	// would be better still but fire 60x a second and would drown the commands
+	// being measured.
+	//
+	// No dedup here: every occurrence carries its own destination, so collapsing
+	// repeats on (cmd,param) would throw the data away.
+	localparam DEST_ONLY = 1'b1;
+
 	wire [7:0] cmd_hi = cpu_data[15:8];
 	wire keep_audio =
 		   (cmd_hi == 8'h88)   // audio_setting  (muted in this firmware)
@@ -122,7 +133,9 @@ module paprium_cmd_log (
 		|| (cmd_hi == 8'hD3)   // sfx_loop
 		|| (cmd_hi == 8'hD6);  // music_special
 
-	wire keep = BUDGET_ONLY ? (cmd_hi == 8'hEC) : (LOG_ALL | keep_audio);
+	wire keep = DEST_ONLY   ? ((cmd_hi == 8'hDA) | (cmd_hi == 8'hDB) | (cmd_hi == 8'hEC))
+	          : BUDGET_ONLY ? (cmd_hi == 8'hEC)
+	                        : (LOG_ALL | keep_audio);
 
 	wire hit_raw   = cpu_wr & (wr_word == A_CMD) & keep;
 
@@ -156,7 +169,7 @@ module paprium_cmd_log (
 	reg        armed, frozen;
 	reg [10:0] post_cnt;
 
-	wire hit_cmd = hit_raw & (BUDGET_ONLY | ~dup) & ~frozen;
+	wire hit_cmd = hit_raw & (BUDGET_ONLY | DEST_ONLY | ~dup) & ~frozen;
 
 	// Channel-7 snapshots, emitted on CHANGE rather than on a timer: the volume
 	// register changing and the FIFO running dry are both rare, so this stays
@@ -185,8 +198,22 @@ module paprium_cmd_log (
 	reg [11:0] wr_idx;
 
 	reg [15:0] ec_cnt, ec_peak, ec_last, any_cmd_cnt;
+	// Word 4092 counters, repurposed by mode:
+	//   DEST_ONLY : {unaligned_cnt, trk_cnt} - 0xDA/0xDB seen, and how many landed
+	//               inside staging WITHOUT 0x200 alignment. An unaligned unpack
+	//               straddles two 16-tile blocks and smears patterns the VDP may
+	//               still be showing - the corruption case. Sticky, so it survives
+	//               a ring wrap and a mid-run reset.
+	//   otherwise : {pitch_cnt, sfx_cnt}     - sfx commands, and half-pitch ones
 	reg [15:0] sfx_cnt, pitch_cnt;
-	wire       sfx_cmd = any_cmd & ((cmd_hi == 8'hD1) | (cmd_hi == 8'hD3));
+	wire       sfx_cmd = any_cmd & (DEST_ONLY ? ((cmd_hi == 8'hDA) | (cmd_hi == 8'hDB))
+	                                          : ((cmd_hi == 8'hD1) | (cmd_hi == 8'hD3)));
+
+	// 0xDA's destination is cmd_args[0] = the word latched from 0x1E10. Staging
+	// runs 0x9000..0xF1FF at the shipped 49-block cap, and 0x9000 is itself
+	// 0x200-aligned, so any of the low 9 bits set means off-grid.
+	wire       dst_in_stage  = (last_mask >= 16'h9000) & (last_mask <= 16'hF1FF);
+	wire       dst_unaligned = dst_in_stage & (|last_mask[8:0]);
 	wire       any_cmd = cpu_wr & (wr_word == A_CMD);
 	wire       ec_cmd  = any_cmd & (cmd_hi == 8'hEC);
 
@@ -217,8 +244,9 @@ module paprium_cmd_log (
 			if(any_cmd) any_cmd_cnt <= any_cmd_cnt + 1'd1;
 			if(sfx_cmd) begin
 				sfx_cnt <= sfx_cnt + 1'd1;
-				// flags[5] is 0x2000 - the half-pitch bit
-				if(last_flags[13]) pitch_cnt <= pitch_cnt + 1'd1;
+				// DEST_ONLY: count off-grid destinations. Otherwise: half pitch.
+				if(DEST_ONLY ? dst_unaligned : last_flags[13])
+					pitch_cnt <= pitch_cnt + 1'd1;
 			end
 			if(ec_cmd) begin
 				ec_cnt  <= ec_cnt + 1'd1;
