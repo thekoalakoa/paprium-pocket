@@ -4853,4 +4853,22 @@ the mechanism - which fits a scrolling scene better anyway, since a repeated
 animation frame carried along by the scroll is exactly "a stale 16-tile square
 that scrolls with the shaft".
 
-That is the pre-registered null result, now with a named cause rather than a shrug.
+### The two paths, and what MISS_BLOCK discriminates
+
+| Path | What you see | Under MISS_BLOCK |
+|---|---|---|
+| `find_block` returns 0 | tile 0 + offset - font, HUD or junk | **holes**, if the blank fill landed |
+| `load_block` fails -> `previous_offset` | the last good animation frame, scrolling with the object | **no change** |
+
+The second is the better match for a moving shaft: the cell stays a shaft tile,
+just the wrong one, and it rides the scroll. **So an identical INTERCOM is a
+POSITIVE IDENTIFICATION, not a dead experiment** - it isolates path 2 by
+elimination.
+
+**One variable.** The fallback is deliberately NOT changed in this bitstream.
+
+If it turns out to be path 2 and holes are still wanted, that is a separate patch:
+on `load_block` failure render `MISS_BASE + offset` instead of restoring
+`previous_offset`. Only after this look shows the squares survived - and note it is
+a bigger behavioural change, since the fallback exists to keep objects coherent
+when their blocks cannot load, not merely to hide a miss.
