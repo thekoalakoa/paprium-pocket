@@ -625,7 +625,13 @@ module core_top (
   // foreclose it. With MODE constant, pad_io's JCNT state machine, the ~1.5 ms
   // JTMR counter (11600*7) and the extra protocol frames all fold away, on both
   // ports. See docs/PORT_PLAN.md.
-  localparam cfg_6btn = 1'b0;
+  // paprium: RESTORED as a register. Tying this off was measured to COST 1,151
+  // ALMs rather than save them (16,900 -> 18,051), which is the opposite of the
+  // intent; mcu.txt was eliminated as a cause by a later build that changed the
+  // firmware and left the ALM count identical. The menu entry stays removed - the
+  // option never did anything, because Paprium's pad read is a 3-button read - so
+  // this simply sits at its default and costs nothing user-visible.
+  reg cfg_6btn = 1;
 
   // paprium: CRAM Dots and Composite Blend menus removed and both tied off. The dot is
   // a Mega Drive artefact the VDP produces when CRAM is written mid-line; cofi is a
@@ -657,6 +663,9 @@ module core_top (
         end
         32'h0000000C: begin
           cfg_region <= bridge_wr_data[1:0];
+        end
+        32'h0000001C: begin
+          cfg_6btn <= bridge_wr_data[0];
         end
         32'h00000028: begin
           cfg_arcorr <= bridge_wr_data[0];
