@@ -4981,3 +4981,57 @@ The current 8-channel engine cannot do that - it has `srate` plus three pitch
 values - and CDDA will never bend those slices. **Extras that live only in the
 wavbank stay missing until someone implements sampler voices, which is a new
 engine, not a flag fix.**
+
+## SOLVED: flag 0x0100 steps the SAMPLE RATE, it is not amplify
+
+Established from hardware, and it closes the big-enemy death sound.
+
+**The large grunt's death is the ordinary grunt's sample played slower.** The
+tester identified 0.625x by ear, against pitched copies restricted to the ratios
+the engine can actually produce, and then auditioned the **entire 127-entry SFX
+bank** and found no separate fat-death sample. So it cannot be a different id.
+
+    rate table:  0=48000  1=24000  2=12000  3=9600  4=6000  5=5333
+    sfx 0x1A table entry -> index 3 = 9600 Hz
+    index 3 + 1          -> index 4 = 6000 Hz  =  0.625x
+
+**Flag `0x0100` steps the rate index down by one.** GPGX names that bit "amplify"
+and this port implemented it as x1.25 gain, following GPGX. That was wrong.
+
+### Why the earlier objections dissolve
+
+- **`0x2100` on boot sfx `0x01`** - bit 0 and bit 5 together - looked like proof
+  that bit 0 was not a rate bit, since two halvers would be redundant. They are not
+  the same mechanism: **bit 5 is a sample-skip halver, bit 0 is a rate-index
+  step.** Composing them is meaningful.
+- **Gain was never it.** The fat death measures **0.90x** the grunt's amplitude -
+  slightly quieter - where x1.25 would be louder.
+- **The retracted capture row was right after all.** `0x1A` with flags `0x0100` at
+  word 292 *was* the fat death. Retracting it was still correct at the time: the
+  capture could not show which row belonged to which enemy, and the identification
+  rested on position alone.
+
+### Where the earlier analysis went wrong
+
+Two of my own measurements pointed away from this and both were faulty:
+
+- A log-frequency correlation reported "no shift", which would have refuted a rate
+  change. **Its control failed** - it could not detect a known octave shift - so it
+  could not rule one out either.
+- An envelope-shape comparison said "different sample". Its control passed for
+  recording-vs-recording, but ranking ROM samples against a recording failed its
+  sanity check: `0x1A` did not surface for the grunt death that it demonstrably is.
+  Console output stage, room and mp3 coding defeat it.
+
+The ear test with engine-constrained ratios was the measurement that worked, and it
+was cheap. Try it before building analysis tooling next time.
+
+### The change
+
+`rtl/PAPRIUM/audio_sfx.sv`: `flags[0]` now steps `srate` by one (saturating at 5)
+instead of setting `amp`. `amp` is tied off rather than deleted so the struct field
+and mixer path survive a revert.
+
+Affects 15 of 83 sfx requests in the capture, across ids `01, 08, 1A, 23, 40, 7D` -
+so it should be audible in several places, not just the fat death. Anything that
+sounds *too slow* afterwards is the signal this is wrong.

@@ -175,7 +175,27 @@ module sfx_chan
 	wire [15:0]vol  = mcu.dato[15:0];
 
 	//48000, 24000, 12000, 9600, 6000, 5333
-	wire next_sample = aclk[srate];
+	//
+	// paprium: flag 0x0100 STEPS THE RATE INDEX DOWN BY ONE. GPGX calls this bit
+	// "amplify" and this port implemented it as a x1.25 gain, which is wrong.
+	//
+	// Established from hardware: the large grunt's death is the ordinary grunt's
+	// sample (sfx 0x1A, whose table entry says 9600 Hz) played at 6000 Hz - a
+	// 0.625x ratio the tester identified by ear against pitched copies, and 6000
+	// is exactly the next index after 9600 in the table above. The whole 127-entry
+	// SFX bank was auditioned and contains no separate fat-death sample, so it
+	// cannot be a different id.
+	//
+	// This also explains flags 0x2100, captured on boot sfx 0x01: bit 0 steps the
+	// rate index while bit 5 is a sample-skip halver, so setting both is not the
+	// redundancy it would be if both were halvers.
+	//
+	// Gain was never it: the fat death measures 0.90x the grunt's amplitude -
+	// slightly QUIETER - where x1.25 would be louder.
+	reg  rate_step;
+	wire [3:0] srate_up = {1'b0, srate} + {3'b0, rate_step};
+	wire [2:0] srate_eff = srate_up > 4'd5 ? 3'd5 : srate_up[2:0];
+	wire next_sample = aclk[srate_eff];
 
 	wire fifo_empty = addr_rd == addr_wr;
 	wire fifo_full  = (addr_rd[FIFO_SIZE-1:0] == addr_wr[FIFO_SIZE-1:0]) & (addr_rd[FIFO_SIZE] != addr_wr[FIFO_SIZE]);
@@ -202,9 +222,12 @@ module sfx_chan
 
 		if(flags_we) begin
 			pitch <= flags[7] ? 5'd31 : flags[5] ? 5'd1 : 5'd0;  //skip 1 of 2..32 cycles
-			// paprium: 0x4000 echo and 0x0100 amplify, previously dropped
 			sfx.echo <= flags[6];
-			sfx.amp  <= flags[0];
+			// paprium: flags[0] (0x0100) is the RATE STEP, not amplify - see the
+			// note at next_sample. amp is tied off rather than deleted so the
+			// struct field and the mixer path stay intact if this is reverted.
+			rate_step <= flags[0];
+			sfx.amp   <= 1'b0;
 		end
 
 		if(vol_we)
