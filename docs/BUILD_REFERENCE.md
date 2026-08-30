@@ -128,3 +128,35 @@ seed 2 at -2.715 is what turned "somewhere below -2.539" into a real bound.
 **Shipping is a separate decision.** A build that boots and sounds right is a
 candidate; the timing numbers inform how much confidence it carries, but the
 tester's hardware is what says whether it works.
+
+
+## The slack gate is a WARNING, not proof - measured
+
+Two builds of identical RTL, differing by 0.014 ns, gave opposite results on
+hardware:
+
+| build | worst setup | hold | TNS | boots? |
+|---|---|---|---|---|
+| ratestep2 s4 | **-2.701** | +0.045 | -879 | **YES** |
+| ratestep2 s2 | **-2.715** | +0.065 | -1,286 | **NO** |
+
+14 picoseconds cannot be the difference between a working and a broken core. What
+differs is **which paths fail**, not the single worst number - s4's TNS is far
+better (-879 vs -1,286), so fewer paths miss even though its worst one misses by
+about the same.
+
+**So worst-case slack is a weak predictor.** Use it to catch a build that is
+obviously far out - Probe-B-v1 class - and to set expectation. Do not use it to
+conclude a core will run, and do not use it to refuse a two-minute boot test.
+**Smoke is what counts.**
+
+This also retires the idea of tuning the threshold. -2.67 was too loose, -2.60 was
+proposed, and s4 at -2.701 boots - so no single number on this axis separates the
+two populations.
+
+### And a lucky fit is not a shipping candidate
+
+s4 boots and sounds right, but it is one place-and-route out of four that happened
+to land well, on RTL whose other three seeds sit at -2.72, -2.96 and -2.98. A build
+that depends on a seed is not reproducible in any meaningful sense. If the firmware
+form of the same fix lands at identity with 61d1ddd3, that is the copy to keep.
