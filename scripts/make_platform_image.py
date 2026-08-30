@@ -32,6 +32,7 @@ def main():
     blue = '--blue' in sys.argv[1:]
     invert = '--invert' in sys.argv[1:]
     value  = '--value'  in sys.argv[1:]
+    fit    = '--fit'    in sys.argv[1:]
     crop = next((a.split('=', 1)[1] for a in sys.argv[1:]
                  if a.startswith('--crop=')), None)
     if len(args) != 2:
@@ -44,12 +45,24 @@ def main():
     if crop:
         im = im.crop(tuple(int(v) for v in crop.split(',')))
 
-    # scale to fill, then centre-crop to the frame
-    sw, sh = im.size
-    scale = max(W / sw, H / sh)
-    im = im.resize((max(W, round(sw * scale)), max(H, round(sh * scale))), Image.LANCZOS)
-    sw, sh = im.size
-    im = im.crop(((sw - W) // 2, (sh - H) // 2, (sw - W) // 2 + W, (sh - H) // 2 + H))
+    # --fit letterboxes instead of cropping: scale to FIT inside the frame and
+    # centre on black. Needed for a source whose aspect is nowhere near 3.158:1 -
+    # a 768x768 character scaled to fill would keep only ~32% of his height, i.e.
+    # a horizontal band through his chest.
+    if fit:
+        sw, sh = im.size
+        k = min(W / sw, H / sh)
+        im = im.resize((max(1, round(sw * k)), max(1, round(sh * k))), Image.LANCZOS)
+        canvas = Image.new('RGB', (W, H), (255, 255, 255) if invert else (0, 0, 0))
+        canvas.paste(im, ((W - im.size[0]) // 2, (H - im.size[1]) // 2))
+        im = canvas
+    else:
+        # scale to fill, then centre-crop to the frame
+        sw, sh = im.size
+        scale = max(W / sw, H / sh)
+        im = im.resize((max(W, round(sw * scale)), max(H, round(sh * scale))), Image.LANCZOS)
+        sw, sh = im.size
+        im = im.crop(((sw - W) // 2, (sh - H) // 2, (sw - W) // 2 + W, (sh - H) // 2 + H))
 
     if blue:
         # --value maps HSV brightness rather than luminance. A saturated hue like
