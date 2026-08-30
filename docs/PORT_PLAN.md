@@ -4016,3 +4016,56 @@ menu stops working, that is the expected cost and tells us the mute is effective
 
 Run after the sfx capture - this one needs a run to the elevator, the sfx capture
 needs a short run, and they cannot share a ring.
+
+## TO DO: 6-button pad support (X/Y/Z/Mode) - not implemented here
+
+Confirmed absent: no `vpad`, no code cave, no ROM-read substitution anywhere in
+this tree. 3-button play works; X, Y, Z and Mode do nothing.
+
+### Why our pad being correct does not help
+
+MisterPezz82 verified the core side is already right - `pad_io.sv` returns the exact
+6-button protocol frames (JCNT=2/TH=0 -> `{Start,A,0000}`, JCNT=3/TH=1 ->
+`{C,B,Mode,X,Y,Z}`), with the TH-edge counter and the ~1.5 ms inactivity reset. The
+failure is in **the game's read**: Paprium's pad routine at ROM `0xaae0` is a plain
+3-button read that bails after one TH toggle, and its real 6-button routine is not
+visible in the static ROM (likely MCU-decompressed or dynamically addressed).
+
+Their leading explanation is that the read is stalled past the ~1.5 ms window - on
+real hardware it halts the Z80 to avoid bus contention, and on a cycle-accurate core
+the MCU or interrupt timing may stretch it - so the pad's counter resets before
+reaching step 3.
+
+**So this cannot be fixed by making our pad more correct. It already is.**
+
+### What upstream actually shipped, in order
+
+| Version | Approach |
+|---|---|
+| V.04 | Combo injection in `pad_io.sv` - X/Y/Z as simultaneous 3-button combos (`Y=Down+B`, `X=B+C`, `Z=A+B`), gated on `~MODE` |
+| V.05 | Superseded - needed OSD 6-button mode OFF, and motion inputs were out of scope |
+| current | **Cave v3** - ROM-read substitution injecting X/Y/Z directly into the game's pad struct |
+
+Cave v3, in their `cartridge.sv`: hook the pad-read routine's `unlk/rts` at
+`0xB2392` to jump to a code cave at `0x11C560`, which ORs FPGA register values into
+the pad struct (P1 held `$FF7028`, just-pressed `$FF702A`; stride 0x10 per port),
+mirroring the routine's own merges of ports 3/4 into 1/2. Served as ROM-read
+substitution keyed on the latched `rom_addr`, gated on `paprium_quirk`. The same
+cave also serves the **arcade coin chute**.
+
+### Porting cost, honestly
+
+This is a feature port, not a one-line fix:
+
+- ROM-read substitution in our (Pocket-adapted, structurally different) cartridge.sv
+- FPGA registers for virtual pad state plus a just-pressed edge latch
+- A menu option for `vpad_en`, on a core whose menu was cut to save logic
+- **ALM budget is the real risk** - the shipping build sits at 91% (16,900/18,480)
+
+In its favour: the design is fully specified, the addresses are known, and it is
+hardware-verified upstream. The arcade coin chute comes with it.
+
+Prefer cave v3 over the V.04 combo injection. The combo version only reaches
+simultaneous inputs - motion inputs such as forward-forward-B dashes stay
+unreachable - and it needs the 6-button menu option turned OFF, which is a
+confusing thing to ship.
