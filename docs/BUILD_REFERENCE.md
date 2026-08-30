@@ -98,3 +98,33 @@ Two things follow:
   still does not run.
 - **The remaining seeds need to reach about -2.54, not -2.67.** That is a much
   narrower target than the seed spread so far (-2.961 to -2.715) has hit.
+
+
+## Process: the gate predicts, hardware decides
+
+**Every seed gets a boot test.** A boot is about two minutes with the card already
+to hand, and it is authoritative where the gate is only a prediction - one that has
+been wrong in both directions:
+
+- it passed Probe B v2 (-2.576), which worked
+- its -2.67 line sat inside the band where builds turn out not to run
+
+So the numbers are still archived first, and still reported, but they no longer
+block a boot test. The gate's job is to set expectation and to catch a build that
+is obviously far out (Probe-B-v1 class), not to decide on the tester's behalf what
+is worth two minutes.
+
+Order per seed:
+
+1. `archive_fit.sh <label>` - report AND bitstream, before anything overwrites them
+2. install, keeping `61d1ddd3` one command from restore
+3. boot -> cell room -> doorway
+4. if it boots, do the listen; if not, restore and record the slack against the
+   boot threshold table above
+
+Each non-booting seed narrows the threshold, which is worth having on its own -
+seed 2 at -2.715 is what turned "somewhere below -2.539" into a real bound.
+
+**Shipping is a separate decision.** A build that boots and sounds right is a
+candidate; the timing numbers inform how much confidence it carries, but the
+tester's hardware is what says whether it works.
