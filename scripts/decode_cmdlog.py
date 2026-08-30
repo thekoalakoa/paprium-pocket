@@ -305,16 +305,29 @@ def main():
         return 2
 
     data = open(args[0], 'rb').read()
+
+    # The ring was halved to 2048 words (8 KB) to free M10K; older captures are
+    # 4096 words (16 KB). Detect by where the C0DE magic sits rather than by file
+    # length, since a short read or a padded slot would fool a size check.
+    import struct as _s
+    def _magic_at(buf, words):
+        if len(buf) < words * 4:
+            return False
+        return (_s.unpack('>I', buf[(words - 1) * 4:(words) * 4])[0] >> 16) == 0xC0DE
+    if _magic_at(data, 2048) and not _magic_at(data, 4096):
+        data = data[:8192] + bytes(8192)     # pad a 2048-word ring out
+        globals()['RING_WORDS'] = 2048
     if len(data) < 16384:
         print("warning: %d bytes, expected 16384 - truncated capture?" % len(data),
               file=sys.stderr)
         data = data.ljust(16384, b'\x00')
 
     words = struct.unpack('>4096I', data[:16384])
+    RW = globals().get('RING_WORDS', 4096)
 
     # Sticky counters, deliberately not cleared by reset - a mid-run reset can
     # rewind the ring, and these survive it.
-    w94, w93 = words[4094], words[4093]
+    w94, w93 = words[RW - 2], words[RW - 3]
     ec_cnt, ec_peak = w94 >> 16, w94 & 0xFFFF
     ec_last, any_cnt = w93 >> 16, w93 & 0xFFFF
     print("counters: mailbox commands seen=%d   0xEC seen=%d   peak=%d   last=%d"
@@ -332,13 +345,13 @@ def main():
         print("  Peak %d is inside the 53 clamp, never truncated." % ec_peak)
     print()
 
-    w92 = words[4092]
+    w92 = words[RW - 4]
     pitch_cnt, sfx_cnt = w92 >> 16, w92 & 0xFFFF
     if sfx_cnt or pitch_cnt:
         # In DEST_ONLY these are 0xDA/0xDB seen and unaligned-destination count.
         # A capture whose entries are 0xDA/0xDB is in that mode.
         dest_mode = any(((w >> 24) & 0xFF) in (0xDA, 0xDB, 0xF2)
-                        for w in words[:4090:2] if w)
+                        for w in words[:RW - 6:2] if w)
         if dest_mode:
             db_cnt = db_bad = 0
             print("0xDA/0xDB seen=%d" % sfx_cnt)
@@ -361,10 +374,10 @@ def main():
                 print("  at LRU pressure - the remap experiment (slots 49-52 to tiles")
                 print("  800-863), not a bigger cap.")
             print()
-            hdr = words[4095]
+            hdr = words[RW - 1]
             magic, wr_idx = hdr >> 16, hdr & 0xFFF
             armed, frozen = bool(hdr & 0x8000), bool(hdr & 0x4000)
-            order = [(wr_idx + 2 * i) % 4094 for i in range(2047)]
+            order = [(wr_idx + 2 * i) % (RW - 2) for i in range((RW - 2) // 2)]
             ent = [(i, words[i], words[i + 1]) for i in order if words[i] != 0]
             dest_report([(i, (w0 >> 24) & 0xFF, w0 & 0xFFFF, w1 & 0xFFFF)
                          for i, w0, w1 in ent if (w0 >> 24) in (0xDA, 0xDB, 0xF2, 0xEC)])
@@ -381,7 +394,7 @@ def main():
             print("  downstream - ours to fix in RTL.")
         print()
 
-    hdr = words[4095]
+    hdr = words[RW - 1]
     magic, wr_idx = hdr >> 16, hdr & 0xFFF
     armed, frozen = bool(hdr & 0x8000), bool(hdr & 0x4000)
     if magic != 0xC0DE:
@@ -392,7 +405,7 @@ def main():
             return 1
 
     # Entries are two words, and wr_idx is where the NEXT one goes
-    order = [(wr_idx + 2 * i) % 4094 for i in range(2047)]
+    order = [(wr_idx + 2 * i) % (RW - 2) for i in range((RW - 2) // 2)]
     entries = [(i, words[i], words[i + 1]) for i in order if words[i] != 0]
 
     if '--sfx' in flags:

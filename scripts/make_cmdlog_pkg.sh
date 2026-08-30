@@ -60,11 +60,11 @@ slots.append(collections.OrderedDict([
     ("nonvolatile", True),
     ("extensions", ["log"]),
     ("address", "0x30000000"),
-    ("size_maximum", "0x4000"),
+    ("size_maximum", "0x2000"),   # ring halved to 2048 words - see paprium_cmd_log.sv
 ]))
 
 io.open(p, 'w', encoding='utf-8', newline='\n').write(json.dumps(d, indent=2) + "\n")
-print("data.json: added slot 11 (Command Log) at 0x30000000, 16 KB")
+print("data.json: added slot 11 (Command Log) at 0x30000000, 8 KB")
 PY
 
 echo

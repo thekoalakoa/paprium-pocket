@@ -242,7 +242,15 @@ module paprium_cmd_log (
 	reg [15:0] last_vol;
 	reg [15:0] last_flags;
 
-	reg [11:0] wr_idx;
+	// RING HALVED to 2048 words. At 4096 the logger used ~12 M10K and the variant
+	// sat at 308/308 - completely full - so the fitter had no room and three
+	// successive additions failed timing, the last with a NEGATIVE hold slack.
+	// Halving frees ~6 blocks.
+	//
+	// 2048 words = 1023 entries. At the beat sample rate of ~1 row/frame that is
+	// ~17 s of tail, and the ring wraps, so the tail is what survives - which is
+	// the elevator. LOG_ALL captures needed depth; a sampled DMA capture does not.
+	reg [10:0] wr_idx;
 
 	reg [15:0] ec_cnt, ec_peak, ec_last, any_cmd_cnt;
 	// Word 4092 counters, repurposed by mode:
@@ -282,7 +290,7 @@ module paprium_cmd_log (
 	wire       ec_cmd  = any_cmd & (cmd_hi == 8'hEC);
 
 	reg        mem_we;
-	reg [11:0] mem_waddr;
+	reg [10:0] mem_waddr;
 	reg [31:0] mem_wdata;
 
 	always @(posedge clk) begin
@@ -353,7 +361,7 @@ module paprium_cmd_log (
 				// entries are two words; 0..4093, word 4095 is the header.
 				// In LOG_ALL the ring fills ONCE and stops - wrapping would discard
 				// the boot sequence, which is the part being examined.
-				if(wr_idx >= 12'd4088) begin
+				if(wr_idx >= 11'd2040) begin
 					if(LOG_ALL) frozen <= 1'b1;
 					wr_idx <= 12'd0;
 				end
@@ -366,7 +374,7 @@ module paprium_cmd_log (
 				mem_wdata <= {8'hF8, 8'd0, last_dtot};
 				//  [31:16] dma_budget    [15:0] unused
 				snd_wdata <= {last_dbud, 16'd0};
-				wr_idx <= (wr_idx >= 12'd4088) ? 12'd0 : wr_idx + 2'd2;
+				wr_idx <= (wr_idx >= 11'd2040) ? 11'd0 : wr_idx + 2'd2;
 			end
 			else if(hit_snap) begin
 				mem_we    <= 1'b1;
@@ -376,7 +384,7 @@ module paprium_cmd_log (
 				//  [31:16] unused        [15:0]  PCM words pushed so far
 				snd_wdata <= {16'd0, ch7_wr_cnt};
 
-				wr_idx <= (wr_idx >= 12'd4088) ? 12'd0 : wr_idx + 2'd2;
+				wr_idx <= (wr_idx >= 11'd2040) ? 11'd0 : wr_idx + 2'd2;
 			end
 		end
 	end
@@ -409,30 +417,30 @@ module paprium_cmd_log (
 	wire hdr3_any = hdr3_we | beat_tick3;
 
 	wire        ram_we    = mem_we | snd_we | hdr_we | hdr1_any | hdr2_any | hdr3_any;
-	wire [11:0] ram_waddr = hdr3_any ? 12'd4092
-	                      : hdr2_any ? 12'd4093
-	                      : hdr1_any ? 12'd4094
-	                      : hdr_we ? 12'd4095
+	wire [10:0] ram_waddr = hdr3_any ? 11'd2044
+	                      : hdr2_any ? 11'd2045
+	                      : hdr1_any ? 11'd2046
+	                      : hdr_we ? 11'd2047
 	                      : snd_we ? (mem_waddr + 1'd1)
 	                               : mem_waddr;
 	wire [31:0] ram_wdata = hdr3_any ? {pitch_cnt, sfx_cnt}
 	                      : hdr2_any ? {ec_last, any_cmd_cnt}
 	                      : hdr1_any ? {ec_cnt, ec_peak}
-	                      : hdr_we ? {16'hC0DE, armed, frozen, 2'd0, wr_idx}
+	                      : hdr_we ? {16'hC0DE, armed, frozen, 3'd0, wr_idx}
 	                      : snd_we ? snd_wdata
 	                               : mem_wdata;
 
 	// Written as a plain inferred dual-port RAM: one write port, one registered
 	// read port, no read-during-write games. 4096 x 32 = 128 Kbit, affordable at
 	// 246/308 RAM blocks.
-	reg [31:0] mem[4096];
+	reg [31:0] mem[2048];
 
 	always @(posedge clk) if(ram_we) mem[ram_waddr] <= ram_wdata;
 
 	reg [31:0] rd_word;
 	reg  [1:0] rd_sel;
 	always @(posedge clk) begin
-		rd_word <= mem[read_addr[13:2]];
+		rd_word <= mem[read_addr[12:2]];
 		rd_sel  <= read_addr[1:0];
 	end
 
