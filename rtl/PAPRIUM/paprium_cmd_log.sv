@@ -195,7 +195,14 @@ module paprium_cmd_log (
 	reg        armed, frozen;
 	reg [10:0] post_cnt;
 
-	wire hit_cmd = hit_raw & (BUDGET_ONLY | DEST_ONLY | ~dup) & ~frozen;
+	// NO_DEDUP: dedup is four 16-bit comparators feeding the write decision - the
+	// same shape of cost that pushed the DMA logger's TNS to -4,872. It exists so a
+	// LONG capture survives Paprium's per-step volume fades. The single-kill run is
+	// three grunts and one fat enemy then exit, which cannot fill 1023 entries, so
+	// it buys nothing here and is bypassed.
+	localparam NO_DEDUP = 1'b1;
+
+	wire hit_cmd = hit_raw & (BUDGET_ONLY | DEST_ONLY | NO_DEDUP | ~dup) & ~frozen;
 
 	// Channel-7 snapshots, emitted on CHANGE rather than on a timer: the volume
 	// register changing and the FIFO running dry are both rare, so this stays
