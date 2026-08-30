@@ -94,7 +94,6 @@ Reached through the Pocket's own menu while the core is running.
 |---|---|
 | **Soft Reset (mini game)** | Restarts the console. This is how you get past the mini-game on first boot |
 | **Region (hard restart req'd)** | **Japan** (default) or **Export**. See below |
-| **6 Button Pad** | On by default |
 | **Aspect Ratio** | Original or corrected |
 
 ### Region needs a full restart
@@ -107,6 +106,14 @@ If you change region and nothing seems different, this is why.
 
 **Japan** gives you the Japanese cartridge's extras — song titles at the start of
 each level, and other easter eggs. **Export** doesn't. Both play the game fine.
+
+### There is no 6-button option
+
+Removed deliberately. Paprium's own controller read is a 3-button read, so X, Y, Z
+and Mode never did anything regardless of the setting - the option only looked like
+it worked. Tying it off also frees logic on a core that fits tightly.
+
+The game plays fully with three buttons; that is how it reads the pad.
 
 ### There is no audio filter setting
 
