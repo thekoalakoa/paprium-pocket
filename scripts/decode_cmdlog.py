@@ -131,33 +131,61 @@ def dma_report(entries):
         total, budget = m, v
         head = budget - total
         blocks = head // BLOCK_COST if head > 0 else 0
-        seen.append((fence, head, blocks))
+        seen.append((fence, head, blocks, budget))
         print("%-6d F%-6d %-10d %-10d %-10d %d"
               % (i, fence, total, budget, head, blocks))
     if not seen:
         return
-    last_fence = max(f for f, _, _ in seen)
-    tail = [(h, b) for f, h, b in seen if f == last_fence]
+
+    # Per-fence summary. If dma_total ticks per BLOCK rather than per frame the
+    # ring fills with 0xF8 rows - that is a denser sample, not a ruined capture.
+    # The MINIMUM headroom in a fence is the tightest fill ceiling the shaft
+    # actually saw, which is the number that matters.
+    from collections import defaultdict
+    byf = defaultdict(list)
+    for f, head, blocks, budget in seen:
+        byf[f].append((head, blocks, budget))
+
+    last = max(byf)
     print()
-    if tail:
-        h = min(h for h, _ in tail)
-        b = min(b for _, b in tail)
-        print("Final fence (F%d): tightest headroom %d words = %d blocks/frame"
-              % (last_fence, h, b))
-        if h > 53 * BLOCK_COST:
-            print("  ABOVE a full 53-block refill (%d words). Treat the UNITS as"
-                  % (53 * BLOCK_COST))
-            print("  suspect before treating the budget as generous - a real vblank")
-            print("  moves ~%d words, not that." % VBLANK_WORDS)
-        elif b >= 53:
-            print("  The scene CAN fill all 53 slots in a frame, so it is not")
-            print("  fill-bound. Slot-bound remains live: the placement probes.")
-        else:
-            print("  Cannot refill 53 slots in a frame (%d < 53). INTERCOM is" % b)
-            print("  FILL-BOUND, and the four blocks cap-at-49 costs were never")
-            print("  going to matter. Placement probes are pointless; the leftover")
-            print("  is fill rate, and only then do the three return-0 paths in")
-            print("  ppm_vram_load_block earn an MCU-side counter.")
+    print("per-fence summary (last fence = INTERCOM):")
+    for f in sorted(byf):
+        rows = byf[f]
+        buds = [b for _, _, b in rows]
+        hmin = min(h for h, _, _ in rows)
+        print("  F%-3d rows=%-5d dma_budget=%-6s min(budget-total)=%-7d blocks/frame=%d%s"
+              % (f, len(rows), buds[0], hmin, hmin // BLOCK_COST if hmin > 0 else 0,
+                 "   <- budget CHATTERS: %d distinct values" % len(set(buds))
+                 if len(set(buds)) > 1 else ""))
+
+    rows = byf[last]
+    buds = [b for _, _, b in rows]
+    hmin = min(h for h, _, _ in rows)
+    bmin = hmin // BLOCK_COST if hmin > 0 else 0
+    print()
+    print("INTERCOM (F%d):" % last)
+    print("  first dma_budget      %d" % buds[0])
+    print("  min(budget - total)   %d words" % hmin)
+    print("  blocks/frame          %d      (at 0x%X words per block)" % (bmin, BLOCK_COST))
+    print("  0xF8 rows in fence    %d" % len(rows))
+    if len(set(buds)) > 1:
+        print("  NOTE: dma_budget itself varies across %d values %s - not averaged."
+              % (len(set(buds)), sorted(set(buds))[:6]))
+    print()
+    if hmin > 53 * BLOCK_COST:
+        print("  Headroom exceeds a full 53-block refill (%d words). Treat the UNITS"
+              % (53 * BLOCK_COST))
+        print("  as suspect before treating the budget as generous - a real vblank")
+        print("  moves ~%d words, not that." % VBLANK_WORDS)
+    elif bmin >= 53:
+        print("  The shaft CAN refill all 53 slots in a frame, so it is not")
+        print("  fill-bound. Slot-bound stays live and the placement probes are on:")
+        print("  one-slot at tile 864 to discriminate 32x32 from 64x32, then 928-991.")
+    else:
+        print("  Cannot refill 53 slots in a frame (%d < 53). INTERCOM is FILL-BOUND." % bmin)
+        print("  The four blocks cap-at-49 costs were never going to matter, and the")
+        print("  placement probes stay queued. The leftover is fill rate - only then")
+        print("  do the three return-0 paths in ppm_vram_load_block earn a counter.")
 
 
 def dest_report(entries):
