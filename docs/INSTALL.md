@@ -115,6 +115,21 @@ it worked. Tying it off also frees logic on a core that fits tightly.
 
 The game plays fully with three buttons; that is how it reads the pad.
 
+### The in-game "VM DAC" option
+
+Paprium's own options menu has a **VM DAC** checkbox - "use VM2612 DAC instead of
+DT128VALT DAC". It used to produce loud static in this core. **It no longer
+does.**
+
+What it does here: nothing audible. The music and effects sound the same either
+way.
+
+What it does on a real cartridge: routes Paprium's audio through the Mega Drive's
+own 8-bit converter instead of the cartridge's better one, so the game sounds
+thinner and more like stock Genesis hardware. Reproducing that needs hardware
+this core does not have room for, so the option is inert rather than wrong. The
+design is written up in `docs/PORT_PLAN.md` for anyone porting to a larger FPGA.
+
 ### There is no audio filter setting
 
 Deliberately. It's fixed at **No Filter**, because every other mode makes some of
