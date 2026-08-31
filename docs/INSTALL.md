@@ -50,6 +50,10 @@ a file browser, so it loads exactly `Paprium.md` from that directory. A dump und
 any other name will not be found, and the core will sit waiting for a file it
 cannot see.
 
+Your save lives at `/Saves/paprium/common/Paprium.sav` and is also a fixed name.
+If you are moving a save over from a build that used the file browser, that is
+where it goes.
+
 There is no region option in the menu either — this is a single-game core and the
 game is Japanese, so the region is fixed to Japan.
 
