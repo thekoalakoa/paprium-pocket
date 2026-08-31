@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+#
+# Refuse the two operations that lose work irrecoverably: force-pushing a
+# protected branch, and deleting one.
+#
+# This is a LOCAL guard. It runs on this machine only and is not a substitute for
+# a GitHub ruleset - anyone pushing from anywhere else is unaffected, and it can
+# be skipped with --no-verify. It exists because this repository is private, and
+# GitHub gates branch protection and rulesets on private repositories behind a
+# paid plan. See docs/REPO_PROTECTION.md.
+#
+# Install:  ./scripts/install_git_hooks.sh
+#
+# Deliberately does NOT block:
+#   - pushing new commits to master (the normal case)
+#   - force-pushing a non-protected branch (rebasing a topic branch is fine)
+#
+# stdin, one line per ref being pushed:
+#   <local ref> <local sha> <remote ref> <remote sha>
+
+set -uo pipefail
+
+PROTECTED="master main"
+ZERO=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
+
+is_protected() {
+    local name=${1#refs/heads/}
+    for p in $PROTECTED; do
+        [ "$name" = "$p" ] && return 0
+    done
+    return 1
+}
+
+fail=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "${remote_ref:-}" ] && continue
+    is_protected "$remote_ref" || continue
+    branch=${remote_ref#refs/heads/}
+
+    # Deletion: the local side is all zeroes.
+    if [ "$local_sha" = "$ZERO" ]; then
+        echo "pre-push: REFUSED - this would DELETE the remote branch '$branch'." >&2
+        fail=1
+        continue
+    fi
+
+    # A new branch on the remote has no history to lose.
+    [ "$remote_sha" = "$ZERO" ] && continue
+
+    # Non-fast-forward: the remote head is not an ancestor of what we are pushing,
+    # so commits that exist on the remote would stop being reachable.
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+        echo "pre-push: REFUSED - non-fast-forward push to '$branch'." >&2
+        echo "  remote is at $(git rev-parse --short "$remote_sha" 2>/dev/null || echo "$remote_sha")," >&2
+        echo "  and it is not an ancestor of what you are pushing." >&2
+        lost=$(git rev-list --count "$local_sha..$remote_sha" 2>/dev/null || echo "?")
+        echo "  $lost commit(s) on the remote would become unreachable." >&2
+        fail=1
+    fi
+done
+
+if [ "$fail" -ne 0 ]; then
+    cat >&2 <<'EOF'
+
+Nothing was pushed.
+
+If this is genuinely what you want, the override is deliberate and per-command:
+
+    git push --no-verify ...
+
+Prefer a safer route where one exists - `git revert` keeps the history, and
+pushing a rescue branch first means the commits still exist somewhere.
+EOF
+    exit 1
+fi
+
+exit 0
