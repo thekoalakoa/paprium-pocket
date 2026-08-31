@@ -133,7 +133,10 @@ module paprium_ima_decode (
 	                      : (sum < -20'sd32768) ? 16'h8000
 	                                            : sum[15:0];
 
-	wire signed [7:0] idx_sum  = $signed({1'b0, didx}) + $signed({{2{idx_adj(dec_code)[5]}}, idx_adj(dec_code)});
+	// The function result is bound to a wire before being sign-extended: Quartus
+	// rejects a bit-select applied straight to a function call.
+	wire signed [5:0] adj      = idx_adj(dec_code);
+	wire signed [7:0] idx_sum  = $signed({1'b0, didx}) + $signed({{2{adj[5]}}, adj});
 	wire       [6:0]  idx_next = (idx_sum < 8'sd0) ? 7'd0
 	                           : (idx_sum > IDX_MAX) ? 7'd88 : idx_sum[6:0];
 
