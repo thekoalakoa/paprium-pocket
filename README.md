@@ -84,6 +84,9 @@ core this forks. All verified on real hardware, in both Arcade and Original mode
 The firmware changes are in [patches/](patches/) and rebuild from a clean
 [krikzz/mega-ppm](https://github.com/krikzz/mega-ppm) clone.
 
+Timing does not fully close on this device — inherited from the base core, which
+runs correctly on hardware regardless.
+
 ### The in-game sound test is a usable instrument
 
 Paprium has a sound test — the Boom Box, in the Options menu, labelled `?`. It is
@@ -108,9 +111,6 @@ ambiguous.
 `scripts/predict_boombox_pairs.py <rom>` reads the table and prints the predicted
 rate and duration for any pair, so a sweep can be checked against numbers rather
 than judged by ear alone.
-
-Timing does not fully close on this device — inherited from the base core, which
-runs correctly on hardware regardless.
 
 [docs/PORT_PLAN.md](docs/PORT_PLAN.md) is the full engineering record: what was
 measured, what was tried, and which explanations turned out to be wrong.
