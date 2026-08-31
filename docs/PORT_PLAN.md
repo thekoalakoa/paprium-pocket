@@ -5813,6 +5813,63 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# The VDP capture needs no compiler - use a savestate
+
+Genesis Plus GX savestates already contain everything the capture was going to be
+built for. From the source in `gpgx-build/core`:
+
+    state.c      16-byte version "GENPLUS-GX 1.7.6", then work_ram[0x10000],
+                 zram[0x2000], zstate, zbank, io_reg[0x10], then the VDP block
+    vdp_ctrl.c   sat[0x400], vram[0x10000], cram[0x80], vsram[0x80], reg[0x20]
+
+`reg[0x20]` is the full register file - 2, 3, 4, 5, 13, 16, 17, 18 - and `vram` has
+the live SAT in it. So a savestate per scene gives the addresses **and** the sprite
+list, including whether the player is in the table and with what priority bit.
+
+**No debugger build, no BlastEm, no compiler.** This machine has no toolchain, so
+this is also the only route that does not start with installing one.
+
+    python scripts/parse_gpgx_state.py cellroom.state
+    python scripts/parse_gpgx_state.py rooftop.state --sat-all
+
+The parser anchors on the version string rather than computed offsets, so a
+RetroArch container or zlib compression in front of the payload does not matter. It
+was verified against a synthetic state with known register values before being
+committed - every field decodes, including the SAT entry.
+
+## What to capture
+
+One savestate in each of the three rooms that matter:
+
+    cellroom.state    the room a bad VRAM remap breaks first
+    intercom.state    the INTERCOM walkway, the 53-slot scene
+    rooftop.state     the bombing phase, mid-fight, player visibly behind scenery
+
+The rooftop one is the important one, and it must be saved **while the symptom is
+on screen** - the question is what the SAT says at the moment the player is clipped.
+
+## What each answer decides
+
+    reg 5 = 0x78          confirms the GPGX source read; SAT really is at 0xF000
+    reg 13 (hscroll)      if it lands in 0xF800-0xFFFF, that is finally what the
+                          old cap-49 was colliding with, and 53 slots would be
+                          writing over it - which the hardware A/B says is not
+                          visible, but it would explain the original suspicion
+    reg 2/3/4 + reg 16    the real VRAM map, hence whether any hole exists for a
+                          linear 53 - and 0x6400 is already known NOT to be free
+    reg 17/18             window position. A horizontal window edge is the leading
+                          suspect for the rooftop clip
+    the SAT itself        is the player in the table at all? With pri set? If the
+                          player is absent, it is 68k-drawn and outside everything
+                          this port controls, which matches the probe result
+
+## Running it
+
+There is no RetroArch on this machine, but `src/genesis_plus_gx_libretro_x64/`
+holds a Paprium-capable GPGX core already. Any RetroArch install can load that core
+plus the ROM. Turn savestate compression off if the parser cannot find the payload,
+though it handles zlib.
+
 # RESULT: cap removed, 53 slots shipping - 2026-08-31
 
 A/B run on hardware, cap 49 vs 53 on the **same** two-range map, firmware-only,
