@@ -5540,6 +5540,63 @@ confirmed `0xF800` SAT/hscroll collision, and the reason a remap was reverted is
 that the cell-room floor broke. The route to 53 is still the five addresses.
 
 
+## Sprite priority: NOT SAT priority - probe result (2026-08-31)
+
+`PPM_FORCE_SPRITE_PRI` OR'd `0x8000` onto every SAT entry after field-wise
+composition. Fit was identical to shipping (18,194 / 294 / -2.596 / +0.004) with
+a different bitstream hash, so it was firmware-only and it did land.
+
+**Result: other sprites came forward - the player and the bombs did not.**
+
+So the probe worked and the answer is negative. **It is not SAT priority**, which
+rules out the "high-priority plane tiles vs low-priority SAT" reading entirely.
+
+### A misread to correct
+
+That reading came from me describing the elevator walkway screenshot as
+"tile-shaped occlusion following the parapet silhouette", and picking the
+per-tile row of the decision table on that basis. **The rooftop capture shows a
+clean horizontal line across the full screen width** - the big enemy fully drawn
+above it, the player cut exactly at it. A window plane's edge lands on a tile-row
+boundary and therefore produces exactly that straight line, so the elevator
+parapet most likely coincided with it. The silhouette reading was seeing what the
+theory wanted.
+
+### What a negative result here actually implies
+
+**A high-priority sprite is topmost on a Mega Drive.** The order is sprite-pri-1,
+plane A pri-1, plane B pri-1, sprite-pri-0, plane A pri-0, plane B pri-0. A
+forced-priority sprite beats every plane including the window. So "priority
+forced and still behind" is not a weaker version of the same problem - it means
+something else is happening.
+
+Two candidates, and the emulator session distinguishes them:
+
+1. **The player and bombs are not cartridge-rendered.** `ppm_obj_render` composes
+   SAT entries for objects the cartridge draws; if the player is a 68000-managed
+   sprite, our OR never touches it and **no change in that function can ever
+   affect it**. This fits which things moved - the cartridge-rendered enemy and
+   explosions came forward, the player and bombs did not. It would also mean the
+   whole "mega-ppm composes attributes wrong" line of investigation cannot
+   explain this symptom
+2. **Something region-based is masking rather than layering** - a window plane,
+   or sprite masking (a sprite at X=0 hides lower-priority sprites on its
+   scanlines regardless of priority)
+
+### What the emulator session must now capture
+
+Beyond the five VDP addresses already needed for the cap:
+
+- **window position and size** in the rooftop and elevator scenes (reg 17/18 as
+  well as reg 3), because a horizontal window edge is the leading suspect
+- **whether the player's SAT entry has priority set**, and whether the player
+  appears in the SAT at all - which settles candidate 1 directly
+- a **sprite-per-scanline** check in the bombing scene, since that stage is busy
+
+Until that exists, do not spend another fit on sprite attributes. The blanket-OR
+probe was the cheap decisive test for the firmware side and it came back negative.
+
+
 ## Still open
 
 - ~~YM2612 DAC static (VM DAC option)~~ **FIXED 2026-08-31** - the 68000 streams
