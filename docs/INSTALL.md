@@ -45,8 +45,13 @@ Then put your cartridge dump in:
 /Assets/paprium/common/Paprium.md
 ```
 
-The core accepts `.md` or `.bin`, and the filename doesn't matter — you pick the
-file from the Pocket's menu when the core loads.
+**The name matters now.** The core boots straight into the game instead of opening
+a file browser, so it loads exactly `Paprium.md` from that directory. A dump under
+any other name will not be found, and the core will sit waiting for a file it
+cannot see.
+
+There is no region option in the menu either — this is a single-game core and the
+game is Japanese, so the region is fixed to Japan.
 
 Eject the card, put it in the Pocket, and the core appears under
 **Openfpga → Others → Paprium**.

@@ -7,6 +7,7 @@
         "id": 1,
         "required": true,
         "parameters": "0x109",
+        "filename": "Paprium.md",
         "extensions": [
           "md",
           "bin"
