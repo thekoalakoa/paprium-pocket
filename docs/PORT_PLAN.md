@@ -5726,6 +5726,88 @@ its user-reloadable bit. Harmless - the save now has a fixed name either way, so
 loading through it cannot split saves across two files - and it is a useful escape
 hatch. Remove the bit from `parameters` if the menu should be tidier.
 
+# GPGX sprite-path read - 2026-08-31
+
+Source only, no playthrough, no build. Two results: one closes the rooftop
+firmware line of attack, one hands over a VDP address that was thought to need an
+emulator.
+
+## 1. The player does NOT go through mega-ppm. Stop fitting SAT attribute changes
+
+The SAT is staged in **cart RAM at 0xB00** and DMAed to VRAM by the cartridge. Both
+implementations agree on the protocol:
+
+    GPGX      paprium.h:1296   ram + 0xB00 + spriteCount*8
+    mega-ppm  mame.h:48        ppm_sat_item sat_data[144];  //0xb00
+
+and both take the running count from the same place - GPGX reads and writes
+`ram + 0x1F18`, mega-ppm calls it `sat_count`, and the struct puts it at 0x1F18.
+
+**Nothing on the cartridge side ever zeroes that count.** GPGX writes it back at
+the end of `paprium_sprite` and reads it in start/stop/pause; it is never reset.
+So the 68000 owns it, which means the 68000 decides where the cart's entries begin
+and is free to write its own entries into the same shared buffer.
+
+That closes the loop with the hardware probe. Forcing `0x8000` moved other sprites
+and did not move the player or the bombs, which is exactly what a shared buffer
+predicts: **we only ever touch the entries we append.** Three independent sources
+agree, so this is settled without a dump:
+
+    GPGX source        SAT staged at 0xB00, count 68k-owned
+    mega-ppm header    same buffer, same counter
+    hardware probe     forced priority moved other sprites, not the player
+
+**No change in `ppm_obj_render` can fix the rooftop or elevator clipping.** Do not
+spend another Pocket fit on sprite attribute composition. The remaining question -
+whether the player's entry is in the SAT at all, and with what priority - is a
+runtime one and still needs the emulator.
+
+Worth noting the attribute composition itself is confirmed correct. GPGX at
+`paprium.h:1287-1289` is field-wise with tile precedence, which is what the door
+fix changed ours to. That fix matches the reference exactly.
+
+## 2. SAT base is 0xF000, from source - and the 0xF800 note is wrong
+
+`paprium_sprite_start` (paprium.h:1420) builds a fixed VDP DMA list:
+
+    8F02  reg15 auto-inc 2
+    9340  reg19     9401  reg20  > length 0x140 words = 640 bytes = 80 entries
+    9580  reg21     9605  reg22  > source (0x05<<9)|(0x80<<1) = 0xB00, the staging buffer
+    9700  reg23 /
+    7000  } control: CD=100001 VRAM write + DMA
+    0083  } address = (0b11 << 14) | 0x3000 = 0xF000
+
+**So the SAT lives at VRAM 0xF000 and spans 0xF000-0xF27F**, and it is hardcoded -
+the cart writes there every frame regardless of scene, so `reg 5` must be 0x78
+throughout. That is one of the five addresses, and it did not need an emulator.
+
+**This contradicts what is written above.** The cap-at-49 analysis says slots 49-52
+were landing on "the sprite attribute and hscroll tables at `0xF800`". Tiles
+1984-2047 are `0xF800-0xFFFF`, and the SAT is nowhere near that - it ends at
+`0xF27F`, in tiles 1920-1939.
+
+To be careful about what changed and what did not:
+
+- **The fix is still right.** Cap-at-49 was verified on hardware and the elevator
+  improved. That is unaffected
+- **The explanation was wrong.** Whatever slots 49-52 were smashing at
+  `0xF800-0xFFFF`, it was not the sprite attribute table. The hscroll table
+  (`reg 13`) is the obvious remaining candidate, and it is still unmeasured
+- The standing instruction not to send those slots back to `0xF800` was empirical
+  and stands on its own
+
+## 3. What the source cannot give, and why
+
+The cart writes exactly two kinds of VDP list: tile DMAs to `draw_dst`, and the
+one SAT DMA above. **It never touches plane A, plane B, window or hscroll** - the
+68000 owns those registers, and they are set from decompressed scene data.
+
+So regs 2, 3, 4, 13, 17 and 18 still need the emulator, and the plaintext ROM scan
+for them is still refuted. The emulator session is now smaller than it was: SAT
+base is known, one of the two questions about the player is answered, and what is
+left is the plane/window/hscroll set plus a SAT dump to see whether the player is
+in the table.
+
 # Release gate for v0.2.0
 
 **Decision, 2026-08-31: do not cut a release until the list below is closed or
