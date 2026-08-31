@@ -5035,3 +5035,37 @@ and mixer path survive a revert.
 Affects 15 of 83 sfx requests in the capture, across ids `01, 08, 1A, 23, 40, 7D` -
 so it should be audible in several places, not just the fat death. Anything that
 sounds *too slow* afterwards is the signal this is wrong.
+
+## The Boom Box sound test - a controlled trigger, and what 0x9A means
+
+The game has an in-game sound test (Boom Box) that lists effects by id, and it
+labels the large grunt's death **`0x9A`**. On this core every entry, including that
+one, plays correctly.
+
+**`0x9A` is not a second sample.** Two checks:
+
+- The SFX table has 127 live rows, `0x00-0x7E`. Entries 128+ are invalid, and row
+  `0x9A` reads `00 00 00 00 00 00 00 00` - size 0, which plays **silence**.
+- `sfx_play()` applies **no mask**: `&ppmio.flash[ppm_sfx_base_addr + arg * 8]`
+  uses the id directly, so a literal `D1 9A` would read that empty row.
+
+Since it plays correctly, the Boom Box is not sending `9A` as an id. The decode is
+`0x9A = 0x80 | 0x1A` - a **label** meaning "row 0x1A, deep variant" - and what it
+actually sends is `D1 1A` with `flags 0x0100`.
+
+That makes the sound test a **controlled, repeatable trigger** for the exact flag
+under investigation, far better than fighting to a large grunt and hoping the ring
+catches the right rows.
+
+### The control that decides whether the fix is real
+
+Play Boom Box `0x9A` on **stock `61d1ddd3`**, with no rate step anywhere:
+
+| stock `9A` | meaning |
+|---|---|
+| normal grunt pitch | the flag is the deep switch; the firmware step is correct |
+| already deep | something else retunes it in that menu, the 68000 simply never uses it in play, and the `+1` is treating the wrong layer |
+
+**Boom Box "everything plays" does not finish the listen.** That menu likely fires
+table rate only; `0x0100` appears in combat. `0x7D` is the veto - nine of the
+fifteen flagged requests, and it fires constantly during a fight.
