@@ -14,6 +14,14 @@ set base_dir [pwd]
 # trade the cartridge's save hardware for Virtua Racing's DSP, which does not fit
 # next to the full core.
 set variant [expr {$argc > 0 ? [lindex $argv 0] : "ntsc"}]
+
+# Optional second argument: a fitter seed, for a seed sweep on a variant that is
+# fitting at 98% and so lands differently run to run. Deliberately NOT an
+# assignment in megadrive_pocket.qsf - three stray SEED lines were once committed
+# there by a `git add -A` and would have silently steered every later build. The
+# snapshot/restore below keeps the tracked qsf clean even though this writes an
+# assignment into the open project. No argument means the qsf's own default.
+set fit_seed [expr {$argc > 1 ? [lindex $argv 1] : ""}]
 # paprium: the paprium variant is NTSC only - the MCU firmware's clock-derived timing
 # is pinned to the 53.693 MHz NTSC master clock - and never SVP, since both the SVP and
 # the Paprium MCU want SDRAM port 2
@@ -71,6 +79,11 @@ set build_status [catch {
         set_global_assignment -name ALM_REGISTER_PACKING_EFFORT HIGH
         set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
         post_message "paprium: area-optimised fitter settings applied"
+    }
+
+    if {$fit_seed ne ""} {
+        set_global_assignment -name SEED $fit_seed
+        post_message "fitter seed $fit_seed (this run only - not written to the qsf)"
     }
     execute_flow -compile
     project_close
