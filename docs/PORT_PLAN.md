@@ -5160,7 +5160,7 @@ Elevator is **closed as characterised**: fill-bound at 10-16 blocks/frame from
 `dma_budget` (a ROM constant), plus the `previous_offset` fallback re-rendering the
 last animation frame. Not a collision. Do not reopen without new evidence.
 
-## IMA ADPCM - all three modules written, awaiting hardware
+## IMA ADPCM - SHIPPING, verified on hardware 2026-08-31
 
 **Done and committed:**
 
@@ -5188,11 +5188,25 @@ last animation frame. Not a collision. Do not reopen without new evidence.
 stopping belongs in `cdda_buf`. Residual is up to ~84 ms of digital silence at a
 loop seam - quiet, not wrong. `pcm_samples` is already parsed and range-checked.
 
+**Hardware results (`ima1` seed 5, setup -2.596, hold +0.004, M10K 294):**
+
+- boots and runs - which also moved the known-good slack edge to -2.596
+- **stale raw-PCM blob stays silent**, confirmed across all tracks via the Boom
+  Box. The PPAD gate refuses it rather than streaming it as noise
+- music plays correctly off the converted blob, and the user reports it sounding
+  *cleaner* than the raw path
+
+That last point is worth being precise about, because the obvious reading is
+wrong: IMA is lossy at ~38 dB SNR, so the samples are strictly worse than the raw
+blob's. What improved is **underruns** - the ring went from 0.085 s to 0.337 s of
+buffering and SD fetch bandwidth dropped 4x, so dropouts that were present before
+are gone. Fewer gaps, not better samples. If anyone later "optimises" the ring
+back down, that is the regression to expect.
+
 **Remaining:**
 
-1. Hardware smoke of `ima1`: boot -> cell room -> loop track 1 -> seek stage-clear.
-   A stale raw-PCM `.pcm` in the slot must stay **silent**, not noisy
-2. Then the sample-exact loop seam in `cdda_buf`, if the seam is audible
+1. The sample-exact loop seam in `cdda_buf`, if the ~84 ms seam turns out to be
+   audible. Not reported as noticed yet - ask before spending a fit on it
 
 **Constraints:** player stays 16-bit 48 kHz. Do NOT fold in the ratestep RTL, the
 cmdlog logger, or any region/menu cut. Shipping tree plus this decoder only.

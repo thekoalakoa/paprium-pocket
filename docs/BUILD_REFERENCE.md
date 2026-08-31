@@ -17,7 +17,7 @@ for the other already caused a gate to be set on the wrong baseline.
 | cmdlog   | Probe B v2        | 18,283 | 308  | -2.576 | -1,204 | **YES - valid capture** |
 | shipping | ima1 seed default | 18,181 | 294  | -3.789 | -2,099 | not tried - fails both gates |
 | shipping | ima1 seed 3       | 18,186 | 294  | -2.750 | -1,584 | not tried - fails setup |
-| shipping | ima1 seed 5       | 18,194 | 294  | -2.596 | -1,428 | passes both, 4 ps margin - SMOKE PENDING |
+| shipping | ima1 seed 5       | 18,194 | 294  | -2.596 | -1,428 | **YES - IMA ADPCM shipping** |
 | shipping | ima1 seed 7       | 18,190 | 294  | -2.867 | -3,647 | not tried - fails both gates |
 
 The two `?` rows had their reports overwritten before `scripts/archive_fit.sh`
@@ -109,6 +109,12 @@ where a build stops working:
 | `61d1ddd3` shipping | **-2.539** | **YES** |
 | ratestep2 seed 2 | **-2.715** | **NO - glitches at boot** |
 | Probe B v1 (cmdlog) | -2.957 | NO - garbage at boot |
+
+`ima1` seed 5 booted and ran clean at **-2.596 with 4 ps of gate margin**, which
+moves the known-good edge down from -2.539. The boundary is now between **-2.596
+and -2.715**. Note what that margin is worth: 4 ps is not confidence, it is a
+number that happened to land on the right side. It booted; that is evidence about
+-2.596, not about thin margins in general.
 
 **So the boundary is between -2.539 and -2.715**, and the earlier `-2.67` gate sat
 *inside* that untested band. It has been tightened to **-2.60**, which is inside

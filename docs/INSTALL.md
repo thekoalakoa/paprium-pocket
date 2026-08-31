@@ -150,12 +150,21 @@ To enable it, place the music blob at:
 /Assets/paprium/common/paprium.pcm
 ```
 
-> **The blob format changed - rebuild yours.** It is now IMA ADPCM (`PPAD`),
-> about a quarter the size of the old raw-PCM blob. The core checks for the
-> `PPAD` marker and **plays nothing at all** if it is missing, rather than
-> streaming an old blob as noise. So if music stopped working after an update,
-> your `paprium.pcm` is the old format and needs rebuilding with the commands
-> below. The game itself is unaffected either way.
+> **The blob format changed.** It is now IMA ADPCM (`PPAD`), about a quarter the
+> size of the old raw-PCM blob - 543 MB instead of 2.09 GB. The core checks for
+> the `PPAD` marker and **plays nothing at all** if it is missing, rather than
+> streaming an old blob as noise. So if music went silent after an update, your
+> `paprium.pcm` is the old format. The game itself is unaffected either way.
+>
+> **Already have the old blob? You do not need your soundtrack again.** It is
+> already 48 kHz stereo with a track table, so convert it in place:
+>
+> ```bash
+> python scripts/convert_cdda_to_adpcm.py old_paprium.pcm paprium.pcm
+> ```
+>
+> About 17 minutes for a full blob. Keep the old file until you have heard the
+> new one - it cannot be reconstructed from the converted one.
 
 Building it from your own copy of the soundtrack:
 
@@ -174,6 +183,10 @@ python scripts/build_cdda_adpcm.py  cdda/  paprium.pcm
 two-digit number rather than by title, so a rip with slightly different titles
 still works.
 
+Buffering is 0.337 s, four times the old raw path, because a compressed ring
+holds four times as much audio in the same block RAM. If music used to drop out
+occasionally, that is why it no longer does.
+
 Ten of the game's music slots have no audio at all — the cartridge itself has a
 null pointer for each of them, so those scenes are correctly silent. That's not a
 missing file.
@@ -187,10 +200,19 @@ setups running the same replacement firmware.
 
 | Issue | Status |
 |---|---|
-| Elevator level: palette corruption, sprite priority | Under investigation |
+| Elevator level: residual glitching | Characterised, not fixable here - see below |
 | Boss fight: player sprite drops behind the background | Under investigation |
-| Boss/large enemy death plays the wrong sound effect | Under investigation |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
+
+Fixed since the first release: sprite attribute and palette corruption at the
+doorway and in the cell room, the DMA overrun that was writing over the sprite
+and hscroll tables, and the wrong sound effect on large enemy deaths.
+
+The elevator is **fill-bound, not a bug in this port**: the cartridge firmware
+budgets 10-16 blocks per frame from a constant in the game's own ROM, and when a
+block misses its deadline the renderer falls back to re-showing the previous
+animation frame. Uncapping it corrupts video instead. It is better than it was
+and it is not going to be perfect.
 
 Timing does not fully close on this device — a known property inherited from the
 base core, which runs correctly on hardware regardless.
