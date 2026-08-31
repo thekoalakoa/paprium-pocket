@@ -5359,7 +5359,7 @@ Treat `80-FF` as a flag UI until a pair breaks the `N` / `N + 0x80` rule.
 
 ---
 
-# RESUME HERE - 2026-08-30, IMA ADPCM in progress
+# (superseded) 2026-08-30, IMA ADPCM in progress
 
 ## Shipping state
 
@@ -5626,3 +5626,74 @@ probe was the cheap decisive test for the firmware side and it came back negativ
 - Intro pixel flicker - cosmetic
 - Boom Box `N` vs `N+0x80` sweep - cheap, confirms the high 128 slots are rate
   variants rather than unheard samples
+
+
+# RESUME HERE - 2026-08-31
+
+## Shipping
+
+    bitstream   397b28eb   build_output/paprium.rbf_r, on the card
+    firmware    6efba936   rtl/PAPRIUM/mcu.txt, committed, patch reproduces it
+    blob        PPAD, 543 MB. Old raw blob kept as paprium_raw.pcm.bak
+
+    cap-at-49 | firmware 0x0100 -> srate+1 | IMA fetch/decode + PPAD
+    field-wise door attrs | VM DAC stream-buffer fill
+
+Fit: ALM 18,194 / M10K 294 / setup -2.596 / hold +0.004, seed 5. **M10K 294 is the
+shipping fingerprint** (cmdlog is 308).
+
+## Closed today, both hardware-verified
+
+- **IMA ADPCM music.** 2.09 GB -> 543 MB, 3.94x. A stale raw blob now stays
+  SILENT rather than playing as noise - the PPAD magic and every field the decoder
+  hardcodes are checked before the table is walked. Buffering went 0.085 s ->
+  0.337 s, which is why it sounds cleaner; the codec is lossy at ~38 dB and the
+  samples are strictly worse. Do not shrink the ring to reclaim M10K
+- **VM DAC static.** Cart RAM 0x1802-0x19FF is an unsigned 8-bit PCM stream
+  buffer the 68000 pushes to YM2612 0x2A; we never initialised it. Filling with
+  0x80 makes the path DC. The option is now inert rather than wrong - hardware
+  also thins the mix and we do not reproduce that. Hardware-accurate design is
+  written up above for a larger FPGA
+
+## Open, and what each is actually blocked on
+
+    cap-53 / remap            five VDP addresses + map sizes, cell room + INTERCOM
+    player/bombs behind BG    SAT dump (is the player in the table?) + regs 3/17/18
+    frozen walks / squares    NOTHING - fill-rate bound, 10-16 blocks/frame
+    intro pixel flicker       unrelated, lowest value
+    Boom Box N vs N+0x80      cheap sweep, never run
+
+**No new Pocket bitstream for sprites or VRAM until a SAT/register dump exists.**
+
+## Gates learned the hard way (all in BUILD_REFERENCE)
+
+- **Firmware-only change: TWO conditions.** Fit metrics identical to the
+  reference AND bitstream md5 different. Identical metrics with an identical hash
+  is a void build, and the timing report cannot tell you - it cost a fit
+- **Seed spread is 1.19 ns**, not the 0.25-0.55 assumed. One bad fit is not
+  evidence a change broke timing. Re-seed before concluding; three or four seeds
+  is data, ten is a lottery
+- **Hold lives in the fast 0C corner.** Two seeds passed hold in the slow model
+  and failed it fast. Read the multicorner summary
+- **-2.596 boots**, so the untested band is now -2.596..-2.715
+
+## Refuted today - do not retry
+
+- **Static ROM scan for VDP register tables.** Only false positives; an 8 MiB ROM
+  is full of ascending 0x8rvv-shaped data. Scene setup goes through DATENMEISTER
+  and need not exist as plaintext
+- **The LPF/mode-3 theory for VM DAC static.** This tree's md_ntsc plays Sonic 2
+  drums correctly with CFG_LPF = 2'd3. Do not "fix" anything by enabling the filter
+- **Blanket SAT priority.** Forced 0x8000 on every entry: other sprites came
+  forward, player and bombs did not. Not SAT priority, which also rules out
+  mega-ppm's whole-word XOR as the cause of that symptom
+
+## Corrections worth keeping
+
+Both were tidy stories that outran the evidence, and both were caught by hardware
+or by a hash rather than by reasoning:
+
+- claimed "identity fit confirms firmware-only" when the firmware had never
+  reached the build - `build_mcu.sh` did not install, and now does
+- claimed four slots of cap headroom would reduce frozen walks game-wide. Slot
+  count is residency, `dma_budget` is fill rate; they are different limits
