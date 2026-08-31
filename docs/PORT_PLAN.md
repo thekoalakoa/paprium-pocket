@@ -2592,7 +2592,20 @@ Two process points fell out of it:
   recorded in advance earn their keep precisely when they disagree with a later,
   more elegant story
 
-### The "DAC list" region - now the leading suspect
+### CONFIRMED: it is a PCM stream buffer (2026-08-31)
+
+Filling `0x1802-0x19FF` with `0x80` **killed the hash on hardware**. VM DAC no
+longer produces static.
+
+So the 68000 does read that window and push it to YM2612 register `0x2A`, and the
+static was it streaming uninitialised `ramdp`. GPGX's `/* DAC list ?? */` guess
+was right and the region is now identified: **an unsigned 8-bit PCM stream buffer
+the cartridge is expected to keep filled.**
+
+The probe fit was byte-identical to shipping in ALM, M10K, setup and hold
+(18,194 / 294 / -2.596 / +0.004), so this costs no logic.
+
+### The "DAC list" region - the reasoning that got there
 
 GPGX suppresses debug logging for reads in cart RAM `0x1800-0x19FF` with the
 comment `/* DAC list ?? */` - its author saw reads there and never identified
@@ -2618,7 +2631,31 @@ Against it: the settings bytes sit at `0x1800`/`0x1801`, i.e. inside the same
 window, so either the buffer starts at `0x1802` or the first bytes are a header.
 Nobody has confirmed the game reads that range at all.
 
-### NEXT: a fill test, not a logger
+### What to do about it - a cheap partial, and an expensive correct
+
+**The cheap one is already built.** Keeping the `0x80` fill turns VM DAC from
+"adds static" into "does nothing audible": the DAC path stays at DC and the
+cartridge audio plays normally. The option still costs FM channel 6, as it does
+on hardware, but it no longer thins the sound the way hardware does. Identical
+fit, no area, no risk - it converts a bug into an inert menu item.
+
+**The correct one is expensive, and the reason is architectural.** To reproduce
+hardware, VM DAC must (1) fill that window with the cartridge's own PCM at ~30
+kHz, downconverted to unsigned 8-bit, and (2) duck or mute `paprium_sfx` and
+`cdda` so the audio is heard *instead of* the good path, not as well as it.
+
+Step 2 is easy - it is a mux in core_top's mixer. **Step 1 is the problem: the
+MCU does not have the audio.** The SFX engine and the CDDA player both live in
+the FPGA and produce `paprium_sfx_l/r` and `cdda_l/r` in the clk_sys domain. The
+firmware never sees those samples, so it cannot write them into `ramdp`. Feeding
+the window would need a new hardware writer into the dual-port RAM from the audio
+domain - new RTL, in a design fitting at 98% ALM with 4 ps of timing margin.
+
+So the honest position: the partial fix is free and available now; the correct
+fix is a real piece of work that should not be started casually at this
+occupancy, and VM DAC is a cosmetic option on a single-game core.
+
+### How it was found: a fill test, not a logger
 
 The obvious next step is a bus log of 68000 reads in `0x1800-0x19FF`. There is a
 cheaper experiment that answers the same question audibly, and this project's own
@@ -2627,10 +2664,12 @@ record says a controlled trigger beats analysis:
 **Fill `0x1802-0x19FF` with `0x80` and listen.** `0x80` is mid-scale for an
 unsigned 8-bit DAC, so a constant fill is a DC level - silence.
 
-    hash becomes SILENCE  -> the 68000 IS streaming that window. Confirmed, and
-                             the fix is to fill it with real PCM
-    hash unchanged        -> it is not that window. Then build the bus logger
-                             and find what the 68000 actually reads
+    hash becomes SILENCE  -> the 68000 IS streaming that window   <-- THIS ONE
+    hash unchanged        -> it is not, build the bus logger instead
+
+One firmware change and one listen settled what a bus logger would have taken the
+same build to capture and then required reading. The project's own note holds: a
+controlled trigger beats analysis.
 
 `0x1800`/`0x1801` must be left alone - they carry the DAC and NTSC settings the
 game reads back, and overwriting them would break the `0x88` fix and confuse the
