@@ -2516,17 +2516,37 @@ we never wrote.
   read in exactly one place in GPGX - the `0x08` gain bit. The `0x01` DAC bit is
   only written back to cart RAM `0x1800`/`0x1801` so the 68000 can read its own
   setting. Our `paprium.c` writes the same two bytes the same way.
-- So **"music still audible underneath" is correct behaviour, not a symptom.**
-  The cartridge engine is supposed to keep running. The static is something
-  ADDED on top, which matches core_top's mixer: `base_audio + paprium_sfx +
-  cdda_att`, summed into 19 bits and clamped. The YM2612 lands in `base_audio`.
+- The static is something **added** on top rather than replacing, which matches
+  core_top's mixer: `base_audio + paprium_sfx + cdda_att`, summed into 19 bits
+  and clamped. The YM2612 lands in `base_audio`.
 - **GPGX never feeds the YM2612 DAC itself.** There is no cartridge-side write to
-  register `0x2A` anywhere in `paprium.h`. With VM DAC selected the 68000 streams
-  PCM to the YM2612 over the normal bus, so that path is base-core Mega Drive
-  behaviour, not Paprium hardware we emulate.
+  register `0x2A` anywhere in `paprium.h`.
 
-That last point is the useful one, because it makes the first experiment a
-**discriminator rather than a fix attempt**:
+### CORRECTION - what the option actually does (hardware report, 2026-08-31)
+
+The menu text is *"use VM2612 DAC instead of DT128VALT DAC"*, and on original
+hardware selecting it makes the game **sound like a stock Genesis - fewer
+channels, less full**. That is not a broken path, it is a working lo-fi option,
+and it corrects two things assumed above.
+
+**"Fewer channels" is literal.** Enabling the YM2612's DAC costs FM channel 6 -
+that is how the chip works. So the option really does trade a channel away.
+
+**"Less full" is the DAC swap.** The cartridge's DT128VALT is the good converter;
+the YM2612's is the stock 8-bit one.
+
+Which means the cartridge's PCM is **routed through the YM2612's DAC** when the
+bit is set. And the cartridge cannot write YM2612 registers - it sits on the
+cartridge bus, while the YM2612 is in the console - so **the 68000 must be
+reading PCM from the cartridge and stuffing `0x2A` with it**.
+
+So an earlier note here was wrong and is retracted: *"music still audible
+underneath is correct behaviour"* was too strong. On hardware you hear the same
+music through a worse converter, not the good path plus a second noise source.
+Hearing full-quality music with hash on top means the routing is not happening
+and something else is reaching `0x2A`.
+
+That makes the first experiment a **discriminator rather than a fix attempt**:
 
 **Do the ntsc bitstream's DAC samples work?** Nearly every Mega Drive game uses
 YM2612 DAC PCM for drums and voices. Run any of them on the `ntsc` variant built
@@ -2541,25 +2561,56 @@ from this same tree:
 Do this before building any probe. It costs one bitstream that already exists and
 it splits the problem in half.
 
-### Still unidentified: the "DAC list" region
+### PREDICTION, recorded before the test
+
+**ntsc will be clean.** If the 68000 is streaming cartridge PCM to `0x2A`, the
+YM2612 DAC itself is fine and ordinary games will sound right. Writing this down
+so the test can falsify it: if ntsc *is* hashy, this whole line of reasoning is
+wrong and the problem is the base core, which is both easier and cheaper.
+
+### The "DAC list" region - now the prime suspect, if ntsc is clean
 
 GPGX suppresses debug logging for reads in cart RAM `0x1800-0x19FF` with the
-comment `/* DAC list ?? */` - its author saw reads there and did not identify
-them. We write only `0x1800` and `0x1801`; the other 510 bytes are whatever
-`ramdp` happens to hold. If the game sources DAC samples or pointers from that
-window, uninitialised contents would read as exactly this symptom.
+comment `/* DAC list ?? */` - its author saw reads there and never identified
+them. We write `0x1800` and `0x1801` (the settings bytes); the other 510 are
+whatever `ramdp` happens to hold.
 
-**Not yet evidence** - the GPGX line is inside `#if DEBUG_MODE`, so it suppresses
-logging rather than stubbing behaviour, and nobody has confirmed the game reads
-that range with VM DAC on. Worth checking only if the ntsc test above comes back
-clean.
+The size fits a stream buffer uncomfortably well:
+
+    0x1800-0x19FF = 512 bytes
+    512 samples refilled once per NTSC frame = 30,679 Hz
+    512 samples refilled once per PAL  frame = 25,446 Hz
+    two 256-byte halves, NTSC                = 15,340 Hz
+
+All three land inside the 8-32 kHz band Genesis PCM streaming normally uses, and
+30.7 kHz in particular is a common choice. An 8-bit sample buffer the cartridge
+is expected to keep filled, read by the 68000 and pushed to `0x2A`, would explain
+the symptom exactly: we never fill it, so the 68000 streams uninitialised RAM,
+which is hash - while our own SFX engine carries on feeding `paprium_sfx` at full
+quality underneath.
+
+**Still a hypothesis, and the arithmetic is suggestive rather than probative.**
+Against it: the settings bytes sit at `0x1800`/`0x1801`, i.e. inside the same
+window, so either the buffer starts at `0x1802` or the first bytes are a header.
+Nobody has confirmed the game reads that range at all. Do the ntsc test first -
+if it is hashy this is all moot.
+
+### If the hypothesis holds, the fix shape
+
+Fill the window each frame with the same PCM the SFX engine is producing,
+downconverted to 8 bits, and let the 68000 push it to `0x2A`. The cartridge DAC
+path should then be attenuated or muted so the audio is not heard twice at two
+different qualities - "less full" means instead of, not as well as.
+
+Not a Pocket fit until the discriminator says so.
 
 ### What would NOT be worth doing
 
 Comparing against GPGX by ear needs a host that runs frames and takes input;
 `tools/gpgx-render` exits during `retro_load_game` because its hook fires there.
 That is a real piece of work, and the ntsc test answers the same question for
-free.
+free. Note also that GPGX does not implement this routing either, so it is not a
+reference for what VM DAC should sound like - only hardware is.
 
 
 ## LOG_ALL capture: what the full command stream shows
