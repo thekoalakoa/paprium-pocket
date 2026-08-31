@@ -5140,3 +5140,70 @@ deliberate. Capturing `sfx_play`'s arg on a high-id trigger would prove it.
 
 **Do not grow the mixer toward 256 voices on the strength of the menu's range.**
 Treat `80-FF` as a flag UI until a pair breaks the `N` / `N + 0x80` rule.
+
+---
+
+# RESUME HERE - 2026-08-30, IMA ADPCM in progress
+
+## Shipping state
+
+`build_output/paprium.rbf_r` + the firmware rate-step is what is on the card and
+pushed. Verified on hardware:
+
+- **cap-at-49** - slots 49-52 were DMAing over the sprite attribute and hscroll
+  tables at `0xF800`; capping stops it. Elevator improved
+- **field-wise sprite attributes** - fixes the doorway floor and palette generally
+- **`0x0100` = rate-index step**, done in `sfx.c`, fit identical to `61d1ddd3`.
+  Large-enemy death is the grunt sample one rate step down
+
+Elevator is **closed as characterised**: fill-bound at 10-16 blocks/frame from
+`dma_budget` (a ROM constant), plus the `previous_offset` fallback re-rendering the
+last animation frame. Not a collision. Do not reopen without new evidence.
+
+## IMA ADPCM - step 1 of 3 done
+
+**Done and committed:**
+
+- `scripts/build_cdda_adpcm.py` - PPAD packer. 3.95x, SNR 37.9 dB, quality approved
+- `rtl/PAPRIUM/paprium_ima_decode.sv` - 512-byte frames -> 505 stereo samples,
+  fully registered, in `core.qip`, synthesis clean
+- `scripts/verify_ima_decode.py` - cycle model, matches the reference decoder
+  byte-for-byte over 1,010 samples across a frame boundary
+
+**Remaining:**
+
+1. `paprium_cdda_buf` read side - ring holds compressed frames, read pointer in
+   **512-byte frame units**, hand bytes to the decoder
+2. `paprium_cdda_fetch` - PPAD magic at `0x000`, **16-byte** table entries, stop on
+   `pcm_samples`, and **mute on missing magic** - never parse a stale `.pcm` as
+   `u32` offsets
+3. Build `ima1`, **shipping variant only**
+4. Smoke: boot -> cell room -> loop track 1 -> seek stage-clear. A stale `.pcm` in
+   the slot must stay silent
+
+**Constraints:** player stays 16-bit 48 kHz. Do NOT fold in the ratestep RTL, the
+cmdlog logger, or any region/menu cut. Shipping tree plus this decoder only.
+
+**Gate:** hold > 0, setup not ~-3.0. Then hardware decides - see BUILD_REFERENCE.
+
+## Standing rules that cost something to learn
+
+- **Archive before anything overwrites it** - `archive_fit.sh <label>` keeps the
+  report AND the bitstream, in `build_output/gate-archive/` marked NOT-FOR-INSTALL
+- **Never two Quartus builds at once** - they share `output_files` and both results
+  become meaningless
+- **The slack gate warns, hardware decides** - `-2.701` boots, `-2.715` does not
+- **Combinational logic in a hot path is expensive here** - the `srate+1` adder in
+  front of the `aclk` mux cost 0.4 ns and four seeds; registered logic is nearly free
+- **Check the ROM before building instrumentation** - `dma_budget` was a ROM
+  constant after four failed logger builds
+- **A controlled trigger beats analysis** - the in-game Boom Box settled the death
+  sound after two of my own analyses failed their own controls
+
+## Still open
+
+- YM2612 DAC static (VM DAC option) - reproducible on demand, never investigated
+- Rooftop boss sprite priority - never investigated
+- Intro pixel flicker - cosmetic
+- Boom Box `N` vs `N+0x80` sweep - cheap, confirms the high 128 slots are rate
+  variants rather than unheard samples
