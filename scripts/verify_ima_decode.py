@@ -16,7 +16,7 @@ Golden data is produced by encoding a track with build_cdda_adpcm.py and decodin
 it back with a straight reference decoder - see docs/CDDA_DESIGN.md.
 """
 import struct
-from imadec import STEP, INDEX, cl
+from ima_reference import STEP, INDEX, cl   # same tables the packer uses
 
 S_HDR_L0,S_HDR_L1,S_HDR_L2,S_HDR_L3,S_HDR_R0,S_HDR_R1,S_HDR_R2,S_HDR_R3, \
 S_SEED,S_FETCH,S_DEC,S_EMIT = range(12)
