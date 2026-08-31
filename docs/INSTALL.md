@@ -7,7 +7,8 @@ hardware is stripped out to make room for Paprium's own. Don't load other ROMs
 into it; use a Mega Drive core for those.
 
 **You must supply your own cartridge dump.** None is included, and none will be
-linked. Paprium is still sold by WaterMelon.
+linked. WaterMelon have ceased trading and the game is no longer sold, but that
+does not put it in the public domain - it is still their work.
 
 ---
 
