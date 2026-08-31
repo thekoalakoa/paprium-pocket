@@ -170,3 +170,70 @@ against real hardware.
 4. **`bridge_endian_little`** — `data_loader.sv` already handles the bridge's
    endianness for ROM loading; confirm 16-bit PCM samples come out the right way
    round rather than assuming.
+
+---
+
+# IMA ADPCM (`PPAD`) - format and decoder placement
+
+The raw blob is 2.09 GB, which makes the music impractical to distribute or
+rebuild. IMA ADPCM is a flat 4 bits per sample against 16 - 4:1 with no content
+dependence - so about 535 MB. **Only the file changes**: the play path stays a
+48 kHz stereo 16-bit consumer.
+
+## Format
+
+    0x00  char[4]  "PPAD"          magic, so a stale paprium.pcm fails LOUDLY
+    0x04  u32      version = 1
+    0x08  u32      sample rate = 48000
+    0x0C  u32      channels = 2
+    0x10  u32      block_samples = 505
+    0x14  u32      ntracks = 64
+    0x18  64 x 16 bytes: u64 offset, u32 adpcm_bytes, u32 pcm_samples
+    0x1000 data, IMA blocks
+
+The magic matters: the old layout starts with the track table at `0x000`, so a
+stale `.pcm` parsed as `PPAD` would read audio bytes as offsets and stream noise.
+
+## Block geometry - why 505
+
+`block_samples - 1` must be a multiple of 8: the first sample of a block is the
+header's seed predictor and is not encoded, and the rest are encoded eight at a
+time. 505 is the WAV-standard answer for a 512-byte stereo block:
+
+    505 samples -> 504 encoded/channel -> 4 hdr + 252 nibbles = 256 B/channel
+    stereo frame = 512 bytes            4096-byte fetch = EXACTLY 8 frames
+
+A first attempt used 256 and produced one extra sample per block. It decoded at
+full amplitude and sounded plausible while drifting a sample per block, measuring
+-2.9 dB SNR. **A layout mismatch does not sound like mild ADPCM, it sounds like
+noise** - so the stereo order is stated identically here and in the packer:
+
+    L header (4B), R header (4B), then alternating L 4 bytes / R 4 bytes
+
+Every block is self-contained, carrying its own predictor and step index per
+channel, so a seek need only land on a 512-byte boundary. Mid-block resume would
+need decoder state the fetch path cannot reconstruct.
+
+Stop on the table's `pcm_samples`, not on the byte length: the final block pads to
+a multiple of 8 and would otherwise emit stray samples at every track end.
+
+## Where the decoder goes - decided by M10K, not preference
+
+    decode on the WRITE side (ring holds PCM)
+        4096 B IMA = 8 frames = 4040 samples = 16,160 B PCM
+        4 chunks = 64,640 B = 505 Kbit = ~50 M10K, against 14 spare   IMPOSSIBLE
+
+    decode on the READ side (ring holds IMA)
+        same 16 KB ring now holds 16,160 samples = 0.337 s, up from 0.085 s
+        4x the buffering for no extra memory                          CHOSEN
+
+So the ring stores compressed blocks and the decoder sits between it and the
+player. Fetch bandwidth also drops 4x, which is free headroom on the SD path.
+
+**Registered, not combinational.** Nibble arithmetic must not land on the 48 kHz
+sample path - the same mistake as the `srate+1` adder in front of the `aclk` mux,
+which cost 0.4 ns of setup and four seeds' worth of grief. 48 kHz x 2 channels is
+96k updates/second; there is no throughput pressure, only depth.
+
+Measured on 20 s of Intercom: **3.95x, SNR 37.9 dB**, judged indistinguishable by
+ear against the source.
