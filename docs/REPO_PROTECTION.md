@@ -103,9 +103,10 @@ Re-run those checks if history is ever rewritten:
 
     git rev-list --objects --all | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' | awk '$1=="blob" {print $3, $4}' | sort -rn | head
 
-One item is a judgement call rather than a check: `pkg/pocket/Platforms/_images/paprium.bin`
-is the core's platform artwork, derived from WaterMelon key art. The full-resolution
-source was deliberately removed from the repository on the same principle that keeps
-the ROM out. The downscaled platform image was kept because the core needs it to
-display. Worth a deliberate decision before publication rather than discovering it
-afterwards.
+One item was a judgement call rather than a check, and it has been decided:
+`pkg/pocket/Platforms/_images/paprium.bin` is the core's platform artwork, derived
+from WaterMelon key art. The full-resolution source was deliberately removed from
+the repository on the same principle that keeps the ROM out; the downscaled
+platform image is **kept** - decided 2026-08-31 - because the core needs it to
+display and it is the artwork in its functional form rather than a redistributable
+copy of the original.
