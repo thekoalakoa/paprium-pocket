@@ -87,6 +87,13 @@ class Enc:
         return code
 
 
+# The fetch reads in fixed 4096-byte chunks = 8 frames; see paprium_cdda_fetch.sv.
+CHUNK = 4096
+# pred 0, index 0, then 504 zero nibble-bytes. IMA nibble 0 gives diff = step>>3,
+# which is 0 at step 7, so the predictor never moves: exact digital silence.
+SILENCE_FRAME = struct.pack('<hBB', 0, 0, 0) * 2 + b'\0' * 504
+
+
 def encode_track(pcm, block_samples):
     """pcm: bytes of interleaved s16 stereo. -> (adpcm bytes, sample count)"""
     n = len(pcm) // 4                       # frames (one sample per channel)
@@ -103,15 +110,24 @@ def encode_track(pcm, block_samples):
             enc[c].pred = first[c]
             hdr += struct.pack('<hBB', enc[c].pred, enc[c].idx, 0)
         body = bytearray()
-        # samples 1..take-1, in groups of 8 per channel (4 bytes each)
+        # samples 1..block_samples-1, in groups of 8 per channel (4 bytes each).
+        # The bound is block_samples, NOT take: every block must come out exactly
+        # 512 bytes. The decoder frames the stream by counting bytes, so a short
+        # final block would slide every following frame and decode as noise. The
+        # j < take guard below already substitutes the held predictor, so the pad
+        # is a flat continuation, and pcm_samples records where the real audio ends.
         i = 1
-        while i < take:
+        while i < block_samples:
             for c in (0, 1):
                 nib = []
                 for k in range(8):
                     j = i + k
+                    # Past the end of the source, encode toward ZERO rather than
+                    # holding the last predictor. A held predictor leaves a DC step
+                    # for the rest of the block and then a cliff down to the silence
+                    # frames, which is an audible thump at every track end.
                     s = struct.unpack_from('<h', pcm, (pos + j) * 4 + c * 2)[0] \
-                        if j < take else enc[c].pred
+                        if j < take else 0
                     nib.append(enc[c].encode(s))
                 for k in range(0, 8, 2):
                     body.append(nib[k] | (nib[k + 1] << 4))
@@ -158,6 +174,13 @@ def main():
         # the true sample count, so the player stops on the last REAL sample -
         # the final block pads to a multiple of 8 and would otherwise emit a few
         # stray samples at every track end
+        # Pad to a whole CHUNK so the fetch's fixed 4096-byte reads never straddle
+        # into the NEXT track's data - that is what would play as noise. The pad is
+        # whole silence frames (pred 0, index 0, all-zero nibbles decodes to a flat
+        # zero), so overrunning into it is silent rather than wrong.
+        if len(adp) % CHUNK:
+            adp = adp + SILENCE_FRAME * ((CHUNK - len(adp) % CHUNK) // 512)
+            blobs[t] = (adp, ns)     # the PADDED bytes are what gets written
         table[t] = (off, len(adp), ns)
         off += len(adp)
 

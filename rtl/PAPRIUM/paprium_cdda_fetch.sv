@@ -13,11 +13,19 @@
 // duration-encoded error readout). Rather than keep guessing at an undocumented
 // struct, the track index moves out of the filesystem and into the file:
 //
-//   /Assets/genesis/common/Paprium/paprium.pcm
-//     0x000  64 entries x 8 bytes: u32 start offset, u32 length (little-endian)
-//     0x200  track data, concatenated
+//   /Assets/paprium/common/paprium.pcm   (built by scripts/build_cdda_adpcm.py)
+//     0x00   char[4] "PPAD"
+//     0x04   u32 version, u32 rate, u32 channels, u32 block_samples, u32 ntracks
+//     0x18   64 entries x 16 bytes: u64 offset, u32 adpcm_bytes, u32 pcm_samples
+//     0x1000 IMA ADPCM track data, concatenated
 //
-// A track request reads its 8-byte header entry, then streams from that offset.
+// The audio is IMA ADPCM, decoded in paprium_cdda_buf. THE MAGIC IS CHECKED
+// BEFORE THE TABLE IS EVER WALKED: an older raw-PCM paprium.pcm parsed as this
+// format yields arbitrary 64-bit offsets, and streaming from those plays as
+// noise. No magic means no table walk, no reads, and a silent player - see
+// S_MAGIC. That is the whole reason the probe exists.
+//
+// A track request reads its 16-byte table entry, then streams from that offset.
 // Everything here rides on target_dataslot_slotoffset reads, which is the one
 // mechanism hardware has confirmed end to end.
 //
@@ -58,7 +66,7 @@ module paprium_cdda_fetch #(
 
 	// Header entry landing, from its own small data_loader
 	input  wire        hdr_wr_en,
-	input  wire  [2:0] hdr_wr_addr,        // byte address within the 8-byte entry
+	input  wire  [4:0] hdr_wr_addr,        // byte address within the read (max 24)
 	input  wire [15:0] hdr_wr_data,
 
 	// Chunk flow control against the player (clk_sys), Gray coded
@@ -107,23 +115,50 @@ module paprium_cdda_fetch #(
 	// 0,2,4,6 - the same assembly that already carries PCM samples correctly, so
 	// the byte order needs no special handling here.
 	// ---------------------------------------------------------------------
-	reg [15:0] hdr [0:3];
+	reg [15:0] hdr [0:11];
 	// target_dataslot_done says the COMMAND finished, but the bytes reach these
 	// registers through data_loader, which has a FIFO and a 24-cycle write pipeline.
 	// Sampling on done alone can read the entry before its last word has landed and
 	// take a stale offset, so count the four words in.
-	reg  [2:0] hdr_count;
+	reg  [3:0] hdr_count;
+	// Pulsed when a new header read is issued. Without it the word count from the
+	// magic probe would still be standing when the table entry lands, and
+	// S_HDR_WAIT would accept the entry before its own words had arrived.
+	reg        hdr_clr;
 
 	always @(posedge clk_74a) begin
-		if(track_request) hdr_count <= 0;
+		if(track_request | hdr_clr) hdr_count <= 0;
 		else if(hdr_wr_en) begin
-			hdr[hdr_wr_addr[2:1]] <= hdr_wr_data;
-			if(hdr_count < 3'd4) hdr_count <= hdr_count + 1'd1;
+			hdr[hdr_wr_addr[4:1]] <= hdr_wr_data;
+			if(hdr_count < 4'd12) hdr_count <= hdr_count + 1'd1;
 		end
 	end
 
-	wire [31:0] hdr_start = {hdr[1], hdr[0]};
-	wire [31:0] hdr_len   = {hdr[3], hdr[2]};
+	// ---- the 24-byte file header, valid after the S_MAGIC read ----
+	// data_loader hands back little-endian 16-bit words, so hdr[0][7:0] is byte 0.
+	// "PPAD" is 50 50 41 44, which is word 0 = 0x5050 and word 1 = 0x4441.
+	wire        ppad_magic = (hdr[0] == 16'h5050) && (hdr[1] == 16'h4441);
+	wire [31:0] f_version  = {hdr[3],  hdr[2]};
+	wire [31:0] f_rate     = {hdr[5],  hdr[4]};
+	wire [31:0] f_chans    = {hdr[7],  hdr[6]};
+	wire [31:0] f_blk      = {hdr[9],  hdr[8]};
+	wire [31:0] f_ntracks  = {hdr[11], hdr[10]};
+
+	// Every field the decoder hardcodes is checked, not just the magic. A blob with
+	// the right magic but a different block size would frame at the wrong stride and
+	// decode as noise - exactly the failure this gate exists to prevent.
+	wire blob_valid = ppad_magic
+	               && (f_version == 32'd1)
+	               && (f_rate    == 32'd48000)
+	               && (f_chans   == 32'd2)
+	               && (f_blk     == 32'd505)
+	               && (f_ntracks >= 32'd64);
+
+	// ---- a track's 16-byte table entry, valid after the S_HDR read ----
+	wire [31:0] hdr_start  = {hdr[1], hdr[0]};   // offset, low 32 bits
+	wire [31:0] hdr_off_hi = {hdr[3], hdr[2]};   // offset, high 32 - must be zero
+	wire [31:0] hdr_len    = {hdr[5], hdr[4]};   // adpcm bytes, a multiple of 4096
+	wire [31:0] hdr_smpls  = {hdr[7], hdr[6]};   // true sample count; see S_HDR_WAIT
 
 	// Latched once the entry is complete. Streaming off the live wires would let a
 	// later header read shift end-of-track under a track already playing.
@@ -158,7 +193,10 @@ module paprium_cdda_fetch #(
 	// ---------------------------------------------------------------------
 	// Sequencer
 	// ---------------------------------------------------------------------
-	localparam S_IDLE      = 4'd0,
+	localparam S_MAGIC      = 4'd10,
+	           S_MAGIC_ACK  = 4'd11,
+	           S_MAGIC_WAIT = 4'd12,
+	           S_IDLE      = 4'd0,
 	           S_HDR       = 4'd1,
 	           S_HDR_ACK   = 4'd2,
 	           S_HDR_WAIT  = 4'd3,
@@ -179,8 +217,15 @@ module paprium_cdda_fetch #(
 	// against a command that is never acknowledged at all.
 	reg [21:0] wait_timer;
 
+	// The blob is probed once and the verdict kept. blob_checked separates "not
+	// looked yet" from "looked, and it is not a PPAD blob" - without it a bad blob
+	// would be re-probed on every single track change.
+	reg blob_checked;
+	reg blob_ok;
+
 	always @(posedge clk_74a) begin
 		target_dataslot_read <= 0;
+		hdr_clr              <= 0;
 
 		if(reset) begin
 			state         <= S_IDLE;
@@ -192,6 +237,8 @@ module paprium_cdda_fetch #(
 			diag_phase    <= 0;
 			diag_chunks   <= 0;
 			diag_gap      <= 0;
+			blob_checked  <= 0;
+			blob_ok       <= 0;
 		end
 		else begin
 			// A stop arriving mid-readout would truncate a burst and give a
@@ -215,18 +262,67 @@ module paprium_cdda_fetch #(
 				// WHOLE readout. core_top uses it to suppress a stop that would
 				// otherwise mute the player mid-burst.
 				if(DIAG_MODE) playing <= 1;
-				state           <= S_HDR;
+				// The blob is vetted ONCE. It cannot change without the core being
+				// relaunched, and re-probing on every track change would add a
+				// round trip to each scene transition for no new information.
+				if(!blob_checked)    state <= S_MAGIC;
+				else if(blob_ok)     state <= S_HDR;
+				else begin
+					// No usable blob. Report not-playing and issue nothing at all;
+					// the MCU polls mdp_playing and carries on without music.
+					playing <= 0;
+					state   <= S_IDLE;
+				end
 			end
 			else case(state)
 
 			S_IDLE: ;
 
-			// Fetch this track's 8-byte header entry: entry N at file offset N*8
-			S_HDR: begin
-				target_dataslot_slotoffset <= {21'd0, hdr_track, 3'd0};
+			// ---- vet the blob before trusting a single byte of its table ----
+			S_MAGIC: begin
+				target_dataslot_slotoffset <= 32'd0;
 				target_dataslot_bridgeaddr <= HDR_ADDR;
-				target_dataslot_length     <= 32'd8;
+				target_dataslot_length     <= 32'd24;   // magic plus the five u32
 				target_dataslot_read       <= 1;
+				hdr_clr                    <= 1;
+				state                      <= S_MAGIC_ACK;
+			end
+
+			S_MAGIC_ACK: begin
+				wait_timer <= wait_timer + 1'd1;
+				if(target_dataslot_ack) begin wait_timer <= 0; state <= S_MAGIC_WAIT; end
+				else if(&wait_timer) begin
+					// The slot never answered - no file loaded, most likely. Treat
+					// that as "no blob" rather than retrying forever; the game must
+					// not stall waiting for music it is never going to get.
+					wait_timer   <= 0;
+					blob_checked <= 1;
+					blob_ok      <= 0;
+					playing      <= 0;
+					state        <= S_IDLE;
+				end
+			end
+
+			S_MAGIC_WAIT: if(target_dataslot_done && (hdr_count >= 4'd12)) begin
+				blob_checked <= 1;
+				if(target_dataslot_err != 3'd0 || !blob_valid) begin
+					blob_ok <= 0;
+					playing <= 0;
+					state   <= S_IDLE;
+				end
+				else begin
+					blob_ok <= 1;
+					state   <= S_HDR;
+				end
+			end
+
+			// This track's 16-byte table entry: entry N at 0x18 + N*16.
+			S_HDR: begin
+				target_dataslot_slotoffset <= 32'h18 + {20'd0, hdr_track, 4'd0};
+				target_dataslot_bridgeaddr <= HDR_ADDR;
+				target_dataslot_length     <= 32'd16;
+				target_dataslot_read       <= 1;
+				hdr_clr                    <= 1;
 				state                      <= S_HDR_ACK;
 			end
 
@@ -236,11 +332,24 @@ module paprium_cdda_fetch #(
 				else if(&wait_timer)    begin wait_timer <= 0; state <= S_IDLE;     end
 			end
 
-			S_HDR_WAIT: if(target_dataslot_done && (hdr_count >= 3'd4)) begin
+			S_HDR_WAIT: if(target_dataslot_done && (hdr_count >= 4'd8)) begin
 				// Length 0 means the track has no audio - one of the ten Blank.wav
 				// placeholders the cue asks for, or a track the pack was missing.
 				// Silence, not a hang: the MCU polls mdp_playing.
-				if(target_dataslot_err != 3'd0 || hdr_len == 0) begin
+				//
+				// hdr_off_hi guards the u64 offset: cursor is 32 bits, so a blob
+				// over 4 GB would silently wrap and stream from the wrong place.
+				// Refuse rather than play the wrong track.
+				//
+				// hdr_len is the PADDED byte count. build_cdda_adpcm.py rounds every
+				// track up to a whole 4096-byte chunk with silence frames, so the
+				// fixed-size reads below can never straddle into the next track's
+				// data - that straddle is what would sound like noise. hdr_smpls is
+				// the true sample count; the pad it excludes is digital silence, so
+				// running into it is quiet rather than wrong. See the note in
+				// docs/CDDA_DESIGN.md about tightening the seam to sample exactness.
+				if(target_dataslot_err != 3'd0 || hdr_len == 0 || hdr_smpls == 0
+				   || hdr_off_hi != 0) begin
 					playing <= 0;
 					state   <= S_IDLE;
 				end
