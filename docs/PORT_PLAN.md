@@ -5069,3 +5069,42 @@ Play Boom Box `0x9A` on **stock `61d1ddd3`**, with no rate step anywhere:
 **Boom Box "everything plays" does not finish the listen.** That menu likely fires
 table rate only; `0x0100` appears in combat. `0x7D` is the veto - nine of the
 fifteen flagged requests, and it fires constantly during a fight.
+
+## RESOLVED ON HARDWARE: 0x0100 steps the rate index
+
+Controlled A/B through the Boom Box sound test - same trigger, same sound, only the
+build differs:
+
+    stock 61d1ddd3        Boom Box 9A  ->  normal pitch, identical to 0x1A
+    seed 4 (+rate step)   Boom Box 9A  ->  deep, matches the in-game fat death
+
+So nothing else retunes that sound in that menu: **the deep variant is `0x0100`
+stepping the sample-rate index by one**, 9600 -> 6000 Hz, the 0.625x ratio
+identified by ear.
+
+Combat on seed 4 was clean - `0x7D` and the other flagged ids unchanged - so the
+step is not over-applying.
+
+### Shipping form: firmware, not RTL
+
+    type[6:4] += 1  when flags & 0x0100, saturating at index 5 (5333 Hz)
+    hardware bit 0 cleared so the RTL amp path cannot stack
+    fit IDENTICAL to 61d1ddd3 - 16,900 ALM / 294 M10K / -2.539 / -1201.155
+
+The RTL form works but must not ship. It put an adder in front of the `aclk` mux
+and cost ~0.4 ns; four fitter seeds landed at -2.70, -2.72, -2.96 and -2.98, and
+**-2.715 was measured not to boot while -2.701 boots** - a 0.014 ns difference with
+opposite outcomes, so that version depends on a lucky place-and-route rather than
+on anything reproducible.
+
+### What actually solved it
+
+**The tester found the game's own sound test.** That converted an intermittent
+combat event into a repeatable trigger, which made the A/B and the control
+possible. Two of my analyses pointed the other way and both failed their own
+controls - a log-frequency correlation that could not detect a known octave shift,
+and an envelope ranking that did not surface `0x1A` for the grunt death it
+demonstrably is.
+
+The cheap listening test, with ratios restricted to what the engine can actually
+produce, is what worked. It should have come before the tooling.
