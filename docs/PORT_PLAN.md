@@ -5493,6 +5493,53 @@ Do NOT slide 800 -> 864 -> 928 blind. A 64x32 map at 0x6400 covers 0x6400-0x73FF
 which is tiles 800-927, so 864 is still inside it.
 
 
+## VRAM starvation is ONE defect, and it is wider than the elevator
+
+**Reported (hardware, 2026-08-31):** characters sometimes animate as if standing
+still - walking, but the frame never advances. Present since the first build. A
+community thread put it down to VRAM starvation. That reading is correct, and it
+is the mechanism already recorded here for the elevator.
+
+`ppm_obj_render` in `mcu/mame.c`:
+
+    if (!ppm_vram_load_block(spr_data->blockNum)) {
+        blocks_available = false;
+    }
+    ...
+    if (!blocks_available) {
+        if (previous_offset) {
+            handle->anim_offset = previous_offset;   // rewind to the last frame
+            handle->counter     = previous_counter;
+        } else {
+            return;                                  // draw nothing at all
+        }
+    }
+
+When a block will not load, the object **rewinds to its previous animation
+frame**. Across consecutive frames that is a character walking on the spot. With
+no previous frame it is not drawn at all, so severe starvation makes objects
+vanish rather than freeze - the same path, worse severity.
+
+**Consequences for how the open items relate:**
+
+- **The elevator is not a separate bug.** It is this fallback in the scene that
+  demands the most blocks. PORT_PLAN already described the elevator's stale
+  squares in exactly these terms; what was missed is that the same code fires in
+  ordinary gameplay, so it was mis-scoped as an elevator problem
+- **Cap-at-49 aggravates it game-wide.** `PPM_VRAM_SAFE_SLOTS 0x31` clamps the
+  budget to 49 while INTERCOM asks for 53. Fewer slots means more `load_block`
+  failures means more rewinds. The symptom predates the cap so the cap did not
+  cause it, but the cap costs four blocks everywhere, not just in the elevator
+- **This raises the value of the emulator session.** Getting the five VDP
+  addresses is no longer a niche elevator fix. Buying back four blocks reduces
+  animation freezing across the whole game. It had been treated as lower priority
+  than it deserves
+
+**Do not respond by raising the cap blind.** The reason 49 exists is the
+confirmed `0xF800` SAT/hscroll collision, and the reason a remap was reverted is
+that the cell-room floor broke. The route to 53 is still the five addresses.
+
+
 ## Still open
 
 - ~~YM2612 DAC static (VM DAC option)~~ **FIXED 2026-08-31** - the 68000 streams
