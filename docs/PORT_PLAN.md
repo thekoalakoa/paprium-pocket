@@ -5230,6 +5230,53 @@ an unrecognised blob outright. INSTALL.md says so where the build commands are.
 - **A controlled trigger beats analysis** - the in-game Boom Box settled the death
   sound after two of my own analyses failed their own controls
 
+## Elevator: the VRAM map question, and one approach already refuted
+
+Raising `PPM_VRAM_SAFE_SLOTS` above 0x31 needs a 64-tile range that is not a
+nametable, SAT or hscroll table **in both the cell room and INTERCOM**, because
+layouts can change per scene. Until those five addresses are written down for
+both, the cap stays at 49. Guessing 0x6400 is how the floor broke.
+
+The five registers and their address maths:
+
+    reg  2  plane A nametable   (v & 0x38) << 10      32x32 map = 0x800
+    reg  3  window  nametable   (v & 0x3E) << 10      64x32 map = 0x1000
+    reg  4  plane B nametable   (v & 0x07) << 13
+    reg  5  sprite attributes   (v & 0x7F) << 9       SAT     = 0x280
+    reg 13  hscroll table       (v & 0x3F) << 10      hscroll = 0x400
+
+**REFUTED: static search of the ROM for VDP register tables (2026-08-31).**
+Scanning for runs of `0x8rvv` words with ascending register numbers finds only
+false positives - an 8 MiB ROM is full of ascending byte runs in the 0x80-0x9F
+range, and the "tables" it returns decode to values that are themselves 0x8r
+patterns (`reg 3 = 0x84`, `reg 16 = 0x91`), which is the signature of reading one
+byte off. Scanning both alignments and requiring the run to start at register 0
+or 1 did not fix it: the top hits are plainly data (`8182 8384 8587 8889 ...`
+and `8001 8101 8201 8301 ...`).
+
+That is probably inherent rather than a weak heuristic. Paprium's scene data goes
+through the DATENMEISTER decompressor, so register setup need not exist as
+plaintext anywhere in ROM. **Do not spend more time on a static scan.** Same
+failure shape as the 0xDB decoder false positive: a heuristic that matches
+structure which ordinary data also has.
+
+What is left, cheapest first:
+
+1. **Emulator VDP viewer.** Read regs 2/3/4/5/13/16 in the cell room and in
+   INTERCOM; write down the five addresses and their sizes. Five minutes.
+2. **A logging GPGX.** `tools/gpgx-render` already has a libretro host and the
+   core source is in `gpgx-build/`, so patching the VDP register write path to
+   log every distinct layout with a frame number is a small change - and it
+   catches per-scene changes that reading a viewer by eye can miss. It still
+   needs someone to play to those scenes.
+3. **One-slot hardware probe, only after 1 or 2.** Pin slot 49 to a candidate
+   outside every listed map; boot -> cell room -> doorway -> HUD. Anything
+   breaking means the range is live.
+
+Do NOT slide 800 -> 864 -> 928 blind. A 64x32 map at 0x6400 covers 0x6400-0x73FF,
+which is tiles 800-927, so 864 is still inside it.
+
+
 ## Still open
 
 - YM2612 DAC static (VM DAC option) - reproducible on demand, never investigated
