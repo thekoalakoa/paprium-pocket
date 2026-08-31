@@ -79,6 +79,29 @@ Hold is part of the gate, not a footnote: seeds default and 7 fail hold in the
 FAST corner (0C) while passing it in the slow one. Read the multicorner summary,
 not just the slow model.
 
+### A firmware-only change must CHANGE THE BITSTREAM
+
+`scripts/build_mcu.sh` compiles to `build_output/mcu/mcu.txt` and **does not
+install it**. It prints `rtl/PAPRIUM/mcu.txt` as a "reference build for
+comparison", which reads like confirmation and is not. Quartus reads
+`rtl/PAPRIUM/mcu.txt` (`$readmemh` in `mcu_core.sv`), so a build after
+`build_mcu.sh` alone uses the OLD firmware.
+
+    cp build_output/mcu/mcu.txt rtl/PAPRIUM/mcu.txt      # or the build is a no-op
+
+This cost a whole 25-minute fit, and the failure is invisible to the timing gate:
+ALM, M10K, setup and hold all came back **identical to shipping**, which is
+exactly what "firmware-only, no RTL touched" is supposed to look like. It was
+also exactly what "nothing changed at all" looks like.
+
+**So gate a firmware-only change on TWO conditions, not one:**
+
+    fit metrics identical to the reference   -> no RTL moved        (necessary)
+    bitstream md5 DIFFERENT from reference   -> the firmware got in (necessary)
+
+Identical metrics AND an identical bitstream means the build is void. Check the
+hash before installing; the timing report cannot tell you.
+
 ### Why ALM is advisory
 
 It was only ever a stand-in, adopted because no booting cmdlog had archived timing.
