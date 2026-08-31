@@ -1,8 +1,8 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..5962001 100644
+index b568843..d8437b4 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
-@@ -4,6 +4,87 @@
+@@ -4,6 +4,108 @@
  #include "appmain.h"
  
  #define PPM_DATA_START_ADDR     0x10000	// base sdram unpack address
@@ -15,13 +15,34 @@ index b568843..5962001 100644
 +// Set to 0 to disable and compare. See docs/PORT_PLAN.md.
 +#define PPM_DOOR_FIX            1
 +
-+// paprium-pocket: cap at 49. The two-range map above is RESTORED - a linear
-+// remap was tried and REVERTED on hardware.
++// paprium-pocket: 53 slots, the full request. The cap at 49 was REMOVED after an
++// A/B on hardware, 2026-08-31. The two-range map is UNCHANGED: slots 49-52 use the
++// +0x4b jump to tiles 1984-2047 = VRAM 0xF800-0xFFFF. NOT the 0x6400 remap, which
++// is forbidden - see below.
 +//
-+// Stock maps slot -> tile as ((x + (x <= 0x30 ? 1 : 0x4b)) << 4). Slots 49-52 land
-+// on tiles 1984-2047 = VRAM 0xF800-0xFFFF, conventionally the sprite attribute and
-+// hscroll tables. Capping the budget at 49 so those slots are never allocated
-+// visibly improved the elevator on hardware - that collision is confirmed.
++// Stock maps slot -> tile as ((x + (x <= 0x30 ? 1 : 0x4b)) << 4).
++//
++// WHY THE CAP WENT. It rested on two claims and both failed:
++//   - the collision target was "the sprite attribute and hscroll tables at 0xF800".
++//     GPGX shows the SAT is DMAed to 0xF000 and ends at 0xF27F, so the sprite
++//     attribute table is NOT there
++//   - "visibly improved the elevator on hardware" was never a tester report. Asked
++//     directly, the answer was that it felt the same or similar
++//
++// A/B RESULT, tester on real hardware, cap 49 vs 53 on the same map:
++//   elevator shaft   THE SAME. Nothing visible lives at 0xF800, or writing there
++//                    does no visible harm. The cap bought nothing it claimed to
++//   walks / anims    MUCH BETTER. This is the real finding
++//   cell room, door  unaffected
++//
++// So animation starvation is partly RESIDENCY-bound, not purely fill-bound as this
++// file previously concluded. Fill rate (dma_budget, 10-16 blocks/frame) still caps
++// how fast a scrolling shaft can be refilled - which is why the elevator did not
++// move - but holding 53 blocks resident instead of 49 avoids reloads the LRU would
++// otherwise have to redo, and that is enough to stop many load_block failures and
++// the previous_offset rewinds they cause.
++//
++// Do not re-cap without a hardware observation to justify it.
 +//
 +// REMAP ATTEMPT, REFUTED (2026-08-30). Capping costs four blocks of cache while
 +// INTERCOM asks for 53, so the four slots were moved into the gap the two-range map
@@ -44,7 +65,7 @@ index b568843..5962001 100644
 +//
 +// INTERCOM is NOT an untested LRU case: the remap never became a valid slot-bound
 +// experiment, because it broke before the shaft was reached.
-+#define PPM_VRAM_SAFE_SLOTS     0x31
++#define PPM_VRAM_SAFE_SLOTS     0x35   // 53, the full request. Was 0x31 (49).
 +
 +// NOTE: a reserved blank "miss block" was tried here and REMOVED - it changed
 +// nothing, because the elevator's stale squares come from load_block failing and
@@ -90,7 +111,7 @@ index b568843..5962001 100644
  #define PPM_MAX_VRAM_SLOTS      64
  #define PPM_OBJECTS_COUNT       64
  #define PPM_MAX_OBJ_BLOCKS      32
-@@ -66,6 +147,24 @@ void ppm_obj_reset() {
+@@ -66,6 +168,24 @@ void ppm_obj_reset() {
  }
  
  void ppm_vram_set_budget(uint16_t blocks) {
@@ -115,7 +136,7 @@ index b568843..5962001 100644
      // temp failsafe
      if (blocks > 0x35) {
          printf("Allocation error (0x%x blocks)\n", blocks);
-@@ -207,47 +306,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -207,47 +327,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
              }
              break;
  
@@ -282,7 +303,7 @@ index b568843..5962001 100644
              }
              break;
  
-@@ -280,6 +459,7 @@ void ppm_obj_frame_end() {
+@@ -280,6 +480,7 @@ void ppm_obj_frame_end() {
      ppm_block_unpack_addr = 0x9000;
      ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
  
@@ -290,7 +311,7 @@ index b568843..5962001 100644
      //printf("dma: %i\n", ppmio.ramdp->dma_remaining);
  
      uint8_t *ptr = ppm_drawList;
-@@ -461,7 +641,40 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +662,40 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);

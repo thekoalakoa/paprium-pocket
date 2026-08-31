@@ -5813,6 +5813,60 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# RESULT: cap removed, 53 slots shipping - 2026-08-31
+
+A/B run on hardware, cap 49 vs 53 on the **same** two-range map, firmware-only,
+`8c82d458` against shipping `397b28eb`. Tester report:
+
+    elevator shaft    THE SAME
+    walks / anims     MUCH BETTER
+    cell room, door   unaffected
+
+**53 is now shipping.** `PPM_VRAM_SAFE_SLOTS` is `0x35`, the full request, and the
+`+0x4b` jump is untouched so slots 49-52 still go to `0xF800`.
+
+## What each half means
+
+**The shaft did not move**, so nothing visible lives at `0xF800-0xFFFF`, or writing
+tiles there does no visible harm. The cap did not buy the thing it was introduced
+to buy. Combined with the SAT being at `0xF000`, the whole `0xF800` collision story
+is now unsupported from both ends - wrong address, no observable effect.
+
+**The walks got much better, and that is the real finding.** It also corrects this
+file. The note added on 2026-08-30 said frozen walks were fill-rate bound and
+therefore *not* helped by more slots. The mechanism it gave was right - more slots
+help by retaining blocks the LRU would otherwise evict and reload - but it
+dismissed that as "worth having, not the lever". On hardware it is a lot more than
+worth having.
+
+So the honest characterisation is **both limits are real and they bind different
+things**:
+
+    dma_budget, 10-16 blocks/frame   caps how fast a scrolling shaft refills
+                                     -> the elevator, unchanged by slot count
+    residency, 49 vs 53 blocks       caps how much survives between uses
+                                     -> animation frames, much improved
+
+A fast-scrolling shaft needs *new* blocks faster than the budget allows, and no
+amount of residency helps. A walk cycle needs the *same* blocks repeatedly, so
+residency is exactly what it wants.
+
+## What this cost while it was in
+
+Four blocks of residency game-wide, for about a day, on the strength of an
+explanation that was wrong about the address and a result nobody had reported.
+The animation quality it was costing is visible enough that the tester called it
+"much better" the moment it was removed.
+
+## Standing corrections
+
+- **Do not re-cap without a hardware observation.** The route back is an
+  observation, not an argument
+- The remap to `0x6400` is still forbidden - the cell-room floor breaks, and that
+  was a real hardware result
+- `0xF800-0xFFFF` is still unidentified. It is not the SAT. It may be hscroll or
+  unused. Nothing now depends on knowing
+
 # cap-at-49 has lost its justification - 2026-08-31
 
 Two independent things landed on the same day and between them there is nothing
