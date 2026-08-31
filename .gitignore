@@ -40,11 +40,11 @@ projects/output_files/
 # Never commit game data. Belt and braces: none of this is in the tree today and
 # these patterns are here to keep it that way.
 #
-# The cartridge dump is WaterMelon's commercial product and Paprium is still on
-# sale. The music blob is decoded from the released soundtrack - raw 48 kHz
-# stereo PCM, so it plays in any media player, which makes it an album rather
-# than a game asset. Users supply both themselves; scripts/build_cdda*.sh
-# rebuilds the blob bit-identically from your own copy.
+# The cartridge dump is WaterMelon's work. They have ceased trading and the game
+# is no longer sold, which does not make it ours to redistribute. The music blob
+# is encoded from the released soundtrack - an album, not a game asset. Users
+# supply both themselves; scripts/build_cdda.sh plus build_cdda_adpcm.py rebuild
+# the blob from your own copy.
 # ---------------------------------------------------------------------------
 *.pcm
 wave-bank*.wv
