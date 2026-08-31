@@ -150,6 +150,13 @@ To enable it, place the music blob at:
 /Assets/paprium/common/paprium.pcm
 ```
 
+> **The blob format changed - rebuild yours.** It is now IMA ADPCM (`PPAD`),
+> about a quarter the size of the old raw-PCM blob. The core checks for the
+> `PPAD` marker and **plays nothing at all** if it is missing, rather than
+> streaming an old blob as noise. So if music stopped working after an update,
+> your `paprium.pcm` is the old format and needs rebuilding with the commands
+> below. The game itself is unaffected either way.
+
 Building it from your own copy of the soundtrack:
 
 Needs [ffmpeg](https://ffmpeg.org/) on `PATH` and your own copy of the released
@@ -157,7 +164,10 @@ soundtrack, in any format ffmpeg reads:
 
 ```bash
 ./scripts/build_cdda.sh  ~/Music/Paprium  docs/paprium.cue  cdda/
-./scripts/build_cdda_blob.sh  cdda/  paprium.pcm
+```
+
+```bash
+python scripts/build_cdda_adpcm.py  cdda/  paprium.pcm
 ```
 
 `docs/paprium.cue` ships with the core. Source files are matched by their leading
