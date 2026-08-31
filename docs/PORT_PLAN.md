@@ -5341,21 +5341,51 @@ So the menu is not indexing rows 128-255. The layout that fits every observation
 That is exactly why `9A` sounded like `1A` on stock and like deep-`1A` on the
 patched build - it is `0x80 | 0x1A`, i.e. "row 0x1A with the rate step".
 
-**The extra 128 entries are almost certainly variants, not new samples.** One pass
-through the menu settles it:
+### CONFIRMED on hardware, 2026-08-31 - sweep run, item closed
 
-    1A vs 9A      7D vs FD      00 vs 80      1C vs 9C
+**The extra 128 entries are variants, not new samples.** Run on shipping
+`397b28eb`, which carries the rate step; on stock `61d1ddd3` every pair sounds
+identical and the test is meaningless.
 
-If every `N + 0x80` is its `N` one rate step slower - or identical on stock
-firmware - the hypothesis holds and there is nothing new in the bank.
+The pairs PORT_PLAN originally suggested were not good enough to be decisive.
+Shipping `sfx.c` does `sr = (type>>4)&7; if (sr < 5) sr++;` - it **saturates** -
+so six rows are already at the slowest rate and their `N+0x80` *must* be
+identical. Without knowing which rows those are, an identical pair reads like a
+refutation when it is the fix working correctly. `00 / 80` was also a poor
+choice: row `0x00` is 127 bytes, about 2.6 ms, far too short to judge pitch.
 
-If some high id is a *different instrument* rather than a slower `N`, it is not
-this table. Candidates then are wavbank slices, or the menu walking past the
-table's end into raw PCM and landing on something that happens to sound
-deliberate. Capturing `sfx_play`'s arg on a high-id trigger would prove it.
+Predictions were computed from the table before playing, so the sweep had a
+falsifier rather than a listen-and-see:
+
+    positive controls    52 / D2   24000 -> 12000 Hz   0.95 s -> 1.90 s   VERIFIED
+                         20 / A0   24000 -> 12000 Hz   1.42 s -> 2.83 s   VERIFIED
+    long-sample confirm  1C / 9C    9600 ->  6000 Hz   4.31 s -> 6.89 s   VERIFIED
+    negative control     22 / A2    5333 -> 5333 Hz    identical          VERIFIED
+
+The negative control is what makes this a result and not an impression: `22` is
+already at rate index 5, so it cannot step, and it came back identical while the
+positive controls dropped a full octave and roughly doubled in length. That
+distinguishes "the flag works and saturated" from "the flag did nothing".
+
+Rate index distribution across the 127 live rows, for anyone re-deriving this:
+
+    index 0 = 48000 Hz :  1     index 3 = 9600 Hz : 23
+    index 1 = 24000 Hz :  4     index 4 = 6000 Hz : 34
+    index 2 = 12000 Hz : 59     index 5 = 5333 Hz :  6   <- cannot step
+
+The six saturated rows are `22, 2C, 2F, 48, 4C, 71`.
+
+Predictor: `scripts/predict_boombox_pairs.py <rom>` - reads the table at ROM
+`0x25ECA4` and prints the pair predictions above. Script only; the ROM stays local.
+
+### What would have refuted it
+
+If any `N + 0x80` had been a *different instrument* rather than a slowed `N`, it
+is not this table, and the candidates become wavbank slices or the menu walking
+past the table's end into raw PCM. Nothing in the sweep behaved that way.
 
 **Do not grow the mixer toward 256 voices on the strength of the menu's range.**
-Treat `80-FF` as a flag UI until a pair breaks the `N` / `N + 0x80` rule.
+`80-FF` is a flag UI. There are 127 samples, not 255.
 
 ---
 
@@ -5624,8 +5654,9 @@ probe was the cheap decisive test for the firmware side and it came back negativ
   Firmware-only, identical fit. Hardware-accurate routing deferred - see above
 - Rooftop boss sprite priority - never investigated
 - Intro pixel flicker - cosmetic
-- Boom Box `N` vs `N+0x80` sweep - cheap, confirms the high 128 slots are rate
-  variants rather than unheard samples
+- ~~Boom Box `N` vs `N+0x80` sweep~~ **CONFIRMED 2026-08-31** - the high 128 slots
+  are rate variants, not unheard samples. Positive controls, a long-sample
+  confirmation and a saturated negative control all verified. See above
 
 
 # RESUME HERE - 2026-08-31
@@ -5661,7 +5692,10 @@ shipping fingerprint** (cmdlog is 308).
     player/bombs behind BG    SAT dump (is the player in the table?) + regs 3/17/18
     frozen walks / squares    NOTHING - fill-rate bound, 10-16 blocks/frame
     intro pixel flicker       unrelated, lowest value
-    Boom Box N vs N+0x80      cheap sweep, never run
+
+Closed 2026-08-31: **Boom Box N vs N+0x80**. Swept with predicted pairs and a
+saturated negative control - the top half is the same 127 rows with the rate-step
+flag. Nothing unheard in the bank, and the mixer does not grow.
 
 **No new Pocket bitstream for sprites or VRAM until a SAT/register dump exists.**
 
