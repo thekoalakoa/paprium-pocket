@@ -2631,29 +2631,68 @@ Against it: the settings bytes sit at `0x1800`/`0x1801`, i.e. inside the same
 window, so either the buffer starts at `0x1802` or the first bytes are a header.
 Nobody has confirmed the game reads that range at all.
 
-### What to do about it - a cheap partial, and an expensive correct
+### SHIPPED: the fill (2026-08-31)
 
-**The cheap one is already built.** Keeping the `0x80` fill turns VM DAC from
-"adds static" into "does nothing audible": the DAC path stays at DC and the
-cartridge audio plays normally. The option still costs FM channel 6, as it does
-on hardware, but it no longer thins the sound the way hardware does. Identical
-fit, no area, no risk - it converts a bug into an inert menu item.
+Keeping the `0x80` fill turns VM DAC from "adds static" into an **inert menu
+item**: the DAC path sits at DC and the cartridge audio plays exactly as it does
+with the option off. Firmware-only, identical fit, and it closes a real defect.
 
-**The correct one is expensive, and the reason is architectural.** To reproduce
-hardware, VM DAC must (1) fill that window with the cartridge's own PCM at ~30
-kHz, downconverted to unsigned 8-bit, and (2) duck or mute `paprium_sfx` and
-`cdda` so the audio is heard *instead of* the good path, not as well as it.
+It does NOT reproduce what hardware does. On a real cartridge the option also
+**thins** the mix. Here it changes nothing audible except spending FM channel 6.
+That is documented in INSTALL.md rather than left for someone to discover.
 
-Step 2 is easy - it is a mux in core_top's mixer. **Step 1 is the problem: the
-MCU does not have the audio.** The SFX engine and the CDDA player both live in
-the FPGA and produce `paprium_sfx_l/r` and `cdda_l/r` in the clk_sys domain. The
-firmware never sees those samples, so it cannot write them into `ramdp`. Feeding
-the window would need a new hardware writer into the dual-port RAM from the audio
-domain - new RTL, in a design fitting at 98% ALM with 4 ps of timing margin.
+### DEFERRED: the hardware-accurate implementation
 
-So the honest position: the partial fix is free and available now; the correct
-fix is a real piece of work that should not be started casually at this
-occupancy, and VM DAC is a cosmetic option on a single-game core.
+Not built, and deliberately so - it is new RTL on a core fitting at 98% ALM with
+4 ps of hold margin, for a checkbox whose purpose is to sound worse. Recorded in
+full because **it becomes cheap on a larger FPGA**, and whoever ports this should
+not have to rediscover any of it.
+
+**What hardware does.** The cartridge's PCM is routed through the YM2612's own
+8-bit DAC instead of the DT128VALT. Same cues, worse converter, and FM channel 6
+is spent because that is the channel the DAC replaces. The result is thinner and
+more Genesis-like. The 68000 does the moving: it reads cart RAM `0x1802-0x19FF`
+and writes bytes to YM2612 register `0x2A`.
+
+**Two pieces are needed.**
+
+*(1) Fill the window with real audio.* Unsigned 8-bit, mid-scale `0x80`, at about
+30 kHz - `512 samples x 59.92 fps = 30,679 Hz`, and the buffer is refilled per
+frame. Source is the sum the mixer already has:
+
+    paprium_sfx_l/r + cdda_l/r        (16-bit signed, clk_sys)
+      -> mono, or the left channel; the YM2612 DAC is mono
+      -> decimate 48000 -> ~30,679 Hz
+      -> (sample >>> 8) + 0x80        signed 16-bit to unsigned 8-bit
+      -> write into ramdp at 0x1802-0x19FF, wrapping
+
+*This is the hard part, and the reason it was deferred.* The MCU firmware cannot
+do it: `paprium_sfx` and `cdda` are generated in the FPGA in the clk_sys domain
+and the firmware never sees those samples. It needs a **new hardware writer into
+`ramdp` from the audio domain** - a third master on a dual-port RAM that already
+has the MCU on one port and the 68000 on the other. Expect arbitration work, not
+just a counter.
+
+Watch the write pointer: the 68000 reads this window continuously, so a writer
+that laps the reader tears the stream. Hardware presumably double-buffers, which
+is a plausible reading of why the region is `0x200` bytes rather than `0x100` -
+two 256-byte halves, filling one while the game drains the other. **Unverified.**
+
+*(2) Duck the cartridge path.* A mux in core_top's mixer, and genuinely easy:
+
+    mix = base_audio + (vm_dac ? 0 : paprium_sfx) + (vm_dac ? 0 : cdda_att)
+
+"Less full" means *instead of*, not *as well as*. Ducking without (1) just gives
+silence, so the two must land together.
+
+**Where the `vm_dac` bit lives:** the firmware already has it - `cmd_88_audio_cfg`
+receives it as bit 0 and writes `ram[0x1801]`. Getting it to core_top means one
+more signal out of the cartridge, which is cheap.
+
+**Cost estimate on this device:** the ramdp writer plus decimator is the bulk of
+it; the mixer mux is a handful of ALMs. On a device with headroom this is a small
+afternoon. Here it competes with 4 ps of hold margin, which is why it is written
+down instead of built.
 
 ### How it was found: a fill test, not a logger
 
@@ -5456,7 +5495,10 @@ which is tiles 800-927, so 864 is still inside it.
 
 ## Still open
 
-- YM2612 DAC static (VM DAC option) - reproducible on demand, never investigated
+- ~~YM2612 DAC static (VM DAC option)~~ **FIXED 2026-08-31** - the 68000 streams
+  cart RAM 0x1802-0x19FF to YM2612 0x2A and we never initialised it. Filling it
+  with 0x80 (unsigned 8-bit mid-scale) makes the path DC instead of noise.
+  Firmware-only, identical fit. Hardware-accurate routing deferred - see above
 - Rooftop boss sprite priority - never investigated
 - Intro pixel flicker - cosmetic
 - Boom Box `N` vs `N+0x80` sweep - cheap, confirms the high 128 slots are rate

@@ -93,9 +93,35 @@ else
     echo "fits, $((32768 - BYTES)) bytes spare"
 fi
 
+# INSTALL it. This script used to build into build_output/ and merely PRINT the
+# rtl copy as a "reference build for comparison", which reads like confirmation
+# and is not: Quartus reads rtl/PAPRIUM/mcu.txt ($readmemh in mcu_core.sv), so a
+# build run after this script alone silently used the OLD firmware.
+#
+# That cost a full 25-minute fit, and the timing gate cannot catch it - ALM,
+# M10K, setup and hold all come back identical to shipping, which is exactly what
+# "firmware-only, no RTL touched" is supposed to look like. It is also what
+# "nothing changed at all" looks like. See docs/BUILD_REFERENCE.md.
+if [ -f "$OUT/mcu.txt" ]; then
+    PREV=""
+    [ -f "$PROJECT_DIR/rtl/PAPRIUM/mcu.txt" ] && \
+        PREV=$(md5sum < "$PROJECT_DIR/rtl/PAPRIUM/mcu.txt" | cut -d" " -f1)
+    cp -f "$OUT/mcu.txt" "$PROJECT_DIR/rtl/PAPRIUM/mcu.txt"
+    NOW=$(md5sum < "$PROJECT_DIR/rtl/PAPRIUM/mcu.txt" | cut -d" " -f1)
+
+    echo
+    echo "installed -> rtl/PAPRIUM/mcu.txt   (this is what Quartus reads)"
+    if [ "$PREV" = "$NOW" ]; then
+        echo "  UNCHANGED from the previous firmware ($NOW)."
+        echo "  A rebuild will produce an IDENTICAL bitstream. If you expected a"
+        echo "  change, the source edit did not take."
+    else
+        echo "  changed: ${PREV:-none} -> $NOW"
+        echo "  The next Paprium fit must differ in bitstream md5 from the last"
+        echo "  shipping one. Identical metrics AND an identical hash = void build."
+    fi
+fi
+
 echo
-echo "reference builds for comparison:"
-for f in "$MCU_SRC/mcu.txt" "$PROJECT_DIR/rtl/PAPRIUM/mcu.txt"; do
-    [ -f "$f" ] && printf "  %-52s %s words\n" "$f" "$(wc -w < "$f")"
-done
-[ -f "$OUT/mcu.txt" ] && printf "  %-52s %s words\n" "$OUT/mcu.txt" "$(wc -w < "$OUT/mcu.txt")"
+echo "other copies, for reference only:"
+[ -f "$MCU_SRC/mcu.txt" ] && printf "  %-52s %s words\n" "$MCU_SRC/mcu.txt" "$(wc -w < "$MCU_SRC/mcu.txt")"
