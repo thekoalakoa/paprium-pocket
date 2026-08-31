@@ -2561,14 +2561,38 @@ from this same tree:
 Do this before building any probe. It costs one bitstream that already exists and
 it splits the problem in half.
 
-### PREDICTION, recorded before the test
+### RESULT: the DAC is fine, the feed is wrong (2026-08-31)
 
-**ntsc will be clean.** If the 68000 is streaming cartridge PCM to `0x2A`, the
-YM2612 DAC itself is fine and ordinary games will sound right. Writing this down
-so the test can falsify it: if ntsc *is* hashy, this whole line of reasoning is
-wrong and the problem is the base core, which is both easier and cheaper.
+**Sonic 2 drums play correctly on this tree's `md_ntsc`** (md5 `e99bb253`, 82%
+ALM, setup -1.946). Not crunchy, not hashy - correct.
 
-### The "DAC list" region - now the prime suspect, if ntsc is clean
+Three things settled:
+
+- our base core's YM2612 DAC works
+- **`CFG_LPF = 2'd3` does not damage DAC audio.** The mode-3 bypass is a colour
+  choice, not a destroyer. Do NOT "fix" VM DAC by turning the filter on
+- therefore the VM DAC hash is a **feed** problem: something is putting junk into
+  YM2612 register `0x2A`
+
+**A wrong turn worth recording.** Between the prediction and the test I talked
+myself into a filter theory: mode 3 bypasses `genesis_lpf`, real hardware always
+filters, an unfiltered 8-bit DAC could sound like hash. It was wrong, and it was
+wrong in an avoidable way - the same note also contained the objection that kills
+it, that no LPF should sound *harsh*, not like radio static. The objection was
+right and I let the tidiness of the story outweigh it.
+
+Two process points fell out of it:
+
+- earlier "drums are fine" listens were on `ericlewis.Genesis` and on an Aug 26
+  file that turned out **not** to be this tree's `md_ntsc` (2,019,008 bytes vs
+  1,911,596, different hash, archived at
+  `build_output/card-backup/md_ntsc.CARD-Aug26.rbf_r`). Neither could implicate
+  mode 3. Only a known bitstream can answer a question about a specific config
+- the original prediction was correct and the revision was not. Predictions
+  recorded in advance earn their keep precisely when they disagree with a later,
+  more elegant story
+
+### The "DAC list" region - now the leading suspect
 
 GPGX suppresses debug logging for reads in cart RAM `0x1800-0x19FF` with the
 comment `/* DAC list ?? */` - its author saw reads there and never identified
@@ -2592,8 +2616,28 @@ quality underneath.
 **Still a hypothesis, and the arithmetic is suggestive rather than probative.**
 Against it: the settings bytes sit at `0x1800`/`0x1801`, i.e. inside the same
 window, so either the buffer starts at `0x1802` or the first bytes are a header.
-Nobody has confirmed the game reads that range at all. Do the ntsc test first -
-if it is hashy this is all moot.
+Nobody has confirmed the game reads that range at all.
+
+### NEXT: a fill test, not a logger
+
+The obvious next step is a bus log of 68000 reads in `0x1800-0x19FF`. There is a
+cheaper experiment that answers the same question audibly, and this project's own
+record says a controlled trigger beats analysis:
+
+**Fill `0x1802-0x19FF` with `0x80` and listen.** `0x80` is mid-scale for an
+unsigned 8-bit DAC, so a constant fill is a DC level - silence.
+
+    hash becomes SILENCE  -> the 68000 IS streaming that window. Confirmed, and
+                             the fix is to fill it with real PCM
+    hash unchanged        -> it is not that window. Then build the bus logger
+                             and find what the 68000 actually reads
+
+`0x1800`/`0x1801` must be left alone - they carry the DAC and NTSC settings the
+game reads back, and overwriting them would break the `0x88` fix and confuse the
+result.
+
+One bitstream, one listen, and an unambiguous answer either way. A logger costs
+the same build and needs interpretation afterwards.
 
 ### If the hypothesis holds, the fix shape
 
