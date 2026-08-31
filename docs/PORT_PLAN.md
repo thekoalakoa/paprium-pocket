@@ -2510,13 +2510,56 @@ unaffected. The path has presumably never worked in this port; the toggle simply
 could not reach it before, because the game read its configuration back from memory
 we never wrote.
 
-Starting points:
+### What the GPGX source rules out (2026-08-31, no build required)
 
-- "Music still audible underneath" suggests **both paths may be live at once** -
-  the cartridge SFX engine still running while the game also feeds the YM2612.
-- The game would write PCM to YM2612 register `0x2A` at some rate. Check whether
-  those writes arrive and whether our timing for them is right.
-- Compare against GPGX with the same option set, which is cheap and needs no build.
+- **The DAC bit changes nothing in the cartridge audio path.** `audio_flags` is
+  read in exactly one place in GPGX - the `0x08` gain bit. The `0x01` DAC bit is
+  only written back to cart RAM `0x1800`/`0x1801` so the 68000 can read its own
+  setting. Our `paprium.c` writes the same two bytes the same way.
+- So **"music still audible underneath" is correct behaviour, not a symptom.**
+  The cartridge engine is supposed to keep running. The static is something
+  ADDED on top, which matches core_top's mixer: `base_audio + paprium_sfx +
+  cdda_att`, summed into 19 bits and clamped. The YM2612 lands in `base_audio`.
+- **GPGX never feeds the YM2612 DAC itself.** There is no cartridge-side write to
+  register `0x2A` anywhere in `paprium.h`. With VM DAC selected the 68000 streams
+  PCM to the YM2612 over the normal bus, so that path is base-core Mega Drive
+  behaviour, not Paprium hardware we emulate.
+
+That last point is the useful one, because it makes the first experiment a
+**discriminator rather than a fix attempt**:
+
+**Do the ntsc bitstream's DAC samples work?** Nearly every Mega Drive game uses
+YM2612 DAC PCM for drums and voices. Run any of them on the `ntsc` variant built
+from this same tree:
+
+- static there too -> the bug is in the base core's YM2612 DAC or our audio
+  mixing, it is not Paprium-specific, and it is reproducible without the
+  cartridge at all - a far easier thing to chase
+- clean there -> the DAC is fine and something Paprium-specific is feeding it
+  garbage. Then the question becomes what the game reads to source those samples
+
+Do this before building any probe. It costs one bitstream that already exists and
+it splits the problem in half.
+
+### Still unidentified: the "DAC list" region
+
+GPGX suppresses debug logging for reads in cart RAM `0x1800-0x19FF` with the
+comment `/* DAC list ?? */` - its author saw reads there and did not identify
+them. We write only `0x1800` and `0x1801`; the other 510 bytes are whatever
+`ramdp` happens to hold. If the game sources DAC samples or pointers from that
+window, uninitialised contents would read as exactly this symptom.
+
+**Not yet evidence** - the GPGX line is inside `#if DEBUG_MODE`, so it suppresses
+logging rather than stubbing behaviour, and nobody has confirmed the game reads
+that range with VM DAC on. Worth checking only if the ntsc test above comes back
+clean.
+
+### What would NOT be worth doing
+
+Comparing against GPGX by ear needs a host that runs frames and takes input;
+`tools/gpgx-render` exits during `retro_load_game` because its hook fires there.
+That is a real piece of work, and the ntsc test answers the same question for
+free.
 
 
 ## LOG_ALL capture: what the full command stream shows
