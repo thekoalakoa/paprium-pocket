@@ -5659,6 +5659,56 @@ probe was the cheap decisive test for the firmware side and it came back negativ
   confirmation and a saturated negative control all verified. See above
 
 
+## Auto-boot: a data slot needs its own filename, and so does the save
+
+Confirmed on hardware 2026-08-31. JSON only - no RTL change, no fit.
+
+The core now launches straight into the game with no file browser, and there is
+no region option. Both were cheaper than they looked:
+
+- **Region.** `core_top.sv` already resets `cfg_region` to `2'd1`, which is Japan.
+  The menu variable was only ever writing back the value the core already had, so
+  deleting it from `interact.json` means nothing writes bridge `0x0C` and the
+  reset value stands. No RTL edit was needed at all
+- **Auto-boot.** Giving the ROM slot `"filename": "Paprium.md"` in `data.json`
+  makes APF load it directly instead of opening the browser
+
+### The part that is worth remembering
+
+**Auto-loading the ROM silently broke saves.** The core booted, played correctly,
+and started the boot mini game every time - while a perfectly good 4 KB
+`Paprium.sav` sat unread at `/Saves/paprium/common/`.
+
+The save slot's file is associated with the **instance** the file browser creates.
+Auto-loading by filename produces no instance, so the nonvolatile slot was never
+loaded and never written back. The fix is to give the save slot its own filename
+too:
+
+    "id": 10, "nonvolatile": true, "filename": "Paprium.sav"
+
+With that, both work: boots straight in, save intact. **A nonvolatile slot's
+filename resolves under `/Saves/<platform>/common/`, not `/Assets/`** - the
+existing save was picked up in place, which settles where the path is rooted.
+
+The general rule, for any future slot: **if the browser is skipped, every slot
+that relied on the browser's instance needs an explicit filename.**
+
+### Two notes on the test itself
+
+- The save was backed up on and off the card before anything ran. It would have
+  been easy to conclude "saves are broken" and start debugging over the top of the
+  only copy
+- The save was deliberately **not** also copied into `/Assets`. Leaving one copy
+  at the canonical path is what made the result readable - it loaded, so it
+  resolved under `/Saves`. Had both existed, the run would have proved nothing
+
+### Still open
+
+`Load Paprium ROM` remains in the core settings menu, because the ROM slot keeps
+its user-reloadable bit. Harmless - the save now has a fixed name either way, so
+loading through it cannot split saves across two files - and it is a useful escape
+hatch. Remove the bit from `parameters` if the menu should be tidier.
+
 # RESUME HERE - 2026-08-31
 
 ## Shipping

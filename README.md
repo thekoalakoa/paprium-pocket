@@ -35,9 +35,13 @@ than half the logic of the MiSTer board this was ported from. There is very litt
 room left; see [docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) before adding
 anything.
 
-There is no 6-button option: Paprium's own controller read is a 3-button read, so
-X, Y, Z and Mode never did anything. The setting was removed rather than left
-looking functional.
+The core boots straight into the game — no file browser, and no region option,
+because a single-game core has one game and it is Japanese. The cost is that the
+dump and the save are both fixed names; see [docs/INSTALL.md](docs/INSTALL.md).
+
+There is no 6-button option either: Paprium's own controller read is a 3-button
+read, so X, Y, Z and Mode never did anything. The setting was removed rather than
+left looking functional.
 
 ## What this is not
 
