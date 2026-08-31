@@ -1,8 +1,121 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..064b4fe 100644
+index b568843..5962001 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
-@@ -207,47 +207,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -4,6 +4,87 @@
+ #include "appmain.h"
+ 
+ #define PPM_DATA_START_ADDR     0x10000	// base sdram unpack address
++// paprium-pocket A/B switch for the Block 888 door fix below. 0x2000 is sprite
++// palette bit 0, so that fix moves object 107's sprite 4 onto another palette
++// line. Hardware shows a red floor where original hardware is green, which is
++// exactly what a wrong palette line looks like - so the suspicion is that
++// x == 4 is the FLOOR sprite in this build rather than the door panel.
++//
++// Set to 0 to disable and compare. See docs/PORT_PLAN.md.
++#define PPM_DOOR_FIX            1
++
++// paprium-pocket: cap at 49. The two-range map above is RESTORED - a linear
++// remap was tried and REVERTED on hardware.
++//
++// Stock maps slot -> tile as ((x + (x <= 0x30 ? 1 : 0x4b)) << 4). Slots 49-52 land
++// on tiles 1984-2047 = VRAM 0xF800-0xFFFF, conventionally the sprite attribute and
++// hscroll tables. Capping the budget at 49 so those slots are never allocated
++// visibly improved the elevator on hardware - that collision is confirmed.
++//
++// REMAP ATTEMPT, REFUTED (2026-08-30). Capping costs four blocks of cache while
++// INTERCOM asks for 53, so the four slots were moved into the gap the two-range map
++// skips - linear (x + 1), putting them at tiles 800-863 = 0x6400-0x6BFF, far below
++// the 0xC000 nametable floor. **The cell-room floor glitched immediately.**
++//
++// So that gap is NOT free: the game already owns it. A 32x32 nametable at 0x6400 is
++// 0x800 bytes = tiles 800-863 EXACTLY, which is the range the remap wrote patterns
++// into, and a floor built from that plane would break in the cell room and nowhere
++// else first. The jump to 0x4b is deliberate, not an artefact.
++//
++// Diagnostic value: cap-at-49 leaves the cell room clean, 53 slots at 0xF800 leave
++// the cell room clean, and only this placement breaks it - so it is the ADDRESS,
++// not the extra four blocks.
++//
++// Do not retry tiles 864-927: if the map is 64x32 it occupies 0x6400-0x73FF, i.e.
++// tiles 800-927, and that slice is still inside it. The cheap discriminator is a
++// ONE-SLOT write at tile 864 (0x6C00) - floor dies -> 64x32; floor lives -> 32x32
++// and 864-927 is usable. Otherwise tiles 928-991 (0x7400-0x7BFF) clears both.
++//
++// INTERCOM is NOT an untested LRU case: the remap never became a valid slot-bound
++// experiment, because it broke before the shaft was reached.
++#define PPM_VRAM_SAFE_SLOTS     0x31
++
++// NOTE: a reserved blank "miss block" was tried here and REMOVED - it changed
++// nothing, because the elevator's stale squares come from load_block failing and
++// the object re-rendering its previous animation frame, not from find_block
++// returning 0. Full implementation in git: "EXPERIMENT: reserved MISS_BLOCK for
++// cache misses" (163076b). See docs/PORT_PLAN.md.
++
++// paprium-pocket: compose the sprite attribute field-wise, as GPGX does, rather
++// than XORing the whole word. Ours XORs tile attrs, object attrs and the block's
++// tile index together, which only agrees with GPGX while the object's priority
++// and palette bits are zero. When BOTH the tile and the object set priority the
++// XOR cancels to 0 and the sprite drops behind the background; when both set
++// palette the XOR scrambles it and the colours come out wrong.
++//
++// The doorway leaving the first room renders its floor red where hardware shows
++// green - a wrong-palette symptom - and disabling the Block 888 door fix changed
++// nothing, so the palette is being composed wrongly rather than overridden.
++//
++// MisterPezz82 built and tested this against the ELEVATOR (2026-06-25) and it did
++// not help there, but they kept it in V.04 as harmless. It was never tested
++// against the doorway, which is what this probe is for.
++#define PPM_FIELDWISE_ATTRS     1
++
++// paprium-pocket: DIAGNOSTIC, kept OFF. Forces the priority bit on every SAT
++// entry. Left in place because its result is worth not re-deriving.
++//
++// RUN AND REFUTED ON HARDWARE 2026-08-31. Other sprites came forward; the player
++// and the bombs did not move. So the "player drops behind the background" symptom
++// is NOT clear SAT priority, and no attribute-composition change in this file can
++// fix it - which also means mega-ppm's whole-word XOR, the documented upstream
++// cause, does not explain that symptom either.
++//
++// The negative is strong rather than inconclusive: a high-priority sprite is
++// topmost on a Mega Drive, ahead of plane A, plane B and the window. Forced to
++// maximum priority and still occluded means something other than layering is
++// happening. The two live candidates are that the player is a 68000-managed
++// sprite this function never touches, or region-based masking (window plane, or
++// a sprite at X=0 masking its scanlines). Both need an emulator VDP/SAT viewer.
++//
++// See docs/PORT_PLAN.md, "Sprite priority: NOT SAT priority".
++#define PPM_FORCE_SPRITE_PRI    0
++
+ #define PPM_MAX_VRAM_SLOTS      64
+ #define PPM_OBJECTS_COUNT       64
+ #define PPM_MAX_OBJ_BLOCKS      32
+@@ -66,6 +147,24 @@ void ppm_obj_reset() {
+ }
+ 
+ void ppm_vram_set_budget(uint16_t blocks) {
++    // paprium-pocket PROBE. Slot index maps to a VRAM byte address of
++    // block_index << 9, and slots 49-52 become block_index 124-127, i.e.
++    // 0xF800-0xFFFF - where a Mega Drive conventionally keeps the sprite
++    // attribute table (0xF800) and the horizontal scroll table (0xFC00).
++    //
++    // Capturing to the elevator showed the game requesting budgets of
++    // 1, 2, 29, 40, 49 and 53. Only 53 reaches slots 49-52, and the elevator is
++    // the only place 53 was seen - so on this hypothesis the elevator is the one
++    // scene that DMAs graphics over its own SAT and hscroll table. That predicts
++    // garbage sprites at wrong priority, and scroll tearing.
++    //
++    // Capping at 49 keeps every slot inside 0x0200-0x63FF, which cannot collide.
++    // If the corruption goes away, the hypothesis is confirmed and this is also
++    // the workaround. Costs 4 blocks of streaming capacity.
++    if (blocks > PPM_VRAM_SAFE_SLOTS) {
++        blocks = PPM_VRAM_SAFE_SLOTS;
++    }
++
+     // temp failsafe
+     if (blocks > 0x35) {
+         printf("Allocation error (0x%x blocks)\n", blocks);
+@@ -207,47 +306,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
              }
              break;
  
@@ -145,11 +258,7 @@ index b568843..064b4fe 100644
 +                        lz += 2049;
 +                        len = 3;
 +                    }
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +
 +                state = (len > 0) ? raw_n : 4;
 +                copy_addr = dest_addr - lz;
@@ -164,24 +273,61 @@ index b568843..064b4fe 100644
 +                        raw_n--;
 +                    }
 +                    else break;
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +            }
              }
              break;
  
-@@ -462,6 +542,15 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -280,6 +459,7 @@ void ppm_obj_frame_end() {
+     ppm_block_unpack_addr = 0x9000;
+     ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
+ 
++
+     //printf("dma: %i\n", ppmio.ramdp->dma_remaining);
+ 
+     uint8_t *ptr = ppm_drawList;
+@@ -461,7 +641,40 @@ void ppm_obj_render(uint16_t obj_slot) {
+         satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
++#if PPM_FIELDWISE_ATTRS
++        {
++            uint16_t tileAttr = (spr_data->attrs & 0xf8) << 8;
++            uint16_t objAttr  = intf_obj->attrs;
++            uint16_t tileIdx  = ppm_vram_find_block(spr_data->blockNum) + spr_data->offset;
++
++            // tile wins for priority and palette; flip and tile index stay XOR
++            uint16_t pri  = (tileAttr & 0x8000) ? (tileAttr & 0x8000) : (objAttr & 0x8000);
++            uint16_t pal  = (tileAttr & 0x6000) ? (tileAttr & 0x6000) : (objAttr & 0x6000);
++            uint16_t flip = (tileAttr ^ objAttr) & 0x1800;
++            uint16_t tile = (objAttr ^ tileIdx) & 0x07ff;
++
++            satEntry->attrs = pri | pal | flip | tile;
++        }
++#else
          satEntry->attrs = ((spr_data->attrs & 0xf8) << 8) ^ intf_obj->attrs ^ (ppm_vram_find_block(spr_data->blockNum) + spr_data->offset); // whole attr word?
++#endif
 +
 +        // paprium-pocket: krikzz's first-level door fix, re-applied. Object 107's
 +        // sprite 4 is the Block 888 door, and it composes with palette bit 0x2000
 +        // set, so it renders in the wrong colours. Reported by MisterPezz82 as
 +        // "object 107 sprite 4, attr &= ~0x2000" and shipped in their V.05; krikzz
 +        // supplied it privately, so the public mega-ppm tree does not carry it.
++#if PPM_DOOR_FIX
 +        if ((intf_obj->objID & 0xff) == 107 && x == 4) {
 +            satEntry->attrs &= ~0x2000;
 +        }
++#endif
++
++#if PPM_FORCE_SPRITE_PRI
++        // OR'd on AFTER field-wise composition and after the door fix, so this
++        // does not fight either path - whatever they decided, priority ends set.
++        satEntry->attrs |= 0x8000;
++#endif
          satEntry++;
      }
  
@@ -221,10 +367,21 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..53ef226 100644
+index 1a1de1d..725bf2e 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
-@@ -11,6 +11,8 @@ void cmd_unknown_muted();
+@@ -1,6 +1,10 @@
+ 
+ #include "appmain.h"
+ 
++// paprium-pocket: initialise the YM2612 DAC stream buffer. SHIPPING - this is
++// the fix for the VM DAC static, not a probe. See cmd_88_audio_cfg.
++#define PPM_DAC_STREAM_FILL     1
++
+ 
+ void ppm_reset();
+ void ppm_md_rst(u8 rst);
+@@ -11,6 +15,8 @@ void cmd_unknown_muted();
  void cmd_00();
  void cmd_81_init();
  void cmd_84_sdram_off();
@@ -233,7 +390,7 @@ index 1a1de1d..53ef226 100644
  void cmd_8C_bgm_play();
  void cmd_8D_bgm_cfg();
  void cmd_AD_obj_add();
-@@ -133,7 +135,7 @@ void ppm_init_cmd_ptr() {
+@@ -133,7 +139,7 @@ void ppm_init_cmd_ptr() {
      }
  
      cmp_ptr[0x83] = cmd_unknown_muted; // unk startup thing
@@ -242,7 +399,7 @@ index 1a1de1d..53ef226 100644
      cmp_ptr[0x95] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0x96] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0xA4] = cmd_unknown_muted; // megawire settings
-@@ -142,7 +144,7 @@ void ppm_init_cmd_ptr() {
+@@ -142,7 +148,7 @@ void ppm_init_cmd_ptr() {
      cmp_ptr[0xD6] = cmd_unknown_muted; //???
  
      //unknown stuff
@@ -251,7 +408,36 @@ index 1a1de1d..53ef226 100644
      cmp_ptr[0xD0] = cmd_unknown_muted;
  
      cmp_ptr[0x00] = cmd_00;
-@@ -390,6 +392,39 @@ void cmd_F5_stamp_rescale() {
+@@ -161,6 +167,12 @@ void ppm_init_cmd_ptr() {
+     cmp_ptr[0xE0] = cmd_E0_eep_wr;
+     cmp_ptr[0xE7] = cmd_E7_mwire;
+     cmp_ptr[0xEC] = cmd_EC_vram_budget;
++    // paprium-pocket: 0xF2 RESTORED to stock. Muting it was tested on hardware
++    // and changed nothing - consistent with krikzz's comment calling it the
++    // "sprites test menu" unpack, i.e. it likely never fires in normal play.
++    // Left enabled so measurements run against shipping behaviour rather than a
++    // probe variant. It is logged in Probe B because it also moves the stream
++    // pointer (sdram_ptr = 0x9000).
+     cmp_ptr[0xF2] = cmd_F2_unpack;
+     cmp_ptr[0xF4] = cmd_F4_unpack_scal;
+     cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
+@@ -291,7 +303,14 @@ void cmd_DA_unpack() {
+     u32 dst = ppmio.ramdp->cmd_args[0];
+ 
+     ppm_unpack(src, dst);
+-    FPGAIO->sdram_ptr = ppmio.ramdp->cmd_args[0]; // optional ?
++
++    // paprium-pocket: RESTORED. Dropping this write was tested on hardware and
++    // REGRESSED the game - the cell room background glitched, which it had not
++    // before - while the elevator was unchanged. So despite krikzz's "optional ?"
++    // and the existence of 0xDB, the game genuinely relies on 0xDA leaving the
++    // stream pointer at the decoded data. 0xDA is a real consumer of the window,
++    // not a stray write. Do not remove it again.
++    FPGAIO->sdram_ptr = ppmio.ramdp->cmd_args[0]; // optional ? - but load-bearing
+ }
+ 
+ void cmd_DB_set_dma_ptr() {
+@@ -390,6 +409,71 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -286,12 +472,44 @@ index 1a1de1d..53ef226 100644
 +
 +    ram[0x1801] = arg & 0x01;
 +    ram[0x1800] = ((arg & 0x01) ? 0x80 : 0x00) + ((arg & 0x02) ? 0x40 : 0x00);
++
++#if PPM_DAC_STREAM_FILL
++    // Cart RAM 0x1802-0x19FF is an unsigned 8-bit PCM stream buffer that the
++    // 68000 reads and pushes to YM2612 register 0x2A when the in-game "VM DAC"
++    // box is ticked - the option that swaps the cartridge's DT128VALT converter
++    // for the YM2612's own. CONFIRMED ON HARDWARE: with the window uninitialised
++    // the game streamed whatever ramdp happened to hold, which is what the
++    // long-standing "VM DAC produces static" report was.
++    //
++    // 0x80 is mid-scale for an unsigned 8-bit DAC, so filling it is a DC level.
++    // That silences the YM2612 path instead of feeding it noise. The cartridge
++    // audio is unaffected and plays as it does with the option off.
++    //
++    // WHAT THIS IS NOT: hardware also THINS the mix, because the cartridge's PCM
++    // is routed through the YM2612's 8-bit DAC instead of its own - same cues,
++    // worse converter, and FM channel 6 spent. We do not reproduce that; see
++    // docs/PORT_PLAN.md for the design and why it was not built. Here the option
++    // is inert rather than wrong.
++    //
++    // Filled here rather than at reset because cmd_88 fires several times during
++    // boot AND again whenever the option is toggled, so the window is fresh
++    // whenever the setting changes.
++    //
++    // The range is even-aligned and of even length, so it is closed under the
++    // ramdp_io.sv byte swap (MCU index = 68000 address ^ 1) and a constant fill
++    // is identical in either address order. 0x1800/0x1801 are deliberately left
++    // alone - they carry the DAC and NTSC settings the game reads back, and
++    // stomping them would undo the 0x88 fix above.
++    for (int i = 0x1802; i < 0x1A00; i++) {
++        ram[i] = 0x80;
++    }
++#endif
 +}
 +
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
-@@ -399,7 +434,12 @@ void cmd_8C_bgm_play() {
+@@ -399,7 +483,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {
@@ -306,10 +524,50 @@ index 1a1de1d..53ef226 100644
  }
  
 diff --git a/mcu/sfx.c b/mcu/sfx.c
-index 1263606..b2d66c3 100644
+index 1263606..7367f71 100644
 --- a/mcu/sfx.c
 +++ b/mcu/sfx.c
-@@ -101,6 +101,20 @@ void sfx_loop(u8 arg) {
+@@ -71,8 +71,37 @@ void sfx_play(u8 arg) {
+     sfx_chan[chan_idx].size_base = sfx_chan[chan_idx].size;
+ 
+ 
+-    ppmio.sfx[chan_idx].type = sfx[5]; //sample rate
+-    ppmio.sfx[chan_idx].flags = flags >> 8;
++    // paprium-pocket: flag 0x0100 STEPS THE SAMPLE RATE DOWN ONE TABLE INDEX.
++    //
++    // GPGX calls that bit "amplify" and this port rendered it as x1.25 gain. It is
++    // not gain: the large grunt's death is the ordinary grunt's sample (sfx 0x1A,
++    // table rate index 3 = 9600 Hz) played at 6000 Hz - index 4. That 0.625x ratio
++    // was identified by ear against pitched copies restricted to the rates the
++    // engine can produce, and the whole 127-entry bank was auditioned and contains
++    // no separate fat-death sample, so it cannot be a different id.
++    //
++    // Gain was never it: the fat death measures 0.90x the grunt's amplitude.
++    // And 0x2100 - bit 0 with bit 5 - is not redundant, because bit 5 is a
++    // sample-skip halver while bit 0 steps the rate table.
++    //
++    // DONE HERE, NOT IN RTL. The same +1 in audio_sfx.sv put an adder in front of
++    // the aclk mux and cost 0.4 ns of setup; three fitter seeds all landed between
++    // -2.72 and -2.98, and -2.715 was measured NOT TO BOOT. This costs zero logic.
++    //
++    // Hardware bit 0 is cleared on the way out so the RTL's amp path cannot also
++    // fire - amp stays implemented, it just never gets asserted.
++    u8 type = sfx[5];
++
++    if (flags & 0x0100) {
++        u8 sr = (type >> 4) & 7;
++        if (sr < 5) {                   // saturate: 5 = 5333 Hz is the last rate
++            sr++;
++        }
++        type = (type & ~0x70) | (sr << 4);
++    }
++
++    ppmio.sfx[chan_idx].type = type; //sample rate
++    ppmio.sfx[chan_idx].flags = (flags >> 8) & ~0x01;
+     ppmio.sfx[chan_idx].vol = vol * 96 / 128; //reduce sample vol a bit?
+     ppmio.sfx[chan_idx].pan = pan;
+ 
+@@ -101,6 +130,20 @@ void sfx_loop(u8 arg) {
          sfx_chan[i].decay = ppmio.ramdp->cmd_args[2];
          sfx_chan[i].looped = 1;
  
