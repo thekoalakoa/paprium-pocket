@@ -5108,3 +5108,35 @@ demonstrably is.
 
 The cheap listening test, with ratios restricted to what the engine can actually
 produce, is what worked. It should have come before the tooling.
+
+## The Boom Box has 256 slots, but the PCM table has 128 rows
+
+The sound test indexes `0x00-0xFF`. The SFX table is 127 live rows, `0x00-0x7E`,
+and `sfx_play` does `flash[sfx_base + arg * 8]` with **no mask** - so a literal
+`D1 9A` reads row 154, which is all zeros, and plays silence.
+
+So the menu is not indexing rows 128-255. The layout that fits every observation:
+
+| Menu slot | What it fires |
+|---|---|
+| `00-7F` | table id N, no flag |
+| `80-FF` | table id `N & 0x7F`, **with `0x0100`** |
+
+That is exactly why `9A` sounded like `1A` on stock and like deep-`1A` on the
+patched build - it is `0x80 | 0x1A`, i.e. "row 0x1A with the rate step".
+
+**The extra 128 entries are almost certainly variants, not new samples.** One pass
+through the menu settles it:
+
+    1A vs 9A      7D vs FD      00 vs 80      1C vs 9C
+
+If every `N + 0x80` is its `N` one rate step slower - or identical on stock
+firmware - the hypothesis holds and there is nothing new in the bank.
+
+If some high id is a *different instrument* rather than a slower `N`, it is not
+this table. Candidates then are wavbank slices, or the menu walking past the
+table's end into raw PCM and landing on something that happens to sound
+deliberate. Capturing `sfx_play`'s arg on a high-id trigger would prove it.
+
+**Do not grow the mixer toward 256 voices on the strength of the menu's range.**
+Treat `80-FF` as a flag UI until a pair breaks the `N` / `N + 0x80` rule.

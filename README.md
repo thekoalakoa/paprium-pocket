@@ -53,7 +53,6 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 |---|---|
 | Elevator level: residual corruption, scrolling tile squares | **Improved, and the remainder is explained.** Slots 49–52 were overwriting the sprite and scroll tables at `0xF800`; capping the budget removed that. What is left is a DMA limit, not a bug: the game grants 2,816–4,608 words per frame, so at 272 words per 16-tile block only 10–16 blocks can load per frame. A scrolling shaft that needs more leaves stale squares, and no slot-count change can lift that ceiling |
 | Roof top Boss fight: player sprite drops behind the background during bombing phase | Open — upstream firmware |
-| Big enemies play a normal enemy's death sound | Open — not yet isolated to a mechanism. A capture of a single kill is needed to say what the game actually requests |
 | Full-health stage clear plays the ordinary cue | Not reproducible — the variation is inside the cartridge synth's render of one track, and the soundtrack has a single Stage Clear recording |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
@@ -66,6 +65,7 @@ core this forks. All verified on real hardware, in both Arcade and Original mode
 |---|---|
 | All punk-TV cues, and the looping area ambience | Silent. `sfx_player_update` abandons a channel once it empties, so the game's later `sfx_loop` — which enables looping and ramps the volume — landed on a dead channel |
 | Subway and other `0x81` assets | Corrupted. Stock `mega-ppm` ships MAME's reverse-engineered guess at the LZ decoder; replaced with the real LZO decoder |
+| Large enemies playing a normal enemy's death sound | Flag `0x0100` steps the sample rate down one index (9600 → 6000 Hz), so a large grunt's death is the ordinary death played slower. GPGX names that bit "amplify" and this port rendered it as a ×1.25 gain, which is why both sounded identical. Confirmed by A/B through the game's own sound test |
 | The Block 888 doorway, and sprite colours generally | Wrong palette. The sprite attribute was composed by XORing tile and object words together, which scrambles the palette whenever both set those bits; now composed field-wise with tile precedence, as GPGX does |
 | Stage Clear, Continue, Game Over, High Score, Ending | Silent. `cmd_8C` stopped one-shot cues instead of playing them |
 | Echo and amplify on sound effects | Never implemented, though the game requests them constantly |
