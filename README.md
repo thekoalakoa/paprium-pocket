@@ -78,11 +78,11 @@ core this forks. All verified on real hardware, in both Arcade and Original mode
 |---|---|
 | All punk-TV cues, and the looping area ambience | Silent. `sfx_player_update` abandons a channel once it empties, so the game's later `sfx_loop` — which enables looping and ramps the volume — landed on a dead channel |
 | Subway and other `0x81` assets | Corrupted. Stock `mega-ppm` ships MAME's reverse-engineered guess at the LZ decoder; replaced with the real LZO decoder |
-| Large enemies playing a normal enemy's death sound | Flag `0x0100` steps the sample rate down one index (9600 → 6000 Hz), so a large grunt's death is the ordinary death played slower. GPGX names that bit "amplify" and this port rendered it as a ×1.25 gain, which is why both sounded identical. Confirmed by A/B through the game's own sound test |
+| Large enemies playing a normal enemy's death sound | Flag `0x0100` steps the sample rate down one index (9600 → 6000 Hz), so a large grunt's death is the ordinary death played slower. GPGX names that bit "amplify" and this port rendered it as a ×1.25 gain, which is why both sounded identical. Confirmed by A/B through the game's own sound test. The gain path is still in the mixer but is starved: the firmware clears bit 0 before the RTL sees it, so `0x0100` gets a rate step and **not** a gain — and one `& ~0x01` puts the old behaviour back if the reading is ever overturned |
 | The "VM DAC" option producing static | The 68000 streams cart RAM `0x1802–0x19FF` to the YM2612's DAC port, and that buffer was never initialised — so the option played uninitialised memory. Filling it with `0x80`, unsigned 8-bit mid-scale, makes the path silent instead. The option is now inert rather than wrong; real hardware also thins the mix, which this does not reproduce |
 | The Block 888 doorway, and sprite colours generally | Wrong palette. The sprite attribute was composed by XORing tile and object words together, which scrambles the palette whenever both set those bits; now composed field-wise with tile precedence, as GPGX does |
 | Stage Clear, Continue, Game Over, High Score, Ending | Silent. `cmd_8C` stopped one-shot cues instead of playing them |
-| Echo and amplify on sound effects | Never implemented, though the game requests them constantly |
+| Echo on sound effects | Never implemented, though the game requests it constantly. `0x4000` now runs a real delay line — a 1/6th-second ring, each flagged voice sending 33% of itself into it, following GPGX |
 | Stereo imaging on every off-centre effect | One side was phase-inverted, cancelling on the Pocket's mono speaker |
 
 The firmware changes are in [patches/](patches/) and rebuild from a clean
@@ -266,9 +266,11 @@ Roughly a third of `rtl/PAPRIUM` is new here, plus changes throughout the rest:
 - **An IMA ADPCM decoder in fabric** — `paprium_ima_decode.sv`. The ring holds
   compressed frames and decodes on the way out, which cut the blob to a quarter
   and, as a side effect, bought about 4× the buffering (0.085 s → 0.337 s).
-- **Audio fixes in the SFX mixer** — echo (`0x4000`) and amplify (`0x0100`), which
-  the game requests constantly and neither this port nor MiSTer implemented; and a
-  pan sign bug that phase-inverted one side of every non-centred effect.
+- **Audio fixes in the SFX mixer** — echo (`0x4000`), which the game requests
+  constantly and neither this port nor MiSTer implemented; and a pan sign bug that
+  phase-inverted one side of every non-centred effect. The mixer also carries an
+  amplify path for `0x0100`, written when that bit was believed to be a gain. It
+  is deliberately never asserted — see below.
 - **Firmware fixes**, built from krikzz's source — see [patches/](patches/). The
   punk-TV cue never looped because `sfx_player_update` abandons a channel once it
   empties, so the game's later `sfx_loop` landed on a dead one.

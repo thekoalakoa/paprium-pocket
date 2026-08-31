@@ -5242,11 +5242,28 @@ Two of my own measurements pointed away from this and both were faulty:
 The ear test with engine-constrained ratios was the measurement that worked, and it
 was cheap. Try it before building analysis tooling next time.
 
-### The change
+### The change - note this moved after it was first written
 
-`rtl/PAPRIUM/audio_sfx.sv`: `flags[0]` now steps `srate` by one (saturating at 5)
-instead of setting `amp`. `amp` is tied off rather than deleted so the struct field
-and mixer path survive a revert.
+The first version did it in `rtl/PAPRIUM/audio_sfx.sv`, stepping `srate` in place
+of setting `amp`. **That was reverted.** The same `+1` put an adder in front of the
+aclk mux and cost 0.4 ns of setup; three fitter seeds landed between -2.72 and
+-2.98, and -2.715 is measured NOT to boot.
+
+**Shipping does it in firmware,** `mcu/sfx.c`, for zero logic. The rate index is
+stepped there, and bit 0 is cleared on the way out:
+
+    ppmio.sfx[chan_idx].flags = (flags >> 8) & ~0x01;
+
+So the RTL is unchanged and still carries the full amplify path - `sfx.amp <=
+flags[0]` and the x1.25 on the running mix are both still there. It simply never
+fires, because the only bit that would assert it is cleared before the RTL sees
+it. **Amplify is implemented and starved, not removed.** If the rate-step reading
+is ever overturned, dropping the `& ~0x01` restores the old behaviour exactly.
+
+An earlier version of this passage said `amp` was "tied off" in RTL. It is not -
+nothing in `audio_sfx.sv` changed - and the distinction matters, because a reader
+checking the RTL would find the amp path live and reasonably conclude `0x0100`
+gets both a rate step and a x1.25 gain. It does not.
 
 Affects 15 of 83 sfx requests in the capture, across ids `01, 08, 1A, 23, 40, 7D` -
 so it should be audible in several places, not just the fat death. Anything that
