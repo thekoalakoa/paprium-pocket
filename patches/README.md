@@ -8,8 +8,12 @@ this core ships in `rtl/PAPRIUM/mcu.txt`.
 git clone https://github.com/krikzz/mega-ppm.git repos/mega-ppm
 cd repos/mega-ppm && git apply ../../paprium-pocket/patches/mega-ppm-pocket.patch
 cd ../../paprium-pocket && ./scripts/build_mcu.sh
-cp build_output/mcu/mcu.txt rtl/PAPRIUM/mcu.txt
 ```
+
+`build_mcu.sh` installs into `rtl/PAPRIUM/mcu.txt` itself and reports whether the
+firmware actually changed. It used to only print that path as a "reference build
+for comparison", which cost a full Quartus fit built against stale firmware - see
+docs/BUILD_REFERENCE.md.
 
 The patch is kept here rather than the built binary alone because GPLv3 asks that
 a distributed binary come with its corresponding source, and `mcu.txt` is a
