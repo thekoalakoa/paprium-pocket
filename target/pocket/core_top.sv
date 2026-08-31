@@ -1043,15 +1043,15 @@ module core_top (
     wire mdp_stop_gated = CDDA_DIAG ? (mdp_stop_request & ~mdp_playing)
                                     : mdp_stop_request;
 
-    // The 8-byte header entry lands in its own tiny bridge region so it cannot be
+    // Header reads land in their own tiny bridge region so they cannot be
     // confused with audio arriving in the ring.
     wire        cdda_hdr_wr_en;
-    wire  [2:0] cdda_hdr_wr_addr;
+    wire  [4:0] cdda_hdr_wr_addr;
     wire [15:0] cdda_hdr_wr_data;
 
     data_loader #(
         .ADDRESS_MASK_UPPER_4 (4'h5),
-        .ADDRESS_SIZE         (3),      // one 8-byte entry
+        .ADDRESS_SIZE         (5),      // 32 B: the 24-byte file header, or a 16-byte entry
         .OUTPUT_WORD_SIZE     (2),
         .WRITE_MEM_CLOCK_DELAY(24)
     ) cdda_hdr_loader (
