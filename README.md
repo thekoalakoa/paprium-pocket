@@ -84,6 +84,31 @@ core this forks. All verified on real hardware, in both Arcade and Original mode
 The firmware changes are in [patches/](patches/) and rebuild from a clean
 [krikzz/mega-ppm](https://github.com/krikzz/mega-ppm) clone.
 
+### The in-game sound test is a usable instrument
+
+Paprium has a sound test — the Boom Box, in the Options menu, labelled `?`. It is
+the fastest way to check the large-enemy death fix above, or any other sound
+question, because it fires one sample on demand instead of making you reproduce a
+fight.
+
+It indexes `00-FF`, but the sample table has only 127 live rows (`00-7E`). Swept
+on hardware, the top half is **not** 128 more samples: slot `N + 0x80` fires row
+`N` with the rate-step flag set. So there are 127 samples, not 255, and nothing in
+the bank is unheard. Anyone else working on this cartridge should not size a mixer
+for 256 voices on the strength of the menu's range.
+
+That also makes the menu a controlled A/B for the rate-step fix. `52` then `D2`
+drops 24000 Hz to 12000 Hz — an octave down and roughly double the length. Compare
+with `22` then `A2`, which **must** sound identical, because row `0x22` is already
+at the slowest rate and the firmware saturates rather than wrapping. Six rows
+behave that way (`22, 2C, 2F, 48, 4C, 71`); on those, identical is the fix working,
+not the fix failing. Without a saturated pair as a control, an unchanged sound is
+ambiguous.
+
+`scripts/predict_boombox_pairs.py <rom>` reads the table and prints the predicted
+rate and duration for any pair, so a sweep can be checked against numbers rather
+than judged by ear alone.
+
 Timing does not fully close on this device — inherited from the base core, which
 runs correctly on hardware regardless.
 
