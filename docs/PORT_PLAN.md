@@ -5813,6 +5813,86 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# VDP capture RESULT - 2026-08-31, 11 savestates
+
+Captured in RetroArch with the Paprium-capable GPGX core: cell room, elevator,
+INTERCOM walkway, rooftop. Parsed with `scripts/parse_gpgx_state.py`.
+
+## The register map is STATIC across the whole game
+
+All eleven captures, every scene, byte-identical:
+
+    reg  2 = 0x30   plane A   0xC000 - 0xCFFF
+    reg  4 = 0x07   plane B   0xE000 - 0xEFFF     (reg 16 = 0x01, 64x32)
+    reg  5 = 0x78   SAT       0xF000 - 0xF27F
+    reg 13 = 0x3D   hscroll   0xF400 - 0xF7FF
+    reg  3 = 0x3C   window    base 0xF000, but reg 17 = reg 18 = 0
+
+**There is no per-scene VDP remapping.** The five addresses that were treated as
+unknown for weeks are one set of numbers, the same everywhere.
+
+### This closes cap-53 properly
+
+`0xF800-0xFFFF` holds no VDP structure in any scene - hscroll ends at `0xF7FF`
+and nothing points above it. The region does contain data (376-994 nonzero bytes
+of 2048), but as tile pattern data, which is exactly what the allocator stores
+there. Slots 49-52 are not overwriting a table.
+
+Three independent confirmations now agree: the GPGX source (SAT DMAed to
+`0xF000`), the hardware A/B (cap 49 vs 53 indistinguishable), and these measured
+registers from the elevator and INTERCOM themselves - the very scenes that use
+those slots.
+
+### And it refutes the window hypothesis for the rooftop
+
+**reg 17 and reg 18 are zero in every capture, including the rooftop.** The window
+plane is never enabled anywhere in this game. It was the leading suspect for the
+player-behind-scenery clip and it is now dead.
+
+## What this capture could NOT answer, and why
+
+The SAT question - is the player in the sprite table, with what priority - is
+**not answered**, and the captures cannot answer it.
+
+Both copies of the sprite list were checked:
+
+    VRAM at 0xF000              2-3 sprites in the link chain, none on screen
+    cart RAM at 0xB00           identical to VRAM, every entry parked at X=0/1
+
+`sat_count` at `0x1F18` reads 56, so the game thinks it has written 56 sprites,
+but every entry is off-screen. Mid-fight, that is not a plausible sprite list.
+
+The tester's own observation explains it: in the emulator **the background looked
+different and almost broken, the elevator glitching did not occur, and the player
+never went behind the stage**. GPGX's Paprium cartridge emulation is not rendering
+these scenes correctly, so its sprite output is not evidence about ours.
+
+### Why the register result survives that and the SAT result does not
+
+The VDP registers are written by the **68000**, which GPGX emulates faithfully -
+that path does not depend on the cartridge implementation at all. The sprite list
+is built by the **cartridge**, which is exactly the part that is visibly wrong.
+So the same capture is trustworthy for one and worthless for the other.
+
+Do not read "the symptom did not reproduce in the emulator" as evidence that our
+firmware causes it. An emulator that does not draw the scene correctly cannot be
+cited for what it fails to show.
+
+## Where the rooftop item stands now
+
+    window plane            REFUTED - never enabled, in any scene
+    SAT priority            already refuted on hardware by the forced-0x8000 probe
+    is the player in the SAT  STILL OPEN, and not answerable from GPGX
+
+The remaining candidates are unchanged: the player is drawn by the 68000 rather
+than by the cartridge, or something region-based masks it. Note there ARE sprites
+parked at raw X=0 in the captures, and X=0 is the Mega Drive sprite-masking
+position - worth keeping in mind, though these captures are too broken to build on.
+
+Getting further needs the sprite list as OUR firmware builds it, on hardware.
+That is a cart-RAM read at `0xB00`, not a VDP tap - and it is still gated behind
+the standing rule that no new bitstream is built for this without a decision.
+
 # The VDP capture needs no compiler - use a savestate
 
 Genesis Plus GX savestates already contain everything the capture was going to be
