@@ -17,8 +17,8 @@ ROMs into it.
 > The music is likewise not included — see [Music](#music).
 
 This exists for preservation. The cartridge depends on hardware that has never
-been dumped, and the people who built it are gone; a core that runs the game from
-your own dump is a way of keeping it playable.
+been dumped, and the company that made it has wound up; a core that runs the game
+from your own dump is a way of keeping it playable.
 
 **Installation: [docs/INSTALL.md](docs/INSTALL.md)**
 
@@ -35,9 +35,14 @@ than half the logic of the MiSTer board this was ported from. There is very litt
 room left; see [docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) before adding
 anything.
 
-The core boots straight into the game — no file browser, and no region option,
-because a single-game core has one game and it is Japanese. The cost is that the
-dump and the save are both fixed names; see [docs/INSTALL.md](docs/INSTALL.md).
+The core boots straight into the game — no file browser, and no region option.
+The cost is that the dump and the save are both fixed names; see
+[docs/INSTALL.md](docs/INSTALL.md).
+
+Region is fixed to Japan, which was already the menu default. The cartridge header
+is `JUE` and the game is confirmed on hardware to run in **both** regions, so this
+is one less menu item on a single-game core rather than a requirement. Restoring
+the choice is a JSON edit, not an RTL change.
 
 There is no 6-button option either: Paprium's own controller read is a 3-button
 read, so X, Y, Z and Mode never did anything. The setting was removed rather than
@@ -258,7 +263,8 @@ Built on five projects. GPLv3 throughout, so all of it stays credited.
 
 ### What this port adds
 
-Roughly a third of `rtl/PAPRIUM` is new here, plus changes throughout the rest:
+About 40% of `rtl/PAPRIUM` is new here — 1,519 of 3,596 lines are in files that
+did not exist upstream — plus changes throughout the rest:
 
 - **The whole CDDA music path** — `paprium_cdda_fetch/buf/play.sv`. Streams the
   soundtrack from an SD-card blob by seeking within a single APF data slot,
