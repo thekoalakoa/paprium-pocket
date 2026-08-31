@@ -4844,8 +4844,11 @@ strictly better than the cap whatever the shaft does.
 INTERCOM is **slot-bound**. If it is **fill-bound**, more residents do nothing and
 the squares stay.
 
-Both are consistent with what hardware already showed: cap-at-49 improved the
-elevator (collision removed) and left scrolling squares (churn remaining).
+Both were written on the belief that hardware had shown cap-at-49 improving the
+elevator (collision removed) while leaving scrolling squares (churn remaining).
+**That premise was withdrawn on 2026-08-31** - see "cap-at-49 has lost its
+justification" below. The tester's report is that capping made it feel the same or
+similar, not noticeably better.
 
     clean doorway + shaft improved   -> slot-bound. LRU confirmed, done
     clean doorway + shaft UNCHANGED  -> A RESULT, NOT A FAILED REMAP. Claim 1 stands;
@@ -5413,8 +5416,10 @@ past the table's end into raw PCM. Nothing in the sweep behaved that way.
 `build_output/paprium.rbf_r` + the firmware rate-step is what is on the card and
 pushed. Verified on hardware:
 
-- **cap-at-49** - slots 49-52 were DMAing over the sprite attribute and hscroll
-  tables at `0xF800`; capping stops it. Elevator improved
+- **cap-at-49** - believed to stop slots 49-52 DMAing over the sprite attribute
+  and hscroll tables at `0xF800`. **Both halves of that have since failed**: the
+  SAT is at `0xF000`, and the tester reports no noticeable improvement. Still on
+  the card, now unjustified rather than validated
 - **field-wise sprite attributes** - fixes the doorway floor and palette generally
 - **`0x0100` = rate-index step**, done in `sfx.c`, fit identical to `61d1ddd3`.
   Large-enemy death is the grunt sample one rate step down
@@ -5807,6 +5812,66 @@ for them is still refuted. The emulator session is now smaller than it was: SAT
 base is known, one of the two questions about the player is answered, and what is
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
+
+# cap-at-49 has lost its justification - 2026-08-31
+
+Two independent things landed on the same day and between them there is nothing
+left holding this change up.
+
+**The target was misidentified.** The rationale was that slots 49-52 land on tiles
+1984-2047 (`0xF800-0xFFFF`), "the sprite attribute and hscroll tables". The GPGX
+read shows the SAT is DMAed to `0xF000` and ends at `0xF27F`. Whatever is at
+`0xF800`, it is not the sprite attribute table.
+
+**The benefit was not observed.** The record says "Elevator improved". Asked
+directly, the tester's report is that capping made it feel **the same or similar,
+not noticeably better**. That claim came from me, not from a hardware report, and
+it has been propagating through this file and the README ever since.
+
+So the current position on cap-at-49 is:
+
+    claimed collision target   wrong - SAT is at 0xF000
+    claimed benefit            not reproduced by the tester
+    known cost                 four blocks of residency, game-wide, permanently
+
+A change that costs four blocks everywhere and cannot show what it buys should not
+be carried on the strength of the story that motivated it.
+
+## What is NOT being claimed
+
+Not that the cap is harmful, and not that there is no collision. `0xF800-0xFFFF`
+may well hold the hscroll table (`reg 13`) or a nametable, and writing tiles over
+it may well cause something - just not the thing that was written down, and not an
+effect anyone has seen. The empirical instruction "do not send those slots back to
+`0xF800`" was never based on the SAT reasoning and still stands on its own.
+
+## The cheap test, when there is appetite for it
+
+`PPM_VRAM_SAFE_SLOTS` is firmware, so this is a firmware-only build: fit metrics
+identical to shipping, bitstream md5 different, no RTL touched.
+
+    build 53 (uncapped) and A/B it against shipping in the elevator
+
+    no visible difference        -> the cap buys nothing. Revert it and take four
+                                    blocks of residency back game-wide, which is
+                                    the one thing that helps the fill-bound
+                                    symptoms even slightly
+    uncapped is visibly worse    -> there IS a collision at 0xF800. The cap stays,
+                                    and now it is justified by an observation
+                                    instead of by a misread address
+
+Either outcome is worth more than the current state, which is a change carried on
+a withdrawn premise. **Standing instruction is that cap-49 stays and no new VRAM
+bitstream is built without a dump - this does not override that.** It is here so
+the decision is made on what is actually known.
+
+## Process note
+
+This is the second correction in a day where a tidy explanation outran the
+evidence, and the same shape as the VM DAC filter theory: a mechanism that sounded
+right, a fix that followed from it, and a claimed confirmation that nobody had
+actually made. The tester's "it felt the same" is the measurement; my "improved"
+was an inference wearing its clothes.
 
 # Release gate for v0.2.0
 
