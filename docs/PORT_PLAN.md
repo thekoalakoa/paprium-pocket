@@ -5526,18 +5526,28 @@ vanish rather than freeze - the same path, worse severity.
   demands the most blocks. PORT_PLAN already described the elevator's stale
   squares in exactly these terms; what was missed is that the same code fires in
   ordinary gameplay, so it was mis-scoped as an elevator problem
-- **Cap-at-49 aggravates it game-wide.** `PPM_VRAM_SAFE_SLOTS 0x31` clamps the
-  budget to 49 while INTERCOM asks for 53. Fewer slots means more `load_block`
-  failures means more rewinds. The symptom predates the cap so the cap did not
-  cause it, but the cap costs four blocks everywhere, not just in the elevator
-- **This raises the value of the emulator session.** Getting the five VDP
-  addresses is no longer a niche elevator fix. Buying back four blocks reduces
-  animation freezing across the whole game. It had been treated as lower priority
-  than it deserves
+- **Cap-at-49 is a second-order factor, not the cause.** `PPM_VRAM_SAFE_SLOTS`
+  and `dma_budget` are different limits and must not be conflated:
 
-**Do not respond by raising the cap blind.** The reason 49 exists is the
-confirmed `0xF800` SAT/hscroll collision, and the reason a remap was reverted is
-that the cell-room floor broke. The route to 53 is still the five addresses.
+      PPM_VRAM_SAFE_SLOTS 0x31   how many blocks may be RESIDENT   (49)
+      dma_budget                 how many may be LOADED PER FRAME  (10-16)
+
+  Starvation is `load_block` failing, and **four more slots does not raise the
+  fill rate**. More slots only helps by retaining blocks the LRU would otherwise
+  evict and reload, which avoids some loads rather than allowing more of them.
+  Worth having, not the lever.
+
+- **So frozen walks are NOT blocked on the emulator session.** An earlier version
+  of this note claimed buying back four blocks would reduce animation freezing
+  across the whole game, and parked the symptom behind the VDP map. That was
+  wrong - it treated slot count and fill rate as the same quantity. The binding
+  constraint is 10-16 blocks/frame from a constant in the game's own ROM, and
+  nothing in the map changes it.
+
+**Separately: do not raise the cap blind.** The reason 49 exists is the confirmed
+`0xF800` SAT/hscroll collision, and the reason a remap was reverted is that the
+cell-room floor broke. The route to 53 is still the five addresses - but that is
+about the elevator's tile corruption, not about this.
 
 
 ## Sprite priority: NOT SAT priority - probe result (2026-08-31)
@@ -5584,6 +5594,15 @@ Two candidates, and the emulator session distinguishes them:
    scanlines regardless of priority)
 
 ### What the emulator session must now capture
+
+**Two items need it, not four.** The frozen-walk symptom is already explained by
+`load_block` -> `previous_offset` and is fill-rate bound; the intro flicker is
+unrelated and lowest value. Only these are actually gated:
+
+    cap-53 / remap              five addresses + map sizes, cell room + INTERCOM
+    player/bombs behind scenery SAT dump + regs 3/17/18
+
+The same playthrough is convenient for both, not required.
 
 Beyond the five VDP addresses already needed for the cap:
 
