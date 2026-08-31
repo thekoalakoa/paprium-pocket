@@ -5831,17 +5831,39 @@ All eleven captures, every scene, byte-identical:
 **There is no per-scene VDP remapping.** The five addresses that were treated as
 unknown for weeks are one set of numbers, the same everywhere.
 
-### This closes cap-53 properly
+### cap-53, and a correction to the first version of this note
 
-`0xF800-0xFFFF` holds no VDP structure in any scene - hscroll ends at `0xF7FF`
-and nothing points above it. The region does contain data (376-994 nonzero bytes
-of 2048), but as tile pattern data, which is exactly what the allocator stores
-there. Slots 49-52 are not overwriting a table.
+`0xF800-0xFFFF` holds no VDP **structure** in any scene - hscroll ends at `0xF7FF`
+and no register points above it. That much the registers prove.
 
-Three independent confirmations now agree: the GPGX source (SAT DMAed to
-`0xF000`), the hardware A/B (cap 49 vs 53 indistinguishable), and these measured
-registers from the elevator and INTERCOM themselves - the very scenes that use
-those slots.
+**The first version of this note then said the region was "free". That is wrong,
+and the registers never supported it.** A register only says where the VDP is
+aimed; it says nothing about which tile indices the nametables reference. Checked
+directly, from the same captures:
+
+    capture   nametable refs to tiles 800-863   refs to tiles 1984-2047   max idx
+    state0                 203                           21                1989
+    state7                  64                           37                2027
+    state9                 121                           24                2003
+
+**Plane A and B actively index tiles 1984-2047**, which is `0xF800-0xFFFF`. The
+region is live artwork, not spare space.
+
+This makes cap-53 more clearly right rather than less. Slots 49-52 map to tiles
+1984-2047 through the game's own `+0x4b` jump, and the planes reference exactly
+those tiles - so that is **where the game intends the artwork to go**. Capping at
+49 leaves the nametables pointing at patterns that were never loaded, which is a
+mechanism for the animation problems, not merely an absence of harm.
+
+It also confirms why the `0x6400` remap broke the cell-room floor: 34-224
+nametable entries reference tiles 800-863. Not a nametable base, but indexed as
+artwork. **"Not a table" never meant "not used"** - which is the same error the
+first version of this section made about `0xF800`.
+
+Three independent confirmations agree that the SAT/hscroll collision story is
+dead: the GPGX source (SAT DMAed to `0xF000`), the hardware A/B (cap 49 vs 53,
+elevator unchanged and animation much better), and these measured registers from
+the elevator and INTERCOM - the very scenes that use those slots.
 
 ### And it refutes the window hypothesis for the rooftop
 
