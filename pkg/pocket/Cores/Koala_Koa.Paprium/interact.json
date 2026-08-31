@@ -11,26 +11,6 @@
         "value": 1
       },
       {
-        "name": "Region (hard restart req'd)",
-        "id": 2,
-        "type": "list",
-        "enabled": true,
-        "address": "0x0000000C",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 1,
-        "options": [
-          {
-            "name": "Japan",
-            "value": 1
-          },
-          {
-            "name": "Export",
-            "value": 2
-          }
-        ]
-      },
-      {
         "name": "Aspect Ratio",
         "id": 8,
         "type": "list",
