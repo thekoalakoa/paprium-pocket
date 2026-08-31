@@ -5709,6 +5709,75 @@ its user-reloadable bit. Harmless - the save now has a fixed name either way, so
 loading through it cannot split saves across two files - and it is a useful escape
 hatch. Remove the bit from `parameters` if the menu should be tidier.
 
+# Release gate for v0.2.0
+
+**Decision, 2026-08-31: do not cut a release until the list below is closed or
+explicitly verified.** `core.json` says 0.2.0 and there is no release; the version
+string marks the build on the card, and publishing is a separate act. Nothing
+downstream depends on shipping early, and a release is the one step here that is
+hard to take back - people install it, and it becomes the version bugs get
+reported against.
+
+## The trap to avoid
+
+Two open items are blocked on a VDP/SAT capture that does not exist yet. "Close
+everything first" would therefore block a release indefinitely on work that is not
+scheduled. So the gate is not "no open items" - it is **no open item that is
+unverified, undocumented, or worse than the last release**.
+
+Each item must reach one of three states, and be written down as such:
+
+    FIXED        verified on hardware
+    CHARACTERISED  root cause known, documented, not fixable at this scope
+    ACCEPTED     known, cosmetic or rare, listed in the README's Known issues
+
+## Status against that gate
+
+    IMA ADPCM music                FIXED, hardware-verified
+    VM DAC static                  FIXED, hardware-verified
+    Boom Box N vs N+0x80           VERIFIED - the menu is a flag UI, nothing unheard
+    Auto-boot + save               FIXED, hardware-verified, save loads and writes
+    Elevator scrolling squares     CHARACTERISED - fill-rate bound at 10-16
+                                   blocks/frame from a ROM constant
+    Frozen walk animations         CHARACTERISED - same cause, load_block failure
+                                   falls back to previous_offset
+    Intro pixel flicker            ACCEPTED - cosmetic, self-corrects
+    Rooftop player/bombs behind BG  **NOT YET** - open, and the probe only ruled a
+                                   cause out. Needs a SAT dump to reach
+                                   CHARACTERISED
+    cap-53 / VRAM remap            **NOT YET** - needs five VDP addresses
+
+So **two items are short of the gate**, and both need the same emulator session.
+Neither needs a fix to pass - reaching CHARACTERISED is enough, because both are
+upstream-firmware symptoms present on other Paprium setups. What is not acceptable
+is releasing with "we don't know" against a symptom a player will hit in normal
+play, which is what the rooftop one is.
+
+## Before any release is cut, re-verify on hardware
+
+The build on the card has accumulated changes that were each tested in isolation.
+Verify them together, from a cold boot, on a card prepared the way the README
+tells a stranger to prepare one:
+
+    boots straight in, no browser
+    save loads, and a new save persists across a full core exit
+    music plays, correct track per scene, one-shots stop rather than loop
+    VM DAC toggle produces silence, not static
+    Block 888 doorway palette correct
+    stage clear / continue / game over cues audible
+    punk-TV cue loops
+
+Then confirm the packaged zip installs from scratch on a card that has never had
+this core - the fixed filenames make a clean-card install a genuinely different
+path from an upgrade, and it is the path a new user takes.
+
+## Also outstanding, not blocking
+
+- `README` and `INSTALL` describe auto-boot and fixed filenames. Both were written
+  today and have not been read by anyone following them from scratch
+- no git tag exists yet; `scripts/package_release.sh` has its `jq` dependency
+  satisfied as of today
+
 # RESUME HERE - 2026-08-31
 
 ## Shipping
