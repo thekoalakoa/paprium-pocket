@@ -194,6 +194,20 @@ dependence - so about 535 MB. **Only the file changes**: the play path stays a
 The magic matters: the old layout starts with the track table at `0x000`, so a
 stale `.pcm` parsed as `PPAD` would read audio bytes as offsets and stream noise.
 
+`paprium_cdda_fetch` therefore vets the blob **before it walks the table at all**
+(`S_MAGIC`), and checks every field the decoder hardcodes, not just the magic - a
+blob with the right magic but a different `block_samples` would frame at the wrong
+stride and decode as noise just the same. A failed check, or a slot that never
+answers, leaves `blob_ok` low: no table walk, no reads, `playing` low, silent. The
+verdict is cached, since the file cannot change without the core being relaunched.
+
+The u64 offset's high half is checked zero as well. `cursor` is 32 bits, so a blob
+over 4 GB would silently wrap and stream from the wrong place.
+
+`scripts/verify_ppad_header.py` models that parsing byte-for-byte against a blob
+the packer actually wrote - it is what caught the offset drift described below,
+and it is cheaper than a 40-minute fit.
+
 ## Block geometry - why 505
 
 `block_samples - 1` must be a multiple of 8: the first sample of a block is the
@@ -214,8 +228,33 @@ Every block is self-contained, carrying its own predictor and step index per
 channel, so a seek need only land on a 512-byte boundary. Mid-block resume would
 need decoder state the fetch path cannot reconstruct.
 
-Stop on the table's `pcm_samples`, not on the byte length: the final block pads to
-a multiple of 8 and would otherwise emit stray samples at every track end.
+## Padding - two kinds, both load-bearing
+
+Every block is exactly 512 bytes, **including the last one**. The first packer
+emitted a short final block (it looped to `take` rather than `block_samples`);
+because the decoder frames the stream by counting bytes, every frame after a short
+one slides and decodes as noise. The in-block pad encodes toward **zero** rather
+than holding the last predictor - a held predictor leaves a DC step for the rest of
+the block and then a cliff down to silence, which is a thump at every track end. It
+settles in about 16 samples (0.3 ms) and ends at exact zero.
+
+Each track is then padded to a whole **4096-byte chunk** with silence frames (pred
+0, index 0, all-zero nibbles: IMA nibble 0 gives `step>>3`, which is 0 at step 7,
+so the predictor never moves - exact digital silence). The fetch reads fixed 4096-
+byte chunks, so without this a read straddles into the **next track's data**, which
+is the thing that actually sounds like noise. Costs under 256 KB across 64 tracks.
+
+> The first version of this padding wrote the padded length into the table but the
+> **unpadded** bytes into the file, so every offset past track 1 drifted and the
+> last tracks ran off the end. Padding and the table have to be derived from the
+> same bytes.
+
+Ideally playback stops on the table's `pcm_samples` rather than the byte length.
+**It does not yet.** The ring's flow control is at 4096-byte granularity, so
+sample-exact stopping belongs in `paprium_cdda_buf`, not in the fetch. The residual
+is up to ~84 ms of digital silence at a loop seam - quiet rather than wrong, which
+is the half that mattered. `pcm_samples` is parsed and range-checked already, so
+the remaining work is a sample budget on the read side.
 
 ## Where the decoder goes - decided by M10K, not preference
 

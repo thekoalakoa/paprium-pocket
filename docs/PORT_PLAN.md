@@ -5160,31 +5160,47 @@ Elevator is **closed as characterised**: fill-bound at 10-16 blocks/frame from
 `dma_budget` (a ROM constant), plus the `previous_offset` fallback re-rendering the
 last animation frame. Not a collision. Do not reopen without new evidence.
 
-## IMA ADPCM - step 1 of 3 done
+## IMA ADPCM - all three modules written, awaiting hardware
 
 **Done and committed:**
 
 - `scripts/build_cdda_adpcm.py` - PPAD packer. 3.95x, SNR 37.9 dB, quality approved
 - `rtl/PAPRIUM/paprium_ima_decode.sv` - 512-byte frames -> 505 stereo samples,
-  fully registered, in `core.qip`, synthesis clean
+  fully registered, declared in `rtl/paprium.qip`
+- `rtl/PAPRIUM/paprium_cdda_buf.sv` - ring holds compressed frames, decoder inside,
+  chunk accounting in bytes (`6b75e90`)
+- `rtl/PAPRIUM/paprium_cdda_fetch.sv` - PPAD vetted **before the table is walked**,
+  16-byte entries at `0x18 + N*16`, mute on a bad or missing blob (`9e49d1b`)
 - `scripts/verify_ima_decode.py` - cycle model, matches the reference decoder
   byte-for-byte over 1,010 samples across a frame boundary
+- `scripts/verify_ppad_header.py` / `verify_ppad_audio.py` - model the fetch's
+  address arithmetic and check pad behaviour against a real packer-written blob
+
+**Two packer bugs the header check caught, both of which play as noise:**
+
+- a **short final block** (looped to `take`, not `block_samples`) slides every
+  following frame, because the decoder frames by counting bytes
+- track padding went into a local, so the table held padded lengths while the file
+  held unpadded bytes - every offset past track 1 drifted
+
+**Known gap, stated rather than implied:** playback stops on the byte count, not on
+`pcm_samples`. The ring's flow control is at 4096-byte granularity, so sample-exact
+stopping belongs in `cdda_buf`. Residual is up to ~84 ms of digital silence at a
+loop seam - quiet, not wrong. `pcm_samples` is already parsed and range-checked.
 
 **Remaining:**
 
-1. `paprium_cdda_buf` read side - ring holds compressed frames, read pointer in
-   **512-byte frame units**, hand bytes to the decoder
-2. `paprium_cdda_fetch` - PPAD magic at `0x000`, **16-byte** table entries, stop on
-   `pcm_samples`, and **mute on missing magic** - never parse a stale `.pcm` as
-   `u32` offsets
-3. Build `ima1`, **shipping variant only**
-4. Smoke: boot -> cell room -> loop track 1 -> seek stage-clear. A stale `.pcm` in
-   the slot must stay silent
+1. Hardware smoke of `ima1`: boot -> cell room -> loop track 1 -> seek stage-clear.
+   A stale raw-PCM `.pcm` in the slot must stay **silent**, not noisy
+2. Then the sample-exact loop seam in `cdda_buf`, if the seam is audible
 
 **Constraints:** player stays 16-bit 48 kHz. Do NOT fold in the ratestep RTL, the
 cmdlog logger, or any region/menu cut. Shipping tree plus this decoder only.
 
 **Gate:** hold > 0, setup not ~-3.0. Then hardware decides - see BUILD_REFERENCE.
+
+**Users must rebuild `paprium.pcm`** - the format changed and the core now refuses
+an unrecognised blob outright. INSTALL.md says so where the build commands are.
 
 ## Standing rules that cost something to learn
 
