@@ -21,6 +21,7 @@
         "required": false,
         "parameters": "0x84",
         "nonvolatile": true,
+        "filename": "Paprium.sav",
         "extensions": [
           "sav",
           "srm"
