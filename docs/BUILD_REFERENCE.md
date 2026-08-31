@@ -15,6 +15,10 @@ for the other already caused a gate to be set on the wrong baseline.
 | cmdlog   | sticky counters   | 18,141 | 308  | ?      | ?      | YES |
 | cmdlog   | Probe B v1        | 18,209 | 308  | -2.957 | -2,844 | **NO - garbage at boot** |
 | cmdlog   | Probe B v2        | 18,283 | 308  | -2.576 | -1,204 | **YES - valid capture** |
+| shipping | ima1 seed default | 18,181 | 294  | -3.789 | -2,099 | not tried - fails both gates |
+| shipping | ima1 seed 3       | 18,186 | 294  | -2.750 | -1,584 | not tried - fails setup |
+| shipping | ima1 seed 5       | 18,194 | 294  | -2.596 | -1,428 | passes both, 4 ps margin - SMOKE PENDING |
+| shipping | ima1 seed 7       | 18,190 | 294  | -2.867 | -3,647 | not tried - fails both gates |
 
 The two `?` rows had their reports overwritten before `scripts/archive_fit.sh`
 existed. Archive every build from now on.
@@ -50,6 +54,30 @@ never implied by the numbers.
 
 - **ALM. Log it, do not gate on it.** Do not override a timing fail because ALM
   looks low, and do not block a timing pass because ALM is over a proxy ceiling.
+
+### Seed spread is wider than 0.55 ns - measured
+
+The ima1 sweep, one tree, four fitter seeds:
+
+    default  -3.789   hold -0.112
+    seed 3   -2.750   hold +0.056
+    seed 5   -2.596   hold +0.004
+    seed 7   -2.867   hold -0.001
+
+**1.19 ns of setup spread on identical RTL**, against the 0.25-0.55 ns assumed
+before. So a single bad fit is not evidence that a change broke timing - at 98%
+occupancy the placement is the dominant term, and the critical paths it produces
+(VDP prescaler -> 68000, mcu_mem -> SDRAM address) are in logic nobody touched.
+
+Two consequences worth keeping:
+
+- **Do not conclude "the change cost 1.2 ns" from one fit.** Re-seed first.
+- **Do not grind seeds either.** Three or four is data; ten is a lottery ticket
+  with a 25-minute draw. If none land, shrink the logic.
+
+Hold is part of the gate, not a footnote: seeds default and 7 fail hold in the
+FAST corner (0C) while passing it in the slow one. Read the multicorner summary,
+not just the slow model.
 
 ### Why ALM is advisory
 
