@@ -5712,11 +5712,14 @@ hatch. Remove the bit from `parameters` if the menu should be tidier.
 # Release gate for v0.2.0
 
 **Decision, 2026-08-31: do not cut a release until the list below is closed or
-explicitly verified.** `core.json` says 0.2.0 and there is no release; the version
-string marks the build on the card, and publishing is a separate act. Nothing
-downstream depends on shipping early, and a release is the one step here that is
-hard to take back - people install it, and it becomes the version bugs get
-reported against.
+explicitly verified.** Nothing downstream depends on shipping early, and a release
+is the one step here that is hard to take back - people install it, and it becomes
+the version bugs get reported against.
+
+**`core.json` stays at 0.1.0 until publication.** It was briefly bumped to 0.2.0
+on the reasoning that the version marks the build on the card; that was reverted,
+because an unreleased core has no business advertising a version that was never
+published. The number moves as part of cutting a release, not before it.
 
 ## The trap to avoid
 
@@ -5725,7 +5728,8 @@ everything first" would therefore block a release indefinitely on work that is n
 scheduled. So the gate is not "no open items" - it is **no open item that is
 unverified, undocumented, or worse than the last release**.
 
-Each item must reach one of three states, and be written down as such:
+Each item must reach one of three states - agreed 2026-08-31 - and be written
+down as such:
 
     FIXED        verified on hardware
     CHARACTERISED  root cause known, documented, not fixable at this scope
