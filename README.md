@@ -87,6 +87,44 @@ The firmware changes are in [patches/](patches/) and rebuild from a clean
 Timing does not fully close on this device — inherited from the base core, which
 runs correctly on hardware regardless.
 
+### How these were found
+
+Most of them came from four cheap techniques rather than from reading code until
+something looked wrong. Worth writing down, because they transfer to the parts
+still open:
+
+- **A mailbox command logger.** A build variant records every command the game
+  sends the cartridge MCU, with a ring in spare M10K. That capture is what showed
+  the game constantly requesting echo and amplify that nothing implemented, that
+  `cmd_8C` was being handed one-shot cues it was stopping instead of playing, and
+  that flag `0x0100` accompanied large-enemy deaths. Three fixes out of one
+  diagnostic
+- **Channel-state capture in the SFX engine.** Logging what each of the eight
+  channels was doing showed the punk-TV channel had already been released by the
+  time the game's `sfx_loop` arrived — `sfx_player_update` abandons a channel the
+  moment it empties, so the loop enable landed on a dead one. The bug is in the
+  order of two events, which is invisible in a static read of the source
+- **Reading GPGX as a second implementation.** Where `mega-ppm` guessed, GPGX
+  often had the real thing. The `0x81` decoder in stock firmware is MAME's
+  reverse-engineered approximation, carrying an `unconfirmed end code` comment on
+  its own loop terminator; GPGX has an actual LZO decoder, and porting it fixed
+  the subway. The same comparison fixed sprite palettes: the attribute word was
+  being composed by XORing the tile and object words together, which scrambles
+  the palette bits whenever both are set, where GPGX composes field by field with
+  tile precedence
+- **Control experiments on unmodified hardware.** The "VM DAC" static was blamed
+  on our audio filtering, and a plausible story was built for it. Running a stock
+  Mega Drive core on the same Pocket and hearing Sonic 2's drums — the same
+  YM2612 DAC path, same filter setting — killed that theory in one test and moved
+  the search to the data being fed in, which turned out to be an uninitialised
+  buffer. **The wrong explanation was internally consistent and produced a fix
+  that would have made things worse**
+
+The pan bug is the exception: one side of every off-centre effect was
+phase-inverted, which cancels when the Pocket sums to its mono speaker. Impacts
+are the widest-panned sounds in the game, so they had the most to lose, and the
+fix was immediately audible.
+
 ### The in-game sound test is a usable instrument
 
 Paprium has a sound test — the Boom Box, in the Options menu, labelled `?`. It is
