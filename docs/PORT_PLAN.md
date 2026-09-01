@@ -5813,6 +5813,69 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# ROOFTOP ANSWERED: the player is in OUR sprite list, at priority 0 - 2026-09-01
+
+Captured on real hardware with the `PPM_SAT_SNAPSHOT` firmware, scene identified
+by the tester from a rendered layout of the sprite table
+(`scripts/draw_sat_layout.py`, image in `docs/rooftop-sat-layout.png`).
+
+    SAT entries 38-43   THE PLAYER          priority 0   palette 1
+    SAT entries 14-20   boss in helicopter  priority 1
+    SAT entries 27,28,32,33  bombs          priority 1
+    SAT entries 35-37   player UI / health  priority 1
+
+**The player is the ONLY priority-0 sprite on the screen.** Everything else - boss,
+bombs, HUD - is priority 1.
+
+That single fact explains the shape of the symptom. On a Mega Drive the order is
+
+    sprite pri1 > plane A pri1 > plane B pri1 > sprite pri0 > plane A pri0 > plane B pri0
+
+so a priority-0 sprite is the only kind of sprite a high-priority background tile
+can cover. Every other object in the scene is immune by construction, which is
+exactly what "only the player drops behind the scenery" looks like.
+
+## What is settled
+
+- **The player IS cartridge-rendered, by this firmware.** It is in the list we
+  compose at `0xB00`, not drawn by the 68000. An earlier note in this file
+  concluded the opposite from the forced-priority probe; that conclusion is
+  withdrawn
+- The 68000 asks for it at priority 0: object table entry for the player carries
+  `attrs 0x2000` - palette 1, priority bit clear. **All 42 objects** in the capture
+  have the priority bit clear, so sprite priority in this game comes entirely from
+  the per-tile attribute byte, never from the object
+- Sprite masking is refuted: the X=0 entries in the buffer are not reachable
+  through the link chain, and the VDP only draws what the chain reaches
+
+## The tension that must be resolved before any fix
+
+The forced-`0x8000` probe OR'd priority onto every entry this firmware composes.
+If the player is entries 38-43, that probe should have made the player priority 1
+and brought it in front of everything. **The tester reported it did not move.**
+
+Both observations cannot be right as stated. Either the probe did not do what its
+code says, or what was seen not moving was not the player. Do not ship a
+priority-related fix until that is resolved - the obvious "just force the player to
+priority 1" would be built on a contradiction.
+
+**The decisive experiment is now cheap**, because the snapshot exists: build the
+forced-priority probe AND the snapshot together, capture the rooftop, and read the
+player's entry.
+
+    player entry shows pri 1 and still renders behind  -> priority is NOT the
+        mechanism, and the cause is what the background draws over it
+    player entry shows pri 0 with the probe active     -> the probe never reached
+        those entries, and the earlier refutation was invalid
+
+## Also worth checking, spotted while reading the attribute path
+
+`ppm_spr_data.offset` is a `uint8_t`. GPGX splits the same word as 7 bits of
+attribute and **9 bits** of offset (`& 0x1FF`), and our `attrs & 0xf8` discards the
+low three bits of the attribute byte - one of which may be the ninth offset bit.
+If so, any sprite whose offset exceeds 255 gets the wrong tile index. Speculative,
+not yet evidence, but it is in the same few lines as the priority extraction.
+
 # What actually lives in each tile range - 2026-08-31, rendered
 
 `scripts/render_vram_tiles.py` renders the tile patterns and the plane maps out of
