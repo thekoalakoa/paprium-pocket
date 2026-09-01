@@ -47,6 +47,24 @@ REG_SZ   = 0x20
 PLANE_SIZES = {0: 32, 1: 64, 2: 64, 3: 128}   # reg 16 nibble -> cells
 
 
+
+def unswap(buf):
+    """Undo GPGX's native-endian 16-bit VRAM storage.
+
+    vdp_ctrl.c writes VRAM through `uint16 *p = (uint16 *)&vram[index]`, so on a
+    little-endian host every 16-bit word is byte-swapped relative to the layout a
+    Mega Drive actually sees. Reading it as big-endian scrambles BOTH tile pattern
+    bytes and nametable/SAT words.
+
+    This cost a wrong conclusion: the sprite tables looked like garbage, and that
+    was written up as "GPGX does not render the scene, so its sprite output is not
+    evidence". Undoing the swap, the same captures hold coherent sprite lists.
+    """
+    out = bytearray(len(buf))
+    out[0::2] = buf[1::2]
+    out[1::2] = buf[0::2]
+    return bytes(out)
+
 def load(path):
     """Return the raw state payload, whatever RetroArch wrapped it in."""
     raw = open(path, 'rb').read()
@@ -81,8 +99,8 @@ def main():
     base = blob.index(VERSION) + 16
     vdp = base + WORK_RAM + ZRAM + ZSTATE + ZBANK + IO_REG
 
-    sat_cache = blob[vdp:vdp + SAT_SZ]
-    vram = blob[vdp + SAT_SZ: vdp + SAT_SZ + VRAM_SZ]
+    sat_cache = unswap(blob[vdp:vdp + SAT_SZ])
+    vram = unswap(blob[vdp + SAT_SZ: vdp + SAT_SZ + VRAM_SZ])
     reg_off = vdp + SAT_SZ + VRAM_SZ + CRAM_SZ + VSRAM_SZ
     reg = blob[reg_off:reg_off + REG_SZ]
 
