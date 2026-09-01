@@ -5813,6 +5813,46 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# QUEUED: fix the ownership map, then build on it - after masking and the elevator
+
+`snap_owner` in `mcu/mame.c` records, per SAT entry, the object index that wrote
+it. It is currently **wrong and should not be trusted** - in the one capture that
+used it, it credited the 68000's own masks to "obj 0" (entries we never write) and
+split a single figure across obj 38, 44 and 1. It is still compiled in and writes
+80 bytes into every capture that nothing reads.
+
+## Why it is worth fixing rather than deleting
+
+Not as a labelling convenience - it earns its place as a way to model **how the
+game drives the cartridge**. Across captures it would give:
+
+- which object each sprite belongs to, so groups need no human identification
+- the same object tracked across the phases of a scene, which matters because the
+  rooftop is a sequence and entry indices differ every frame
+- where the 68000's own entries sit relative to ours, which is exactly the axis the
+  masking bug turned out to live on
+- a picture of the object model itself: how many objects a scene uses, how many
+  sprites each costs, which are cartridge-rendered and which are not
+
+The masking root cause was found by comparing chain POSITION between two runs. A
+working ownership map makes that kind of comparison routine instead of a one-off.
+
+## What fixing it needs
+
+Not yet diagnosed, so this is a starting point rather than a plan:
+
+- **the array is never cleared between frames**, so an entry we do not write keeps
+  a stale owner. That alone would explain masks credited to obj 0. Clearing to
+  0xFF each frame would make "not ours" explicit and self-evident in the capture
+- confirm `obj_slot` is the identifier it appears to be, and that indexing by
+  `sat_count` before the increment lines up with `satEntry` in every path,
+  including the ones that `continue`
+- consider recording the DRAW ORDER as well as the object, since order is what the
+  masking bug turned on
+
+Sequenced after the masking fix and the elevator check - it is an investigative
+tool, not a fix, and the fix in flight should not wait behind it.
+
 # QUEUED NEXT: DMA overbudget probe - after the masking work closes
 
 Written and committed, **default OFF** (`PPM_DMA_OVERBUDGET` in `mcu/mame.c`).
