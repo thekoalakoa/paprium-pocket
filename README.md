@@ -280,8 +280,18 @@ did not exist upstream — plus changes throughout the rest:
 - **Firmware fixes**, built from krikzz's source — see [patches/](patches/). The
   punk-TV cue never looped because `sfx_player_update` abandons a channel once it
   empties, so the game's later `sfx_loop` landed on a dead one.
-- **Diagnostics** — a mailbox command logger and SFX channel-state capture, which
-  is how the above was found rather than guessed at.
+- **Diagnostics** — a mailbox command logger, SFX channel-state capture, and
+  savestate tooling that reads the VDP registers, sprite table and tile patterns
+  straight out of a Genesis Plus GX state (`scripts/parse_gpgx_state.py`,
+  `scripts/render_vram_tiles.py`). That is how the VRAM map was settled: the
+  planes and the sprites use strictly separate tile ranges —
+
+      tiles  800-863   VRAM 0x6400-0x6BFF   background art, planes only
+      tiles 1984-2047  VRAM 0xF800-0xFFFF   sprite art, SAT only
+
+  which is why the VRAM budget matters to animation and not to background
+  scrolling, and why an earlier attempt to relocate streaming blocks into
+  `0x6400` destroyed the cell-room floor.
 - **Everything Pocket-specific** — APF integration, data slots, and the fit work
   that made room for all of it on a device this small.
 

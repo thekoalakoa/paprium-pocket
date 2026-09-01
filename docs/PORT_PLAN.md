@@ -5813,6 +5813,83 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# What actually lives in each tile range - 2026-08-31, rendered
+
+`scripts/render_vram_tiles.py` renders the tile patterns and the plane maps out of
+the savestates, and tints the cells whose tile index falls in a chosen range. So
+this is a picture, not a reference count.
+
+## The answer
+
+    tiles  800-863   VRAM 0x6400-0x6BFF   BACKGROUND. Planes index it, sprites never do
+    tiles 1984-2047  VRAM 0xF800-0xFFFF   SPRITES. The SAT indexes it, planes never do
+
+Measured across cell room, elevator/INTERCOM and rooftop:
+
+    scene                planes -> 800-863      sprites -> 1984-2047
+    cell room            48 tiles / 169 cells   42 SAT entries
+    elevator/INTERCOM    39-41 tiles / ~138     9 SAT entries
+    rooftop              -                      12 SAT entries
+
+and the converse is zero in every scene: **no sprite references 800-863, and no
+nametable cell references 1984-2047.**
+
+Visually confirmed too. `planeB-marked.png` for the cell room lights up the floor
+band and the doorway pillars; in the elevator scene the same range is the ground
+and platform edges in plane A instead. Different plane, same role.
+
+## Why this matters
+
+**It gives cap-53 a mechanism.** Cap-49 was not starving the background - it was
+starving **sprite** pattern space, because slots 49-52 land at tiles 1984-2047 via
+the `+0x4b` jump and that is where sprite artwork goes. Sprites are the animation.
+"Walks and animations much better" is exactly what restoring those four blocks
+predicts, and the elevator shaft not moving is equally expected: the shaft is plane
+artwork and never used that range.
+
+**And it explains the 0x6400 remap failure precisely.** That range is floor and
+ground art the planes are actively indexing. Writing streamed blocks over it
+destroys the floor - which is what hardware showed.
+
+## Two corrections to the section below this one
+
+Both were mine, both from the same bug, and both were stated confidently:
+
+1. **"Plane A and B index tiles 1984-2047, 10-37 entries"** - wrong. Corrected: the
+   planes reference that range **zero** times. The support for cap-53 is the
+   sprite column, not the nametable column
+2. **"GPGX does not render these scenes, so its sprite output is not evidence"** -
+   wrong, and the more serious one. The sprite tables looked like garbage because
+   of the same bug
+
+**The bug:** GPGX stores VRAM as native 16-bit words (`uint16 *p = (uint16
+*)&vram[index]` in `vdp_ctrl.c`), so on a little-endian host every word is
+byte-swapped against Genesis order. Reading it big-endian scrambles tile patterns,
+nametable cells and SAT entries alike. `scripts/parse_gpgx_state.py` now has
+`unswap()` and both scripts use it.
+
+**What should have caught it sooner:** the first tile atlas came out as noise, and
+the response was to look for reasons the data might be bad rather than to test the
+decoder against something known. Rendering a whole plane was the available control
+and it takes one command - the cell room now renders as a recognisable room, door,
+sign and all, which is proof the decode is right in a way no amount of arguing was.
+
+## Confidence, honestly
+
+This is **strongly supported, not proven**:
+
+- the range-to-consumer split is consistent across every scene captured, in both
+  directions, and matches two independent hardware results (the 0x6400 remap
+  breaking the floor, cap-53 improving animation)
+- it is derived from an emulator, and the tester reports its backgrounds look
+  wrong. The *structure* comes from the game's own allocator and the `+0x4b` map,
+  which are shared with hardware, but the pixels may not be
+- only four scenes were checked. Another scene could use the ranges differently -
+  the same tile index holds different pixels in different scenes, by design
+- "800-863 is the floor" is scene-specific. It is floor in the cell room and
+  ground/platform in the elevator. The general claim is "background artwork", and
+  that is what the evidence supports
+
 # VDP capture RESULT - 2026-08-31, 11 savestates
 
 Captured in RetroArch with the Paprium-capable GPGX core: cell room, elevator,
