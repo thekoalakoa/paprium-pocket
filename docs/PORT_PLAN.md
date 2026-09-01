@@ -5813,6 +5813,73 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# ROOFTOP ROOT CAUSE: the masks are in the WRONG PLACE IN THE CHAIN - 2026-09-01
+
+Comparing the hardware capture against the emulator rooftop state - where the
+symptom does NOT occur - the masks are identical and their position is not:
+
+                            X=0 masks, chain position   entries      Y
+    emulator rooftop s10          25, 27, 29            32, 34, 36   136/168/200
+    our hardware capture           8, 10, 12            15, 17, 19   136/168/200
+
+Same three masks. Same Y ladder. Seventeen chain positions apart.
+
+Sprite masking hides sprites that come **later in the chain**, so:
+
+    emulator   masks at 25-29 -> only sprites after them are hidden. The player,
+               earlier in the list, is untouched. No symptom
+    our port   masks at 8-12  -> nearly everything the cartridge composes lands
+               behind them, the player included
+
+## Why this is not an attribute bug at all
+
+The 68000 writes those masks at whatever `sat_count` holds **at the moment it
+writes them**. On the emulator, 32 sprites have already been composed by the
+cartridge by then. On ours, 14 have. So our sprite composition runs **later
+relative to the 68000's mask write** than it should.
+
+That is an ordering/timing relationship between the MCU's rendering and the
+68000's frame - not priority, not attribute composition, not the tile data. Two
+days were spent in `ppm_obj_render`'s attribute path, and nothing there could ever
+have fixed it.
+
+## How the mechanism was finally cornered
+
+Each step ruled out the previous favourite, and every decisive one came from
+hardware or from a rendered picture rather than from reading code:
+
+    forced priority + snapshot   priority forced to max, player still behind, and
+                                 the capture proved the OR had landed
+    mask kill                    player fixed, boss and door broken - so the masks
+                                 are live and load-bearing
+    tester identification        the rendered SAT layout named the player, boss,
+                                 bombs and HUD, which no instrumentation had managed
+    emulator comparison          same masks, different chain position. Free, and
+                                 it should have been the first thing checked
+
+## What the fix has to do
+
+Get the cartridge's sprites into the chain **before** the 68000 writes its masks,
+which means understanding what makes the emulator's cart reach 32 composed sprites
+where ours reaches 14 at the same point in the frame. Candidates:
+
+- the MCU is slower to compose, so the 68000's write arrives earlier in our
+  sequence. This would tie the bug to the same fill-rate story as the frozen
+  animations
+- the mailbox command order differs, so we start composing later in the frame
+- our `ppm_obj_frame_end` runs at a different point relative to the 68000's frame
+  than the real cartridge's equivalent
+
+**Do not ship the mask-kill probe.** It fixes the player by breaking the boss and
+the helicopter door, which is trading one visible bug for another.
+
+## A note on the ownership instrumentation
+
+The SAT-entry-to-object map added for this run was **wrong** - it attributed the
+68000's own masks to "obj 0" and split a single figure across three owners. It was
+not used for any conclusion here. The tester's identification from the rendered
+layout has now been more reliable than the instrumentation twice running.
+
 # ROOFTOP SOLVED: SPRITE MASKING, not priority - 2026-09-01
 
 Probe and snapshot run together on hardware. This closes the question.

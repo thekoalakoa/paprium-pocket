@@ -85,8 +85,13 @@ def main():
         if not (-64 < e['x'] < SCREEN_W and -64 < e['y'] < SCREEN_H):
             continue
         drawn += 1
-        pri = (e['attr'] >> 15) & 1
-        col = (90, 150, 255) if pri else (255, 90, 90)
+        # Colour cycles per box so neighbouring sprites of the same object stay
+        # tellable apart by eye. Priority is printed in the table instead - in a
+        # capture with the priority probe off, everything we compose is pri 0 and
+        # colouring by it says nothing.
+        PALETTE = [(255, 120, 120), (120, 200, 255), (150, 255, 150),
+                   (255, 220, 120), (220, 150, 255), (140, 255, 230)]
+        col = PALETTE[e['n'] % len(PALETTE)]
         x0, y0 = e['x'] * SCALE, e['y'] * SCALE
         x1, y1 = (e['x'] + e['w']) * SCALE - 1, (e['y'] + e['h']) * SCALE - 1
         d.rectangle([x0, y0, x1, y1], outline=col, width=2)
