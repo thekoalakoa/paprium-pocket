@@ -5813,6 +5813,87 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# ROOFTOP SOLVED: SPRITE MASKING, not priority - 2026-09-01
+
+Probe and snapshot run together on hardware. This closes the question.
+
+## The experiment
+
+`PPM_FORCE_SPRITE_PRI` ORs `0x8000` onto every entry this firmware composes, and
+`PPM_SAT_SNAPSHOT` captured the list it produced, so the probe's effect could be
+read rather than judged by eye.
+
+    capture: every entry we compose reads priority 1   - the OR landed
+    tester : the extra life behind the bed came forward, the escalator stopped
+             occluding the player                       - the probe visibly worked
+    tester : THE PLAYER STILL DREW BEHIND ON THE ROOFTOP
+
+Priority was forced to maximum on the player and it changed nothing. **Sprite
+priority is not the mechanism.** That is now a measured result, not an inference.
+
+## What is doing it
+
+The capture shows entries in the link chain that this firmware did not write - the
+probe would have set priority on anything we wrote, and these read 0:
+
+    chain pos  entry    X     Y   tile  pri
+        7        14   -127  136  0x000   0
+        8        15      0  136  0x000   0   <- MASK
+        9        16   -127  168  0x000   0
+       10        17      0  168  0x000   0   <- MASK
+       11        18   -127  200  0x000   0
+       12        19      0  200  0x000   0   <- MASK
+
+**X = 0 is the Mega Drive sprite-mask position.** A sprite there hides sprites that
+come LATER in the link chain on its scanlines, and it does so regardless of their
+priority bit. These three cover Y 136-231 - the lower half of the screen, where the
+player stands - and they sit at chain positions 8-12, ahead of nearly everything we
+append.
+
+Each is paired with a companion at X = 1. That is the standard construction for
+making a mask take effect, so this is deliberate, well-formed masking rather than
+stray data. The 68000 wrote it; we did not.
+
+## Why every previous theory failed
+
+    forced priority   masking ignores the priority bit entirely
+    window plane      refuted separately: reg 17/18 are zero in every scene
+    68000-drawn player  wrong; the player is entries 38-43 of OUR list
+    high-pri BG tiles   real, but not what hides the player
+
+And it explains the August result precisely: sprites earlier in the chain, or
+outside Y 136-231, came forward when priority was forced; the player, later in the
+chain and inside that band, did not.
+
+## A correction to yesterday's note
+
+Yesterday this file said the forced-priority result and the capture "cannot both be
+right as stated". They were both right. The tester's observation was accurate on
+both occasions and the missing piece was a mechanism that was not on the list -
+one I had also called "refuted" the day before, on the strength of a single capture
+where the X=0 entries happened not to be chain-reachable. One frame is not a scene.
+
+## Where the fix has to live
+
+We do not write the masks and we do not choose our position in the chain: the
+68000 owns `sat_count`, so it reserves the low indices for itself and our sprites
+are necessarily appended after. On real hardware the same ordering must hold, and
+the real cartridge does not hide the player - so either
+
+1. the mask entries are STALE on our port - written for an earlier frame or scene
+   and never cleared, so the VDP walks into them, or
+2. they are current, and on hardware something we are not reproducing stops them
+   applying to the player
+
+Both are testable, and (1) is testable cheaply: a firmware build that moves any
+chain-reachable X=0 entry we did not write to an off-screen Y before the frame is
+handed over. If the player then draws correctly, masking is confirmed AND the fix
+is in hand. If the game loses a masking effect it wanted, that shows as something
+else appearing that should be hidden - which is exactly the signal to look for.
+
+**Do not ship a blanket mask-killer without that check.** Masking is a legitimate
+technique and this game clearly uses it on purpose somewhere.
+
 # ROOFTOP ANSWERED: the player is in OUR sprite list, at priority 0 - 2026-09-01
 
 Captured on real hardware with the `PPM_SAT_SNAPSHOT` firmware, scene identified
