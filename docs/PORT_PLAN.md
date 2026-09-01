@@ -5813,6 +5813,50 @@ base is known, one of the two questions about the player is answered, and what i
 left is the plane/window/hscroll set plus a SAT dump to see whether the player is
 in the table.
 
+# QUEUED NEXT: DMA overbudget probe - after the masking work closes
+
+Written and committed, **default OFF** (`PPM_DMA_OVERBUDGET` in `mcu/mame.c`).
+Not to be enabled in the same build as any mask probe - two variables in one
+build and neither result means anything.
+
+## The hypothesis, and why it inverts what this file assumed
+
+From the tester, on original hardware: **Paprium visibly tears when the screen is
+busy, and does NOT lose animation.** Our port is the other way round - no tearing,
+dropped frames.
+
+This file previously argued that `dma_budget` is a real hardware limit the game
+respects, and therefore that the frozen animations were "characterised, not
+fixable at this scope". If the real cartridge routinely overruns its vblank and
+accepts tearing as the price, then **respecting the budget exactly is OUR
+deviation** and the frozen walks are self-inflicted. That is a materially
+different claim and it deserves a measurement rather than an argument.
+
+## What the probe does
+
+`dma_budget` at ramdp `0x1F12` is written by the 68000 and only read by us. The
+probe does NOT overwrite it - the game still reads back its own value. It inflates
+only the figure the cartridge budgets ITSELF against, so more blocks are queued
+per frame. Ratio is a num/den pair; 3/2 is the first try.
+
+    tearing appears AND animation smooths   -> trading an artefact hardware also
+                                               has for frames it also has. Arguably
+                                               MORE faithful, not less
+    tiles corrupt, animation unchanged      -> bad trade, stays off
+    nothing changes at all                  -> the 68000 is not honouring
+                                               dma_remaining the way we assume,
+                                               which is worth knowing on its own
+
+Keep sprite flicker out of the judgement: that is the VDP's per-scanline sprite
+limit and will behave identically either way. Only tearing and torn tiles are in
+scope.
+
+## Related correction already made
+
+`cmd_EC_vram_budget` sets the SLOT count - residency, what `PPM_VRAM_SAFE_SLOTS`
+clamps - not `dma_budget`. Those are different numbers and were conflated earlier
+in this file.
+
 # ROOFTOP ROOT CAUSE: the masks are in the WRONG PLACE IN THE CHAIN - 2026-09-01
 
 Comparing the hardware capture against the emulator rooftop state - where the
