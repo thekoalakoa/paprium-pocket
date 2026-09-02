@@ -150,6 +150,24 @@ def main():
     # of composed is the subway failure: the game wrote sprites the chain cannot
     # get to, and because it only writes link topology once per scene, they stay
     # unreachable for the rest of the level.
+    # Sticky run totals past the owner map. "moved 0" describes ONE frame; these
+    # describe the whole boot, which is the question two subway captures in a row
+    # could not answer - whether the pass published a new topology hundreds of
+    # frames earlier and the 68000 simply never repaired it.
+    t = swapped(b[8 + 640 + 1024 + 80 + 0x10:])
+    writes = struct.unpack('>H', t[0:2])[0]
+    bails = struct.unpack('>H', t[2:4])[0]
+    maxgrp = t[4]
+
+    print()
+    print("WHOLE RUN (sticky, not just this frame)")
+    print("  frames the pass WROTE links : %d" % writes)
+    print("  frames it stood down        : %d" % bails)
+    print("  largest mask group seen     : %d" % maxgrp)
+    if writes == 0:
+        print("  -> the pass never touched the SAT this boot. Anything off the")
+        print("     chain is the game's own list.")
+
     print()
     print("VERDICT")
     if relink & 0xFF00 == 0xFF00:

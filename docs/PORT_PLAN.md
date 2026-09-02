@@ -6828,3 +6828,40 @@ real and removing it removed the subway symptom, but the signature argument was
 stronger than the evidence supported, and `reachable < composed` is no longer
 reported as a failure by `decode_sat_snapshot.py` - it reports, and leaves the
 judgement to what the orphans actually are.
+
+### 2026-09-02, third build - stand-down means no write, and two corrections
+
+`648fdcd8` in the subway: the figure is gone again. The capture (`sat_count 27`,
+17 on the chain, header `moved 0`) was replayed through the algorithm on the host
+and **the pass is a no-op on that frame** - it writes back the links already
+there. It did not orphan entries 16-19, which carry real art (`0x7E0, 0x290,
+0x7E8, 0x7C0`, 48x64 at X 168-216) and are on screen.
+
+    on-screen, real tiles, off the chain   16,17,18,19 (the figure), 14, 15, 30
+    HUD the game hides itself              9, 10
+    parked junk at 360,-128 tile 0         7, 12, 13
+
+**Correction: the `masks[8]` overflow was never supported by a capture.** Both
+subway captures report `moved 0`, so that branch never executed in either. It was
+a real latent bug and the permutation rewrite is worth keeping, but the causal
+story was an inference from reading the diff, presented as though the capture had
+shown it. Together with the "predecessor rewired past a run" correction above,
+that is twice in one day that a tidy mechanism outran the measurement.
+
+**And the comparison that would settle this no longer exists.** The card save was
+wiped before the `7d2ce1c0` subway test, so there is no capture of the scene from
+the build the tester reported good. Two readings remain open - the game leaves
+16-19 unlinked in this pose, or an earlier frame this boot published a topology
+the 68000 never repaired - and only that A/B separates them. **Keep every .sav.**
+
+`6596070d` changes exactly two things, neither of them tuned:
+
+- **`ngrp == 0` returns before any link store.** An identity rewrite is still a
+  rewrite, and it is only identity if the walk was right. With nothing to gain
+  there is no reason to accept the risk of a wrong head or a miscounted length
+  publishing a topology the game will never repair.
+- **Sticky run counters** in the capture - frames written, frames stood down,
+  largest group seen. `moved 0` describes one frame; two captures in a row could
+  not say whether the pass wrote anything earlier in the boot.
+
+Cap stays 8, `PPM_MASK_TILE` stays `0x000`, `PPM_MASK_AFTER_INDEX` stays 32.
