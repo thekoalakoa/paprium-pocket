@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..2d462fb 100644
+index b568843..ab5bec4 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,273 @@
@@ -468,7 +468,7 @@ index b568843..2d462fb 100644
              }
              break;
  
-@@ -275,19 +640,333 @@ void ppm_obj_frame_start() {
+@@ -275,19 +640,369 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -533,6 +533,15 @@ index b568843..2d462fb 100644
 +}
 +
 +static u16 snap_masks_killed = 0;
++// STICKY across the whole run, because the per-frame header could not answer the
++// question that mattered. Two subway captures in a row read "moved 0" while a
++// character sat off the chain, and "moved 0" describes only the frame that was
++// captured - it says nothing about whether the pass wrote a new topology two
++// hundred frames earlier, which is exactly the failure mode that would persist,
++// since the 68000 does not rewrite links.
++static u16 snap_relink_writes = 0;   // frames where the pass ACTUALLY stored links
++static u16 snap_relink_bails  = 0;   // frames it refused to touch the chain
++static u8  snap_relink_maxgrp = 0;   // largest mask group seen all run
 +static u8  snap_owner[80];        // SAT entry -> object index that wrote it
 +
 +void ppm_snapshot_sat(void) {
@@ -557,6 +566,15 @@ index b568843..2d462fb 100644
 +    // proves the pass ran rather than leaving it to be assumed.
 +    b[6] = (u8) (snap_masks_killed >> 8);
 +    b[7] = (u8) snap_masks_killed;
++
++    // Sticky run totals, past the owner map at 0xF88..0xFD7.
++    u8 *t = &b[8 + 640 + 1024 + 80];
++    t[0] = (u8) (snap_relink_writes >> 8);
++    t[1] = (u8) snap_relink_writes;
++    t[2] = (u8) (snap_relink_bails >> 8);
++    t[3] = (u8) snap_relink_bails;
++    t[4] = snap_relink_maxgrp;
++    t[5] = 0;
 +
 +    // Magic last, so a half-written capture is never read as a good one.
 +    b[0] = 'P'; b[1] = 'S'; b[2] = 'A'; b[3] = 'T';
@@ -718,8 +736,22 @@ index b568843..2d462fb 100644
 +        for (uint8_t i = 0; i < n; i++) {
 +            ngrp += grp[i];
 +        }
++        if (ngrp > snap_relink_maxgrp) {
++            snap_relink_maxgrp = ngrp;
++        }
 +        if (ngrp > PPM_MASK_GROUP_MAX) {
 +            bail = 1;                       // not a mask group; see the cap
++        }
++
++        // NO MASKS, NO WRITE. With ngrp == 0 the rebuild is the input order and
++        // every link stored is the value already there - but an identity rewrite
++        // is still a rewrite, and it is only identity if the walk was right. A
++        // wrong head, a miscounted length, a link the walk could not follow, and
++        // the pass publishes a new topology the 68000 will never repair. There is
++        // nothing to gain here to be worth that, so leave the table alone.
++        if (ngrp == 0) {
++            snap_masks_killed = 0;
++            bail = 1;
 +        }
 +
 +        // 3. rebuild: everything else in order, the group re-inserted whole
@@ -759,8 +791,12 @@ index b568843..2d462fb 100644
 +                e->sizeNext = (e->sizeNext & 0xff00) | next;
 +            }
 +            snap_masks_killed = ngrp;        // reported in the capture header
++            snap_relink_writes++;
 +        } else {
-+            snap_masks_killed = 0xFF00 | n;  // capture says the pass stood down
++            if (ngrp != 0) {
++                snap_masks_killed = 0xFF00 | n;  // capture says it stood down
++            }
++            snap_relink_bails++;
 +        }
 +    }
 +#endif
@@ -802,7 +838,7 @@ index b568843..2d462fb 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
      for (uint16_t x = 0; x < PPM_MAX_VRAM_SLOTS; slot++, x++) {
-@@ -457,11 +1136,52 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -457,11 +1172,52 @@ void ppm_obj_render(uint16_t obj_slot) {
              continue;
          }
  
