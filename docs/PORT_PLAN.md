@@ -5897,6 +5897,74 @@ scope.
 clamps - not `dma_budget`. Those are different numbers and were conflated earlier
 in this file.
 
+# MASK RELINK: what it fixes, what it cannot - 2026-09-01 evening
+
+## Confirmed fixable by moving the masks
+
+Hardware, elevator, `MOVE_AFTER = 8` (`c7f6c5a5`):
+
+    the scrolling enemy no longer cuts through the elevator it rides   FIXED
+    the elevator structure no longer draws over the player             FIXED (earlier build)
+    the player's back half is hidden                                   COST of 8 - predicted
+
+The player clipping was **predicted before the run** from the capture: in that
+frame our 8th composed sprite is entry 27, inside the player group 25-29, so the
+masks splice through him. It happened exactly as predicted, which is the first
+time this model forecast hardware behaviour rather than explaining it afterwards.
+That is what makes the derivation trustworthy.
+
+`MOVE_AFTER = 13` - after the NPC, before the enemy - is the value the same
+capture supports, and should keep the enemy fix without the player cost.
+
+## NOT fixable by moving the masks: the scrolling squares
+
+The tester captured a frame **with the squares filling the screen**, exiting while
+they were visible. The sprite table for that frame holds **14 sprites**: the HUD,
+the player, an NPC, and one other. Nothing that could be a square.
+
+**So the squares are plane tiles, not sprites.** A sprite mask hides only sprites,
+so no amount of relinking can touch them. The fill-rate / stale-tile explanation
+stands.
+
+This was a hypothesis worth testing - the squares look exactly like a grid of
+sprite blocks, and an earlier capture did contain an 8-sprite 32x32 grid that was
+taken for them. It was refuted by a capture designed to confirm it, which is the
+strongest form of negative result available here.
+
+### A loose end with a duller explanation
+
+"Some squares now draw behind the player" was observed under the 8 build. If they
+are plane tiles that cannot be masking. It does not need to be: plane cells carry
+their own priority bit, so squares in pri-1 cells draw in front of a pri-0 sprite
+and squares in pri-0 cells draw behind. A mix produces exactly that, and would
+have done so before the build changed.
+
+## The open question about MOVE_AFTER
+
+Two elevator frames produced two different correct values - 8 and 13 - because
+different objects were alive. Whether one constant can serve the whole game
+depends on whether the render ORDER is stable even when the COUNT is not. The
+tester's position is that it should be, and that fixing one scene fixes the
+others. `MOVE_AFTER = 13` tested in both elevator and rooftop is the experiment
+that decides it.
+
+An earlier version of this note called the approach a dead end on the strength of
+those two numbers. That was premature: the 8 came from a frame identified from
+memory, the 13 from one identified against a photograph. One well-measured frame
+is worth more than two half-measured ones.
+
+## Method note
+
+Five captures were named from memory or from photos taken afterwards, and the
+group identifications drifted between them - the same block called the squares in
+one capture and the background elevator in another. That is a fault in the
+experimental design, not in the tester's recall: naming sprites from memory across
+a moving, multi-phase scene is not a reasonable thing to ask.
+
+`scripts/draw_sat_layout.py` plus a photograph taken during the run fixed it, and
+the moment that was the method, the numbers became derivable and the first correct
+prediction followed. Do it that way from the first capture, not the fifth.
+
 # ROOFTOP ROOT CAUSE: the masks are in the WRONG PLACE IN THE CHAIN - 2026-09-01
 
 Comparing the hardware capture against the emulator rooftop state - where the
