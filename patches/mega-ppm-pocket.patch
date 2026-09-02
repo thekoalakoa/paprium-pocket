@@ -1,8 +1,8 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..dc6758c 100644
+index b568843..2d462fb 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
-@@ -4,6 +4,266 @@
+@@ -4,6 +4,273 @@
  #include "appmain.h"
  
  #define PPM_DATA_START_ADDR     0x10000	// base sdram unpack address
@@ -223,13 +223,20 @@ index b568843..dc6758c 100644
 +// bounds by every node above 79.
 +#define PPM_SAT_ENTRIES         144
 +
-+// Most masks a frame may plausibly hold before the classification is not to be
-+// trusted. Hardware's rooftop frame has three at 32/34/36, five counting the X==1
-+// partners. A run much larger than that is not a mask group, it is a character
-+// parked off the left edge at raw X 0/1 - which is exactly what the subway
-+// capture caught, six sprites of one figure read as six masks. Over the cap the
-+// pass stands down and leaves the chain alone.
-+#define PPM_MASK_GROUP_MAX      5
++// A mask is BLANK. Every mask in the 2026-09-02 rooftop capture is 1x4 with tile
++// index 0x000, and the character the subway capture lost was tiles 0x7E0, 0x300,
++// 0x7E8, 0x270, 0x0F0 and 0x1B0. That is the discriminator, and unlike a count it
++// is a property of what a mask IS: a sprite parked off the left edge to occupy
++// scanlines, with nothing to draw.
++//
++// Counting was the wrong test and cost a hardware run. The cap was set at 5 from
++// the emulator's rooftop group 32-36, read as a maximum when it was just one
++// observation; our own rooftop has three masks AND their three partners, so the
++// pass stood down on the very scene it exists for.
++#define PPM_MASK_TILE           0x000
++// Sanity bound only, now that identity is by tile. Well above the six a real
++// three-pair group needs.
++#define PPM_MASK_GROUP_MAX      8
 +
 +#define PPM_MASK_RELINK         1
 +#define PPM_MASK_MOVE_AFTER     13
@@ -269,7 +276,7 @@ index b568843..dc6758c 100644
  #define PPM_MAX_VRAM_SLOTS      64
  #define PPM_OBJECTS_COUNT       64
  #define PPM_MAX_OBJ_BLOCKS      32
-@@ -66,6 +326,24 @@ void ppm_obj_reset() {
+@@ -66,6 +333,24 @@ void ppm_obj_reset() {
  }
  
  void ppm_vram_set_budget(uint16_t blocks) {
@@ -294,7 +301,7 @@ index b568843..dc6758c 100644
      // temp failsafe
      if (blocks > 0x35) {
          printf("Allocation error (0x%x blocks)\n", blocks);
-@@ -207,47 +485,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -207,47 +492,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
              }
              break;
  
@@ -461,7 +468,7 @@ index b568843..dc6758c 100644
              }
              break;
  
-@@ -275,19 +633,330 @@ void ppm_obj_frame_start() {
+@@ -275,19 +640,333 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -675,9 +682,9 @@ index b568843..dc6758c 100644
 +            uint16_t x = e->posX & 0x1ff;
 +
 +            order[n] = (uint8_t) node;
-+            // X==0 is the mask itself. X==1 is only ever counted as its partner,
-+            // never on its own - see above for what "any X<=1" cost.
-+            grp[n] = (!ours && x == 0) ? 1 : 0;
++            // X==0 AND blank is the mask itself. X==1 is only ever counted as its
++            // partner, never on its own - see above for what "any X<=1" cost.
++            grp[n] = (!ours && x == 0 && (e->attrs & 0x7ff) == PPM_MASK_TILE) ? 1 : 0;
 +            n++;
 +
 +            if (link == 0) {
@@ -699,6 +706,9 @@ index b568843..dc6758c 100644
 +            }
 +            if ((ppmio.ramdp->sat_data[idx].posX & 0x1ff) != 1) {
 +                continue;
++            }
++            if ((ppmio.ramdp->sat_data[idx].attrs & 0x7ff) != PPM_MASK_TILE) {
++                continue;                   // real art parked left, not a partner
 +            }
 +            if ((i > 0 && grp[i - 1]) || (i + 1 < n && grp[i + 1])) {
 +                grp[i] = 1;
@@ -792,7 +802,7 @@ index b568843..dc6758c 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
      for (uint16_t x = 0; x < PPM_MAX_VRAM_SLOTS; slot++, x++) {
-@@ -457,11 +1126,52 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -457,11 +1136,52 @@ void ppm_obj_render(uint16_t obj_slot) {
              continue;
          }
  

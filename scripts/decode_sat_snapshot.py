@@ -156,12 +156,24 @@ def main():
         print("  relink        stood down - chain left exactly as the game built it")
     else:
         print("  relink        moved %d as the mask group (cap is 5)" % relink)
-    ok_reach = len(chain) >= count
-    print("  reachability  %d reachable vs %d composed   %s"
+    # Reachable short of composed is NOT automatically our bug, and saying so was
+    # a mistake worth not repeating. The 2026-09-02 rooftop capture has 4->8 past
+    # entries 5,6,7 and 8->11 past 9,10 - the same "predecessor rewired past a run"
+    # shape that was read as evidence in the subway - while the relink pass had
+    # STOOD DOWN and written nothing at all. The game bypasses its own entries,
+    # typically HUD it is hiding. So this line reports; it does not judge.
+    print("  reachability  %d reachable vs %d composed%s"
           % (len(chain), count,
-             "OK" if ok_reach else "SHORT BY %d - sprites the VDP will not draw" % (count - len(chain))))
-    print("  orphans       %d   %s"
-          % (len(orphans), "OK" if not orphans else "FAIL - listed above"))
+             "" if len(chain) >= count
+             else "   (%d unlinked - the game does this itself; judge by what they are)"
+                  % (count - len(chain))))
+    blank = [e for e in orphans if (e['attr'] & 0x7FF) == 0]
+    print("  orphans       %d on screen, %d of them blank"
+          % (len(orphans), len(blank)))
+    if orphans:
+        print("                a blank orphan is inert. One carrying real art is a")
+        print("                sprite the game drew and the VDP will not - compare")
+        print("                against what you saw on screen before calling it.")
 
     print()
     print("OBJECT TABLE - what the 68000 asked the cartridge to draw")
