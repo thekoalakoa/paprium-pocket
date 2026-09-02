@@ -162,6 +162,21 @@ def main():
         print("  -> it never fired. If a destructible still stayed whole, the")
         print("     early-out is NOT the cause and the suspect was wrong.")
 
+    # The two silent returns in ppm_block_load. Both mean "the block never
+    # arrived", and a sprite whose graphics never arrived draws with whatever
+    # tiles are already there - which is why a destroyed pillar can keep looking
+    # intact rather than disappearing.
+    starved = struct.unpack('>H', t[5:7])[0]
+    noslot = struct.unpack('>H', t[7:9])[0]
+    print("  block loads refused, out of DMA budget    : %d" % starved)
+    print("  block loads refused, every slot in use    : %d" % noslot)
+    if starved:
+        print("  -> budget starvation. If this is large, the frame's budget is")
+        print("     being tested before it is refreshed, or the game's own")
+        print("     budget genuinely does not cover the scene.")
+    if noslot:
+        print("  -> slot pressure, which is what PPM_VRAM_SAFE_SLOTS caps.")
+
     print()
     print("VERDICT")
     print("  relink        REMOVED - sprites compose on 0xAD, nothing edits the list")
