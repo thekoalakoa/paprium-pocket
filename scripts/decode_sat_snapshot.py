@@ -72,6 +72,17 @@ def main():
                          "through the Pocket menu")
     count = struct.unpack('>H', hdr[0x14:0x16])[0]
     print("capture     : sat_count %d at the busiest frame" % count)
+    # The relink pass reports itself here: a plain number is how many entries it
+    # moved as the mask group, 0xFFnn means it STOOD DOWN that frame and left the
+    # chain untouched, with nn the chain length it saw. Standing down is a normal,
+    # designed outcome - a cycle, a link past the table, or a "mask group" too
+    # large to be masks - and it is the difference between reading the capture as
+    # "the probe did nothing" and "the probe is broken".
+    relink = struct.unpack('>H', hdr[0x16:0x18])[0]
+    if relink & 0xFF00 == 0xFF00:
+        print("relink pass : STOOD DOWN, chain of %d left untouched" % (relink & 0xFF))
+    else:
+        print("relink pass : moved %d entries as the mask group" % relink)
     print()
 
     ents = [sprite(b, i) for i in range(80)]
@@ -111,10 +122,46 @@ def main():
     print("  tiles 800-1983 (non-slot)       : %d" % band(800, 1983))
     print("  tiles 1984-2047 (slots 49-52)   : %d" % band(1984, 2047))
 
+    # ORPHANS: in the table, on screen, but not reachable through the chain, so
+    # the VDP never draws them. Added 2026-09-02 - the subway capture had a whole
+    # 48x96 character sitting in entries 14-19 that nothing in the old output
+    # mentioned, because every view walked the chain and the chain is exactly what
+    # had lost them. A sprite the game wrote and the hardware never drew is the
+    # single most important thing a capture can say.
+    reached = set(e['n'] for e in chain)
+    orphans = [e for e in ents[:max(count + 4, 1)]
+               if e['n'] not in reached and -64 < e['x'] < 320 and -64 < e['y'] < 224]
+    if orphans:
+        print()
+        print("ORPHANED - written to the table, on screen, NOT in the chain, NEVER DRAWN")
+        print("   n     Y     X   size   tile   pri   link")
+        for e in orphans:
+            print("  %3d  %4d  %4d   %dx%d  0x%03X    %d    ->%d"
+                  % (e['n'], e['y'], e['x'], e['sx'], e['sy'], e['attr'] & 0x7FF,
+                     (e['attr'] >> 15) & 1, e['link']))
+
     masks = [e for e in chain if e['x'] == -128]
     print()
     print("  sprite masks IN the chain: %d   (stale X=0 entries outside it: %d, inert)"
           % (len(masks), sum(1 for e in live if e['x'] == -128) - len(masks)))
+
+    # The three checks a relink capture has to pass, printed as a verdict so a
+    # capture is read the same way every time instead of by eye. Reachable short
+    # of composed is the subway failure: the game wrote sprites the chain cannot
+    # get to, and because it only writes link topology once per scene, they stay
+    # unreachable for the rest of the level.
+    print()
+    print("VERDICT")
+    if relink & 0xFF00 == 0xFF00:
+        print("  relink        stood down - chain left exactly as the game built it")
+    else:
+        print("  relink        moved %d as the mask group (cap is 5)" % relink)
+    ok_reach = len(chain) >= count
+    print("  reachability  %d reachable vs %d composed   %s"
+          % (len(chain), count,
+             "OK" if ok_reach else "SHORT BY %d - sprites the VDP will not draw" % (count - len(chain))))
+    print("  orphans       %d   %s"
+          % (len(orphans), "OK" if not orphans else "FAIL - listed above"))
 
     print()
     print("OBJECT TABLE - what the 68000 asked the cartridge to draw")
