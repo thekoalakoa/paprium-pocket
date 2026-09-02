@@ -6953,3 +6953,86 @@ the `state == 0` literal path where `len = 0`, so `copy_addr` is computed and
 never used. Undefined behaviour, harmless in practice, but it has been printed on
 every build for weeks and a warning nobody reads is a warning that hides the next
 one.
+
+## 2026-09-02 - the root cause: we composed sprites in the wrong place in the frame
+
+The whole mask investigation was chasing a symptom. The cause is one line.
+
+    GPGX      case 0xAD: paprium_sprite(data);      composes immediately
+    mega-ppm  ppm_obj_add -> queue; 0xAF renders the whole list
+
+The game's real sequence is `0xAD` x17, write masks, more `0xAD`. GPGX interleaves
+exactly that. krikzz's firmware defers every sprite to frame end, so everything
+the 68000 writes mid-frame - masks included - is already in the table before the
+cartridge appends anything:
+
+    emulator  0-13 HUD/dummies  14-30 composed  31-36 MASKS  37+ composed
+    before    0-13 HUD/dummies  14-19 MASKS     20-42 composed
+    after     0-13 HUD/dummies  14-33 composed  34-39 MASKS  40+ composed
+
+Entries 0-13 match the emulator tile for tile, so the 68000 was never behaving
+differently - the ordering was ours. Masks now land at 34-39 against the
+emulator's 31-36, **with nothing editing the list**. Mask coverage went from 9
+hidden - including 22-28, the entire player group - to 3.
+
+Tester: *"boss bombs and character in correct place... first time we have seen
+subway and rooftop play clean."* Also fewer skipped frames and less floaty
+enemies, which is the second consequence: `ppm_obj_render` samples `obj_data`
+when it runs, so batching sampled every object at frame end and a slot reused
+within a frame lost its first pose. That is the shape of the animation bug open
+in both ports (MisterPezz82 #10).
+
+**It was never SDRAM starvation.** `STARVE2_LIMIT` had already been A/B'd at 8 and
+96 on hardware with the elevator indifferent in both directions.
+
+**The relink is deleted, not disabled.** With the ordering fixed it wanted to make
+things worse - the same capture shows it would have stored 1698 links across 574
+frames, pushing the group out of the correct place. Gone with it: `ONE_WAY`,
+`AFTER_INDEX`, `MASK_TILE`, `GROUP_MAX`, `RELINK_APPLY`, `MOVE_AFTER`, and
+`PPM_MASK_PROBE` (it also wrote the SAT, moving mask `posY`). Firmware -950 bytes.
+Nothing in the build writes the sprite table.
+
+### The regression inline composition introduced, and how it was found
+
+Destructibles stopped showing their destroyed art. The tester's wording is what
+made it findable: **"still look undamaged"**, not "missing". An intact pillar is a
+plane tile, so the sprite was not vanishing - its graphics never arrived.
+
+    void ppm_obj_frame_end() {
+        dma_remaining = dma_budget - dma_total;    // refresh
+        while (...) ppm_obj_render(...);           // then render
+
+The frame's DMA budget was refreshed in `frame_end`, immediately before the batch
+- correct while the batch WAS composition. Moving composition to `0xAD` left every
+inline render testing the PREVIOUS frame's leftover budget, already spent. It
+gates one path:
+
+    if (dma_remaining < 0x110) return 0;      // block never loads
+
+Resident art hits the slot cache and returns before that check, which is why
+everything else looked right and only a NEWLY needed block starved - a pillar
+smashed for the first time being exactly that. `ppm_dma_refresh()` now runs in
+`frame_start`, before any `0xAD` can arrive.
+
+**Open caveat, from the reviewer:** if the 68000 writes `dma_total`/`dma_budget`
+AFTER `0xAE`, the refresh is now too early and starves the same way. The
+falsifier is in the build - if pillars stay whole while "refused, out of DMA
+budget" is still high, log both words at `0xAE` and at the first `0xAD` rather
+than moving the call again on a hunch.
+
+### Instruments that replaced the guesses
+
+    anim-over drops                      0 - REFUTED the early-out suspect outright
+    block loads refused, DMA budget      the starvation path
+    block loads refused, slot full       PPM_VRAM_SAFE_SLOTS pressure, a different bug
+
+### Corrections from this day, all worth keeping
+
+- the `masks[8]` overflow story was never supported by a capture. Both subway
+  captures read `moved 0`, so that branch never executed in either
+- "predecessor rewired past a run" never proved authorship; the game does it
+- a mask group of six `1x4 tile 0x000` entries was read as proof the station had
+  real masks. It was a figure parked off-screen left with blank tiles
+- the mask-group cap of 5 came from reading one emulator observation as a maximum
+- and the card save was wiped before the one A/B that would have settled the
+  station, which is why it stayed open for four builds. **Keep every .sav.**
