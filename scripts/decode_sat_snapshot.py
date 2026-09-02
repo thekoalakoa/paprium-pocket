@@ -159,11 +159,49 @@ def main():
     bails = struct.unpack('>H', t[2:4])[0]
     maxgrp = t[4]
 
+    # WHAT THE MASKS ACTUALLY HIDE. Counting orphans was the wrong measurement for
+    # the symptom the tester reported - "nearly every sprite including the player"
+    # cannot come from ten unlinked entries, but ONE mask early in the chain hides
+    # every later sprite on its scanlines, and the rooftop group covers Y 136-231
+    # between them. A capture has to say this out loud.
+    masked_total = 0
+    if masks:
+        print()
+        print("MASK COVERAGE - a mask hides sprites LATER in the chain on its lines")
+        for mi, mk in enumerate(chain):
+            if mk['x'] != -128:
+                continue
+            lo, hi = mk['y'], mk['y'] + mk['sy'] * 8 - 1
+            after = chain[chain.index(mk) + 1:]
+            hit = [e for e in after
+                   if e['x'] > -128 and e['y'] + e['sy'] * 8 > lo and e['y'] < hi + 1]
+            masked_total += len(hit)
+            print("  entry %3d at chain pos %2d covers Y %d..%d  -> hides %d later sprite(s)%s"
+                  % (mk['n'], chain.index(mk), lo, hi, len(hit),
+                     ("  " + ",".join(str(e['n']) for e in hit)) if hit else ""))
+        print("  %d of %d drawn entries are behind a mask" % (masked_total, len(chain)))
+        if masked_total > len(chain) // 2:
+            print("  MOST OF THE SCENE IS MASKED - this is what 'everything vanished'")
+            print("  looks like in the table. The sprites are linked and composed;")
+            print("  the VDP is simply not drawing them.")
+
     print()
     print("WHOLE RUN (sticky, not just this frame)")
     print("  frames the pass WROTE links : %d" % writes)
     print("  frames it stood down        : %d" % bails)
     print("  largest mask group seen     : %d" % maxgrp)
+    if maxgrp:
+        print("  that group's first mask     : %dx%d  tile 0x%03X"
+              % (((t[5] >> 2) & 3) + 1, (t[5] & 3) + 1,
+                 struct.unpack('>H', t[6:8])[0]))
+        print("                                (the rooftop's masks are 1x4 tile 0x000;")
+        print("                                 anything else means the test matched")
+        print("                                 something that is not the same thing)")
+    print("  LINKS stored, whole run       : %d  (most in one frame: %d)"
+          % (struct.unpack('>H', t[8:10])[0], t[10]))
+    print("                                  a block move needs 3. Anything near")
+    print("                                  the chain length means the pass is")
+    print("                                  republishing the whole topology.")
     if writes == 0:
         print("  -> the pass never touched the SAT this boot. Anything off the")
         print("     chain is the game's own list.")

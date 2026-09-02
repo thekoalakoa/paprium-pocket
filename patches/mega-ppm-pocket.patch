@@ -1,8 +1,8 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..ab5bec4 100644
+index b568843..84df6cc 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
-@@ -4,6 +4,273 @@
+@@ -4,6 +4,307 @@
  #include "appmain.h"
  
  #define PPM_DATA_START_ADDR     0x10000	// base sdram unpack address
@@ -238,6 +238,40 @@ index b568843..ab5bec4 100644
 +// three-pair group needs.
 +#define PPM_MASK_GROUP_MAX      8
 +
++// CONTROL SWITCH. 0 = classify, count and report exactly as normal, but NEVER
++// store a link. The subway needs a baseline and the only one that existed was
++// thrown away when the card save was wiped before the 7d2ce1c0 test.
++//
++// Entries 14-19 - a 48x96 figure - are orphaned in every subway capture across
++// four builds, and every one of those boots also had the pass writing somewhere.
++// So "the game leaves that range unlinked in this pose" and "one of our writes
++// cut it" both fit the files, and no amount of re-reading them separates the two.
++// With this at 0 the pass cannot be the cause of anything, and the counters still
++// say how many frames it WOULD have written and how big the groups were.
++#define PPM_RELINK_APPLY        1
++
++// Event log instead of the object-table dump. 0 keeps the existing capture.
++#define PPM_EVENT_LOG           0
++
++// ONE-SIDED MOVE. The mask group may only ever be pushed LATER in the chain,
++// never pulled forward.
++//
++// This is the defect stated exactly: our port composes late, so when the 68000
++// writes its masks at whatever sat_count holds, they land too early - chain
++// positions 8/10/12 on the rooftop where the emulator has them near 32. Measured
++// on the rooftop capture, moving them to the anchor frees entries 22-28, the
++// whole player group, and hides nothing new: 9 hidden becomes 2.
++//
++// It is NEVER "the masks are too late, drag them forward". Doing that in the
++// station is what put a 1x4 block covering Y 136-231 near the front of the chain
++// and took nearly every sprite including the player with it, on 23 frames of a
++// subway-only boot.
++//
++// Compared as POSITIONS IN THE REBUILT LIST, not against PPM_MASK_AFTER_INDEX -
++// that is an absolute SAT index and comparing a chain position against it would
++// only work by coincidence.
++#define PPM_MASK_ONE_WAY        1
++
 +#define PPM_MASK_RELINK         1
 +#define PPM_MASK_MOVE_AFTER     13
 +// 2026-09-01: 13, from the second elevator capture, where the tester identified
@@ -276,7 +310,7 @@ index b568843..ab5bec4 100644
  #define PPM_MAX_VRAM_SLOTS      64
  #define PPM_OBJECTS_COUNT       64
  #define PPM_MAX_OBJ_BLOCKS      32
-@@ -66,6 +333,24 @@ void ppm_obj_reset() {
+@@ -66,6 +367,24 @@ void ppm_obj_reset() {
  }
  
  void ppm_vram_set_budget(uint16_t blocks) {
@@ -301,7 +335,7 @@ index b568843..ab5bec4 100644
      // temp failsafe
      if (blocks > 0x35) {
          printf("Allocation error (0x%x blocks)\n", blocks);
-@@ -207,47 +492,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -207,47 +526,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
              }
              break;
  
@@ -413,7 +447,11 @@ index b568843..ab5bec4 100644
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 16384;
 +                    if (lz == 16384) break;          // end of stream
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +                else {                               // code_00
 +                    if (state == 0) {
 +                        raw_n = c & 0x0F;
@@ -444,11 +482,7 @@ index b568843..ab5bec4 100644
 +                        lz += 2049;
 +                        len = 3;
 +                    }
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +
 +                state = (len > 0) ? raw_n : 4;
 +                copy_addr = dest_addr - lz;
@@ -468,7 +502,7 @@ index b568843..ab5bec4 100644
              }
              break;
  
-@@ -275,19 +640,369 @@ void ppm_obj_frame_start() {
+@@ -275,19 +674,577 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -539,9 +573,15 @@ index b568843..ab5bec4 100644
 +// captured - it says nothing about whether the pass wrote a new topology two
 +// hundred frames earlier, which is exactly the failure mode that would persist,
 +// since the 68000 does not rewrite links.
++static u8  relink_wrote = 0;         // this frame, for the event log
++static u8  relink_bailed = 0;
 +static u16 snap_relink_writes = 0;   // frames where the pass ACTUALLY stored links
 +static u16 snap_relink_bails  = 0;   // frames it refused to touch the chain
 +static u8  snap_relink_maxgrp = 0;   // largest mask group seen all run
++static u16 snap_relink_touched = 0;  // LINKS stored all run, not frames
++static u8  snap_relink_maxtouch = 0; // most links stored in any one frame
++static u8  snap_relink_geom   = 0;   // sizeNext high byte of a mask, for its w/h
++static u16 snap_relink_gtile  = 0xFFFF;  // tile of a mask, expected 0x000
 +static u8  snap_owner[80];        // SAT entry -> object index that wrote it
 +
 +void ppm_snapshot_sat(void) {
@@ -574,15 +614,162 @@ index b568843..ab5bec4 100644
 +    t[2] = (u8) (snap_relink_bails >> 8);
 +    t[3] = (u8) snap_relink_bails;
 +    t[4] = snap_relink_maxgrp;
-+    t[5] = 0;
++    t[5] = snap_relink_geom;
++    t[6] = (u8) (snap_relink_gtile >> 8);
++    t[7] = (u8) snap_relink_gtile;
++    t[8] = (u8) (snap_relink_touched >> 8);
++    t[9] = (u8) snap_relink_touched;
++    t[10] = snap_relink_maxtouch;
++    t[11] = 0;
 +
 +    // Magic last, so a half-written capture is never read as a good one.
 +    b[0] = 'P'; b[1] = 'S'; b[2] = 'A'; b[3] = 'T';
 +}
 +#endif
 +
++// ---------------------------------------------------------------------------
++// EVENT LOG
++//
++// The snapshot is ONE frame, and every question that has actually blocked this
++// investigation is a question about time: was the figure ever on the chain this
++// boot, did it leave before or after the pass first wrote, does it leave on a
++// frame the pass touched at all. A single frame cannot answer any of those, which
++// is why the station has now cost four captures and four theories.
++//
++// So: log an entry every time a node LEAVES the reachable chain, and one when it
++// comes back. Frame number, the node, the entry that now points past it, and
++// whether the pass wrote that frame. One play session then says outright whether
++// the game unlinks 14-19 itself or one of our writes did it.
++//
++// Keeps the FIRST events rather than the last - the onset is the whole point -
++// and counts the total so a full buffer is never mistaken for a quiet run.
++#if PPM_EVENT_LOG
++
++#define EVT_CAP   130
++
++static u8  evt_map[(PPM_SAT_ENTRIES + 7) / 8];       // reachable last frame
++static u8  evt_link[PPM_SAT_ENTRIES];                // each node's link last frame
++static u8  evt_buf[EVT_CAP * 8];
++static u16 evt_frame = 0;
++static u16 evt_total = 0;                            // events seen, buffer or not
++static u8  evt_n = 0;                                // events actually stored
++static u8  evt_armed = 0;                            // first frame has no "before"
++
++static void evt_put(u16 frame, u8 node, u8 prev, u8 newlink, u8 flags, u16 tile) {
++    evt_total++;
++    if (evt_n >= EVT_CAP) {
++        return;
++    }
++    u8 *e = &evt_buf[evt_n * 8];
++    e[0] = (u8) (frame >> 8);
++    e[1] = (u8) frame;
++    e[2] = node;
++    e[3] = prev;
++    e[4] = newlink;
++    e[5] = flags;
++    e[6] = (u8) (tile >> 8);
++    e[7] = (u8) tile;
++    evt_n++;
++}
++
++// flags
++#define EVT_F_JOINED   0x01   // node came back, rather than left
++#define EVT_F_WROTE    0x02   // the relink pass stored links this frame
++#define EVT_F_BAILED   0x04   // the relink pass stood down this frame
++
++void ppm_event_frame(u8 wrote, u8 bailed) {
++    u8 cur[(PPM_SAT_ENTRIES + 7) / 8];
++    u16 node = 0, guard = 0;
++    u8 flags = (u8) ((wrote ? EVT_F_WROTE : 0) | (bailed ? EVT_F_BAILED : 0));
++
++    if (ppmio.ramdp->sat_count < 20) {
++        return;                     // menus and transitions: not the subject
++    }
++
++    for (u8 i = 0; i < sizeof(cur); i++) {
++        cur[i] = 0;
++    }
++
++    while (guard++ <= PPM_SAT_ENTRIES) {
++        if (node >= PPM_SAT_ENTRIES) {
++            break;
++        }
++        if (cur[node >> 3] & (1u << (node & 7))) {
++            break;                  // cycle
++        }
++        cur[node >> 3] |= (1u << (node & 7));
++        u8 link = ppmio.ramdp->sat_data[node].sizeNext & 0xff;
++        if (link == 0) {
++            break;
++        }
++        node = link;
++    }
++
++    if (evt_armed) {
++        for (u16 i = 0; i < PPM_SAT_ENTRIES; i++) {
++            u8 was = (evt_map[i >> 3] >> (i & 7)) & 1;
++            u8 is  = (cur[i >> 3]     >> (i & 7)) & 1;
++            if (was == is) {
++                continue;
++            }
++            // Who used to point at it, and where does that entry point now? That
++            // pair is the difference between "the game rerouted around it" and
++            // "our rewrite did".
++            u8 prev = 0xFF;
++            for (u16 j = 0; j < PPM_SAT_ENTRIES; j++) {
++                if (evt_link[j] == (u8) i) {
++                    prev = (u8) j;
++                    break;
++                }
++            }
++            evt_put(evt_frame, (u8) i, prev,
++                    prev == 0xFF ? 0xFF
++                                 : (u8) (ppmio.ramdp->sat_data[prev].sizeNext & 0xff),
++                    (u8) (flags | (is ? EVT_F_JOINED : 0)),
++                    ppmio.ramdp->sat_data[i].attrs & 0x7ff);
++        }
++    }
++
++    for (u8 i = 0; i < sizeof(cur); i++) {
++        evt_map[i] = cur[i];
++    }
++    for (u16 i = 0; i < PPM_SAT_ENTRIES; i++) {
++        evt_link[i] = ppmio.ramdp->sat_data[i].sizeNext & 0xff;
++    }
++    evt_armed = 1;
++    evt_frame++;
++}
++
++// Written INSTEAD of the object table and owner map - the timeline is worth more
++// than either, and there is not room for both.
++void ppm_snapshot_events(void) {
++    u8 *b = &ppmio.bram[SNAP_BASE];
++
++    if (ppmio.ramdp->sat_count < 20) {
++        return;
++    }
++
++    b[4] = (u8) (evt_frame >> 8);       b[5] = (u8) evt_frame;
++    b[6] = (u8) (evt_total >> 8);       b[7] = (u8) evt_total;
++    b[8] = evt_n;
++    b[9] = (u8) ppmio.ramdp->sat_count;
++    b[10] = (u8) (snap_relink_writes >> 8); b[11] = (u8) snap_relink_writes;
++    b[12] = (u8) (snap_relink_bails >> 8);  b[13] = (u8) snap_relink_bails;
++    b[14] = snap_relink_maxgrp;
++    b[15] = snap_relink_geom;
++
++    memcpy(&b[16], &ppmio.ramdp->sat_data[0], 640);
++    memcpy(&b[16 + 640], evt_buf, sizeof(evt_buf));
++
++    b[0] = 'P'; b[1] = 'E'; b[2] = 'V'; b[3] = 'T';
++}
++#endif
++
  void ppm_obj_frame_end() {
  
++    relink_wrote = 0;
++    relink_bailed = 0;
++
      ppm_block_unpack_addr = 0x9000;
 +
 +#if PPM_DMA_OVERBUDGET
@@ -738,6 +925,16 @@ index b568843..ab5bec4 100644
 +        }
 +        if (ngrp > snap_relink_maxgrp) {
 +            snap_relink_maxgrp = ngrp;
++            for (uint8_t i = 0; i < n; i++) {
++                if (grp[i]) {
++                    // Geometry of what we are calling a mask. The rooftop's are
++                    // 1x4 tile 0; if the subway's are not, they are not the same
++                    // thing and the test is matching something else.
++                    snap_relink_geom  = (u8) (ppmio.ramdp->sat_data[order[i]].sizeNext >> 8);
++                    snap_relink_gtile = ppmio.ramdp->sat_data[order[i]].attrs & 0x7ff;
++                    break;
++                }
++            }
 +        }
 +        if (ngrp > PPM_MASK_GROUP_MAX) {
 +            bail = 1;                       // not a mask group; see the cap
@@ -756,6 +953,13 @@ index b568843..ab5bec4 100644
 +
 +        // 3. rebuild: everything else in order, the group re-inserted whole
 +        //    after the first entry at or past the absolute index
++        uint8_t gpos = 0;                   // where the group sits NOW
++        for (uint8_t i = 0; i < n; i++) {
++            if (grp[i]) {
++                gpos = i;
++                break;
++            }
++        }
 +        for (uint8_t i = 0; i < n && !bail; i++) {
 +            if (grp[i]) {
 +                continue;
@@ -763,6 +967,15 @@ index b568843..ab5bec4 100644
 +            out[m++] = order[i];
 +
 +            if (!inserted && order[i] >= PPM_MASK_AFTER_INDEX) {
++#if PPM_MASK_ONE_WAY
++                // m is the group's new position. Not later than where it already
++                // is means this would drag the masks FORWARD, which is the one
++                // thing that is never the fix. Hands off the whole frame.
++                if (m <= gpos) {
++                    bail = 1;
++                    break;
++                }
++#endif
 +                for (uint8_t j = 0; j < n; j++) {
 +                    if (grp[j]) {
 +                        out[m++] = order[j];
@@ -772,8 +985,9 @@ index b568843..ab5bec4 100644
 +            }
 +        }
 +        if (!inserted && !bail) {
-+            // No entry reached the index - a sparse frame. Put them at the end,
-+            // where they mask nothing, rather than somewhere unpredictable.
++            // No entry reached the index - a sparse frame. The end is later than
++            // anywhere the group already is, so this stays one-sided, and there
++            // it masks nothing rather than something unpredictable.
 +            for (uint8_t j = 0; j < n; j++) {
 +                if (grp[j]) {
 +                    out[m++] = order[j];
@@ -785,14 +999,37 @@ index b568843..ab5bec4 100644
 +        //    lost; that is the failure the subway capture was, so it is fatal to
 +        //    the pass rather than to the sprite.
 +        if (!bail && m == n && n > 0) {
++            // WRITE ONLY WHAT CHANGED. The flatten stays, because it is what
++            // stopped this pass corrupting the chain into a cycle - but it is
++            // ANALYSIS. Storing all 36 links to achieve a 3-link change is how a
++            // single bad walk republishes an entire topology the 68000 will never
++            // repair. Moving a block needs three stores: the entry before the
++            // group, the end of the group, and the anchor it now follows.
++            //
++            // Comparing against the live link gets that for free and cannot drift
++            // out of step with the rebuild logic the way a hand-written splice
++            // would - and it is exactly zero stores when the order is unchanged.
++            uint8_t touched = 0;
 +            for (uint8_t i = 0; i < m; i++) {
 +                ppm_sat_item *e = &ppmio.ramdp->sat_data[out[i]];
 +                uint8_t next = (i + 1 < m) ? out[i + 1] : 0;
++                if ((e->sizeNext & 0xff) == next) {
++                    continue;               // already correct; leave it alone
++                }
++                touched++;
++#if PPM_RELINK_APPLY
 +                e->sizeNext = (e->sizeNext & 0xff00) | next;
++#endif
++            }
++            snap_relink_touched += touched;
++            if (touched > snap_relink_maxtouch) {
++                snap_relink_maxtouch = touched;
 +            }
 +            snap_masks_killed = ngrp;        // reported in the capture header
-+            snap_relink_writes++;
++            snap_relink_writes++;            // "would have written" when APPLY 0
++            relink_wrote = 1;
 +        } else {
++            relink_bailed = 1;
 +            if (ngrp != 0) {
 +                snap_masks_killed = 0xFF00 | n;  // capture says it stood down
 +            }
@@ -832,13 +1069,18 @@ index b568843..ab5bec4 100644
 +    // is the frame just composed rather than the previous one. That matters when
 +    // PPM_FORCE_SPRITE_PRI is also on: the point of that pairing is to read back
 +    // the very entries the OR was applied to.
++#if PPM_EVENT_LOG
++    ppm_event_frame(relink_wrote, relink_bailed);
++    ppm_snapshot_events();
++#else
 +    ppm_snapshot_sat();
++#endif
 +#endif
 +
      ppm_vram_slot *slot = ppm_vram_slots;
  
      for (uint16_t x = 0; x < PPM_MAX_VRAM_SLOTS; slot++, x++) {
-@@ -457,11 +1172,52 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -457,11 +1414,52 @@ void ppm_obj_render(uint16_t obj_slot) {
              continue;
          }
  
