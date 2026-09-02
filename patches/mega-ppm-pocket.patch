@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..2ddb552 100644
+index b568843..c8dd16c 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,232 @@
@@ -372,11 +372,7 @@ index b568843..2ddb552 100644
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 16384;
 +                    if (lz == 16384) break;          // end of stream
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +                else {                               // code_00
 +                    if (state == 0) {
 +                        raw_n = c & 0x0F;
@@ -422,12 +418,16 @@ index b568843..2ddb552 100644
 +                        raw_n--;
 +                    }
 +                    else break;
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +            }
              }
              break;
  
-@@ -260,12 +584,80 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +584,101 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -440,6 +440,24 @@ index b568843..2ddb552 100644
      *ppm_drawListPtr++ = num;
 +#endif
 +}
++
++// The one open question left after the ordering fix: destructibles sometimes do
++// not show their destroyed sprite. ppm_obj_render drops an object outright when
++// its animation index exceeds what we computed as that object's maximum, and that
++// early-out is silent - it only ever printf'd, which nothing on hardware reads.
++//
++// This is a MEASUREMENT, not a diagnosis. If a barrel stays whole while the
++// counter stays 0, that return is not the cause and the suspect is wrong.
++static u16 snap_animover_hits = 0;
++// The other two silent returns in ppm_block_load, both of which mean "the block
++// never arrived, draw with whatever tiles happen to be there".
++static u16 snap_dma_starved = 0;        // out of DMA budget this frame
++static u16 snap_noslot      = 0;        // every VRAM slot already in use
++// A refusal count with no denominator is unreadable - 1176 refusals is healthy
++// against forty thousand loads and alarming against twelve hundred. So count the
++// successes and the frames too, and let the capture print the ratios.
++static u32 snap_loads_ok    = 0;        // blocks actually unpacked and queued
++static u32 snap_frames      = 0;        // in-game frames, for a per-frame rate
 +
 +// Refresh the frame's DMA budget.
 +//
@@ -500,6 +518,9 @@ index b568843..2ddb552 100644
  
  void ppm_obj_frame_start() {
  
++#if PPM_SAT_SNAPSHOT
++    snap_frames++;
++#endif
      ppm_drawListPtr = ppm_drawList;
 +#if PPM_INLINE_COMPOSE
 +    ppm_block_unpack_addr = 0x9000;   // was reset by the batch; nothing else uses it
@@ -508,7 +529,7 @@ index b568843..2ddb552 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +667,306 @@ void ppm_obj_frame_start() {
+@@ -275,18 +688,298 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -574,18 +595,6 @@ index b568843..2ddb552 100644
 +
 +static u8  snap_owner[80];        // SAT entry -> object index that wrote it
 +
-+// The one open question left after the ordering fix: destructibles sometimes do
-+// not show their destroyed sprite. ppm_obj_render drops an object outright when
-+// its animation index exceeds what we computed as that object's maximum, and that
-+// early-out is silent - it only ever printf'd, which nothing on hardware reads.
-+//
-+// This is a MEASUREMENT, not a diagnosis. If a barrel stays whole while the
-+// counter stays 0, that return is not the cause and the suspect is wrong.
-+static u16 snap_animover_hits = 0;
-+// The other two silent returns in ppm_block_load, both of which mean "the block
-+// never arrived, draw with whatever tiles happen to be there".
-+static u16 snap_dma_starved = 0;        // out of DMA budget this frame
-+static u16 snap_noslot      = 0;        // every VRAM slot already in use
 +static u8  snap_animover_id   = 0xFF;   // objID low byte, last hit
 +static u8  snap_animover_anim = 0xFF;   // the anim index it asked for
 +static u8  snap_animover_max  = 0xFF;   // what we thought that object's max was
@@ -626,7 +635,11 @@ index b568843..2ddb552 100644
 +    t[6] = (u8) snap_dma_starved;
 +    t[7] = (u8) (snap_noslot >> 8);
 +    t[8] = (u8) snap_noslot;
-+    for (u8 k = 9; k < 12; k++) t[k] = 0;
++    t[9]  = (u8) (snap_loads_ok >> 24); t[10] = (u8) (snap_loads_ok >> 16);
++    t[11] = (u8) (snap_loads_ok >> 8);  t[12] = (u8) snap_loads_ok;
++    t[13] = (u8) (snap_frames >> 24);   t[14] = (u8) (snap_frames >> 16);
++    t[15] = (u8) (snap_frames >> 8);    t[16] = (u8) snap_frames;
++    for (u8 k = 17; k < 24; k++) t[k] = 0;
 +
 +    // Magic last, so a half-written capture is never read as a good one.
 +    b[0] = 'P'; b[1] = 'S'; b[2] = 'A'; b[3] = 'T';
@@ -816,7 +829,7 @@ index b568843..2ddb552 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -340,6 +1020,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1033,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -830,7 +843,7 @@ index b568843..2ddb552 100644
          return;
      }
  
-@@ -457,11 +1144,52 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -457,11 +1157,52 @@ void ppm_obj_render(uint16_t obj_slot) {
              continue;
          }
  
@@ -883,7 +896,7 @@ index b568843..2ddb552 100644
          satEntry++;
      }
  
-@@ -488,6 +1216,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -488,6 +1229,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // enough DMA budget?
      if (ppmio.ramdp->dma_remaining < 0x110) {
@@ -893,7 +906,7 @@ index b568843..2ddb552 100644
          return 0;
      }
  
-@@ -505,6 +1236,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,6 +1249,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -902,6 +915,16 @@ index b568843..2ddb552 100644
 +#endif
          return 0;
      }
+ 
+@@ -514,6 +1261,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+     slot->usage++;
+     slot->age = 0;
+ 
++#if PPM_SAT_SNAPSHOT
++    snap_loads_ok++;                    // counted here, control flow untouched
++#endif
+     ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
+     ppm_block_unpack_addr += 0x200;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
 index 06ccf59..b4df976 100644
