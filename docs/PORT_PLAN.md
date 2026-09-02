@@ -7036,3 +7036,37 @@ than moving the call again on a hunch.
 - the mask-group cap of 5 came from reading one emulator observation as a maximum
 - and the card save was wiped before the one A/B that would have settled the
   station, which is why it stayed open for four builds. **Keep every .sav.**
+
+#### Correction: the DMA mechanism is NOT settled
+
+The `139e931f` change was described above as "refresh the budget at frame start so
+inline renders see a fresh budget". The `26370eff` capture undermines the second
+half of that:
+
+    block loads refused, out of DMA budget : 2983
+    block loads that SUCCEEDED             : 86935
+    refusal rate                           : 3.3%
+    in-game frames                         : 0        <-- counted in frame_start
+
+Those header bytes are written unconditionally, so 0 means the counter was 0, not
+that the write was lost - checked against the raw tail of older captures to rule
+out the end of the save being reserved. But `frame_start` is also the only place
+slot usage is cleared for ACTIVE slots (`ppm_vram_reset_blocks` only touches slots
+above the budget), and slot-full is 0, so slots are plainly being freed.
+
+So one of two things is true and we do not yet know which:
+
+1. `frame_start` runs and the counter is broken in a way not yet visible, or
+2. **`frame_start` does not run per frame**, something else frees slots
+   (`ppm_obj_reset` -> `ppm_vram_reset_blocks(0)` is a candidate), and therefore
+   `ppm_dma_refresh()` there never executes at all
+
+If (2), the pillar fix came from the OTHER half of that change: `frame_end`
+STOPPED refreshing `dma_remaining` under inline. That would mean our frame-end
+write had been clobbering a value the 68000 maintains itself and starving the
+next frame's inline composition - a different mechanism from the one recorded
+above, reaching the same fix by accident.
+
+The visual results are unaffected: pillars smash, masks ~34, station and rooftop
+clean, refusal rate healthy. **The fix stands; the explanation does not.** Do not
+cite the frame-start reasoning until the dispatch counts exist.
