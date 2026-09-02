@@ -6785,3 +6785,46 @@ pass, and cycle / out-of-range links stand down untouched.
 that is this much more conservative. If the gain came from moving pairs and the
 pair test now rarely fires, the gain goes with it - that is a real possible
 outcome and not a reason to loosen the rules back.
+
+### 2026-09-02, later - the cap was the wrong test, and a correction
+
+`7d2ce1c0` on hardware: **subway fixed** - the tester confirms sprites are no
+longer deleted - and **the rooftop regressed**. The capture explains it in one
+line: `relink stood down, chain of 36 left untouched`. The pass wrote nothing.
+
+The rooftop group is three masks **and their three partners** - six - against a
+`PPM_MASK_GROUP_MAX` of five. That five came from reading the emulator's rooftop
+group `32,33,34,35,36` as a maximum when it was a single observation. The pass
+stood down on the exact scene it exists for.
+
+**Counting was the wrong test.** Every mask in the rooftop capture is `1x4` with
+tile `0x000`; the character the subway lost was tiles `0x7E0, 0x300, 0x7E8,
+0x270, 0x0F0, 0x1B0` at `2x4/4x4/3x4`. A mask is a sprite parked off the left
+edge to occupy scanlines with nothing to draw - **blankness is what it is**, and
+unlike a count it needs no tuning. `PPM_MASK_TILE 0x000` is now the identity test
+for both the mask and its partner; the cap survives at 8 as a sanity bound only.
+
+Host-tested on the **two real captures** rather than invented cases, which is the
+other lesson: the synthetic "parked character" had six sprites, which is exactly
+what made a cap of five look safe, and the real rooftop group is also six.
+
+    subway   hdr 0x0000   chain 17 in / 17 out, unchanged
+    rooftop  hdr 0x0006   14-19 moved to after entry 32, all 36 preserved
+    rooftop  run twice    identical - idempotent
+
+Probe `648fdcd8`. ALM 18,194 / M10K 294 / setup -2.596 / hold +0.004.
+
+#### Correction: "predecessor rewired past a run" never proved authorship
+
+The subway diagnosis leaned on this shape as evidence the relink pass had done
+the damage:
+
+    6 -> 8    while  7 -> 8
+
+The rooftop capture has `4 -> 8` past entries 5,6,7 and `8 -> 11` past 9,10 -
+**with the pass standing down and writing nothing at all.** The game produces
+that shape itself, typically on HUD it is hiding. The `masks[8]` overflow was
+real and removing it removed the subway symptom, but the signature argument was
+stronger than the evidence supported, and `reachable < composed` is no longer
+reported as a failure by `decode_sat_snapshot.py` - it reports, and leaves the
+judgement to what the orphans actually are.
