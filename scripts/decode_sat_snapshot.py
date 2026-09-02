@@ -72,17 +72,13 @@ def main():
                          "through the Pocket menu")
     count = struct.unpack('>H', hdr[0x14:0x16])[0]
     print("capture     : sat_count %d at the busiest frame" % count)
-    # The relink pass reports itself here: a plain number is how many entries it
-    # moved as the mask group, 0xFFnn means it STOOD DOWN that frame and left the
-    # chain untouched, with nn the chain length it saw. Standing down is a normal,
-    # designed outcome - a cycle, a link past the table, or a "mask group" too
-    # large to be masks - and it is the difference between reading the capture as
-    # "the probe did nothing" and "the probe is broken".
-    relink = struct.unpack('>H', hdr[0x16:0x18])[0]
-    if relink & 0xFF00 == 0xFF00:
-        print("relink pass : STOOD DOWN, chain of %d left untouched" % (relink & 0xFF))
-    else:
-        print("relink pass : moved %d entries as the mask group" % relink)
+    # Byte 6/7 used to be the relink pass reporting itself. The pass is gone -
+    # composing on 0xAD instead of batching at 0xAF put the masks where the game
+    # means them, so there is nothing left to relink. What sits here now is the
+    # one open question: how often ppm_obj_render silently dropped an object
+    # because its animation index exceeded the max we computed for it.
+    animover = struct.unpack('>H', hdr[0x16:0x18])[0]
+    print("anim-over drops : %d" % animover)
     print()
 
     ents = [sprite(b, i) for i in range(80)]
@@ -150,68 +146,25 @@ def main():
     # of composed is the subway failure: the game wrote sprites the chain cannot
     # get to, and because it only writes link topology once per scene, they stay
     # unreachable for the rest of the level.
-    # Sticky run totals past the owner map. "moved 0" describes ONE frame; these
-    # describe the whole boot, which is the question two subway captures in a row
-    # could not answer - whether the pass published a new topology hundreds of
-    # frames earlier and the 68000 simply never repaired it.
+    # Sticky run totals past the owner map.
     t = swapped(b[8 + 640 + 1024 + 80 + 0x10:])
-    writes = struct.unpack('>H', t[0:2])[0]
-    bails = struct.unpack('>H', t[2:4])[0]
-    maxgrp = t[4]
-
-    # WHAT THE MASKS ACTUALLY HIDE. Counting orphans was the wrong measurement for
-    # the symptom the tester reported - "nearly every sprite including the player"
-    # cannot come from ten unlinked entries, but ONE mask early in the chain hides
-    # every later sprite on its scanlines, and the rooftop group covers Y 136-231
-    # between them. A capture has to say this out loud.
-    masked_total = 0
-    if masks:
-        print()
-        print("MASK COVERAGE - a mask hides sprites LATER in the chain on its lines")
-        for mi, mk in enumerate(chain):
-            if mk['x'] != -128:
-                continue
-            lo, hi = mk['y'], mk['y'] + mk['sy'] * 8 - 1
-            after = chain[chain.index(mk) + 1:]
-            hit = [e for e in after
-                   if e['x'] > -128 and e['y'] + e['sy'] * 8 > lo and e['y'] < hi + 1]
-            masked_total += len(hit)
-            print("  entry %3d at chain pos %2d covers Y %d..%d  -> hides %d later sprite(s)%s"
-                  % (mk['n'], chain.index(mk), lo, hi, len(hit),
-                     ("  " + ",".join(str(e['n']) for e in hit)) if hit else ""))
-        print("  %d of %d drawn entries are behind a mask" % (masked_total, len(chain)))
-        if masked_total > len(chain) // 2:
-            print("  MOST OF THE SCENE IS MASKED - this is what 'everything vanished'")
-            print("  looks like in the table. The sprites are linked and composed;")
-            print("  the VDP is simply not drawing them.")
+    hits = struct.unpack('>H', t[0:2])[0]
 
     print()
     print("WHOLE RUN (sticky, not just this frame)")
-    print("  frames the pass WROTE links : %d" % writes)
-    print("  frames it stood down        : %d" % bails)
-    print("  largest mask group seen     : %d" % maxgrp)
-    if maxgrp:
-        print("  that group's first mask     : %dx%d  tile 0x%03X"
-              % (((t[5] >> 2) & 3) + 1, (t[5] & 3) + 1,
-                 struct.unpack('>H', t[6:8])[0]))
-        print("                                (the rooftop's masks are 1x4 tile 0x000;")
-        print("                                 anything else means the test matched")
-        print("                                 something that is not the same thing)")
-    print("  LINKS stored, whole run       : %d  (most in one frame: %d)"
-          % (struct.unpack('>H', t[8:10])[0], t[10]))
-    print("                                  a block move needs 3. Anything near")
-    print("                                  the chain length means the pass is")
-    print("                                  republishing the whole topology.")
-    if writes == 0:
-        print("  -> the pass never touched the SAT this boot. Anything off the")
-        print("     chain is the game's own list.")
+    print("  objects dropped by the anim-over early-out : %d" % hits)
+    if hits:
+        print("  last one: objID 0x%02X asked for anim %d, we had max %d"
+              % (t[2], t[3], t[4]))
+        print("  -> that return IS firing. Compare the objID against what")
+        print("     failed to show its destroyed sprite.")
+    else:
+        print("  -> it never fired. If a destructible still stayed whole, the")
+        print("     early-out is NOT the cause and the suspect was wrong.")
 
     print()
     print("VERDICT")
-    if relink & 0xFF00 == 0xFF00:
-        print("  relink        stood down - chain left exactly as the game built it")
-    else:
-        print("  relink        moved %d as the mask group (cap is 5)" % relink)
+    print("  relink        REMOVED - sprites compose on 0xAD, nothing edits the list")
     # Reachable short of composed is NOT automatically our bug, and saying so was
     # a mistake worth not repeating. The 2026-09-02 rooftop capture has 4->8 past
     # entries 5,6,7 and 8->11 past 9,10 - the same "predecessor rewired past a run"
