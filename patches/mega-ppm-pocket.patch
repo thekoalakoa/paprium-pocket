@@ -1,8 +1,8 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..d8437b4 100644
+index b568843..dc6758c 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
-@@ -4,6 +4,108 @@
+@@ -4,6 +4,266 @@
  #include "appmain.h"
  
  #define PPM_DATA_START_ADDR     0x10000	// base sdram unpack address
@@ -106,12 +106,170 @@ index b568843..d8437b4 100644
 +// a sprite at X=0 masking its scanlines). Both need an emulator VDP/SAT viewer.
 +//
 +// See docs/PORT_PLAN.md, "Sprite priority: NOT SAT priority".
++// paprium-pocket: DIAGNOSTIC, OFF. Kept because its result is worth not
++// re-deriving. Run twice: 2026-08-31 by eye, and 2026-09-01 alongside the SAT
++// snapshot so the probe's own effect could be verified rather than assumed.
++//
++// RESULT: priority is NOT the mechanism. The capture showed every entry this
++// firmware composes reading priority 1, and the tester confirmed the probe
++// visibly worked elsewhere - an extra life came out from behind a bed, and the
++// escalator stopped occluding the player. The rooftop player STILL drew behind.
++//
++// Those bed and escalator cases are intended depth: plane pri-1 over sprite
++// pri-0. Forcing priority broke them. They are not mask bugs and must not be
++// "fixed".
++//
++// See PPM_MASK_PROBE below for what is actually doing it.
 +#define PPM_FORCE_SPRITE_PRI    0
++
++// paprium-pocket: MASK PROBE, DIAGNOSTIC. NOT FOR SHIPPING.
++//
++// X = 0 is the Mega Drive sprite-mask position: a sprite there hides sprites
++// LATER in the link chain on its scanlines, regardless of their priority bit.
++// The rooftop capture found three of them at Y 136/168/200, 32 px tall, covering
++// Y 136-231 - the band the player stands in - at chain positions 8-12, ahead of
++// nearly everything this firmware appends. They read priority 0 under a blanket
++// OR, so the 68000 wrote them and we did not.
++//
++// This probe walks the LIVE LINK CHAIN after the frame is composed and moves any
++// X=0 node THIS FRAME'S RENDER DID NOT WRITE to raw Y 0 - screen Y -128, entirely
++// above the display, where it cannot mask a visible scanline. Our own entries are
++// left alone, identified by index range rather than by guesswork.
++//
++// Note raw Y 0x80 would NOT do: that is screen Y 0, on screen, still masking
++// lines 0-31.
++//
++//   player in front, bed/escalator depth still correct -> stale 68k masks, and
++//       this is the fix
++//   player in front, other intended hides break        -> the masks are live, and
++//       only the rooftop Y band may be touched, not every X=0
++//   player still behind                                -> not these SAT words, or
++//       the VDP is reading a copy other than 0xB00
++// Run 2026-09-01: neutralising all three masks fixed the player AND the bombs,
++// left the bed/escalator depth correct, but brought the boss and helicopter door
++// too far forward. So the masks are LIVE and load-bearing, not stale, and a
++// blanket kill trades one visual bug for another. NOT SHIPPABLE.
++//
++// It also refuted the ordering theory. With the player identified as entries
++// 36-41 (chain 29-34) and the boss as 46-53 (chain 39-46), the player comes
++// BEFORE the boss and both come after the masks - so masking cannot be reaching
++// the boss without reaching the player first. Off for this run.
++#define PPM_MASK_PROBE          0
++
++// paprium-pocket: MASK RELINK, DIAGNOSTIC. The candidate fix.
++//
++// Root cause, from comparing a hardware capture with an emulator state where the
++// symptom does not occur: the three X=0 masks are IDENTICAL and at the same Y
++// ladder in both, but sit at different places in the link chain.
++//
++//     emulator (no symptom)   masks at chain positions 25, 27, 29
++//     our port  (symptom)     masks at chain positions  8, 10, 12
++//
++// Masking hides sprites LATER in the chain, so on hardware only the tail is
++// affected and the player - earlier - is safe. On ours the masks sit near the
++// front and catch nearly everything we compose.
++//
++// The 68000 writes them at whatever sat_count holds at that instant; hardware has
++// ~32 cartridge sprites composed by then and we have ~14, so our composition runs
++// later in the frame than it should. Fixing THAT is the real repair. This moves
++// the masks to where hardware puts them instead, which should free the player
++// while keeping the boss and door masked - unlike deleting them, which fixed the
++// player by breaking the boss.
++//
++// PPM_MASK_MOVE_AFTER is CALIBRATED TO ONE CAPTURE and is the weak part. In that
++// frame the player sat at chain 15-22 and the boss at 39-48, so any insertion
++// point between them works; 18 puts the masks near the emulator's relative
++// position. It is a heuristic, not a derivation - if a later capture shows the
++// player and boss at different chain positions, this number is wrong for that
++// scene. Validate against the capture, not by eye alone.
++//
++// If fewer than PPM_MASK_MOVE_AFTER of our entries exist, the masks end up
++// unlinked entirely, which degrades to the blanket-kill behaviour - the known
++// safe-ish fallback rather than something new.
++// paprium-pocket: see the probe in ppm_obj_frame_end. OFF - it is a separate
++// experiment from the mask work and must not be enabled in the same build, or
++// neither result means anything.
++#define PPM_DMA_OVERBUDGET      0
++#define PPM_DMA_OVERBUDGET_NUM  3
++#define PPM_DMA_OVERBUDGET_DEN  2
++
++#define PPM_MASK_RELINK         1
++// paprium-pocket: where the masks belong, as an ABSOLUTE SAT INDEX.
++//
++// Every count-based value failed, and for a structural reason. MOVE_AFTER counted
++// OUR composed sprites, so the right value moved with how many of ours happened to
++// precede the boundary: 8 in one elevator frame, 13 in another, and each one
++// spliced through whatever group it landed inside - the player at 8, the NPC at 13.
++//
++// The number that does NOT move is the absolute index. Two independent sources
++// agree:
++//
++//     emulator rooftop, no symptom   masks sit at entries 32, 34, 36
++//     elevator run-2, photographed   boundary wanted after entry 32
++//
++// which is what the mechanism predicts. The 68000 writes its masks at whatever
++// sat_count holds at that instant; on hardware ~32 sprites are already composed,
++// on our port ~14. So "index 32" is where the game means them to be, and our
++// lateness is the whole bug.
++//
++// Insert after the first chain node whose entry index reaches this. That needs no
++// knowledge of what a player or an NPC is, and it should hold in any scene if the
++// hypothesis is right.
++#define PPM_MASK_AFTER_INDEX    32
++
++// Size of the real sprite allocation table (mame.h: sat_data[144]). The relink
++// pass is bounded by this, not by the 80 the snapshot caps at - a link byte can
++// legally name entry 143, and the old visited[10] bitmap was being indexed out of
++// bounds by every node above 79.
++#define PPM_SAT_ENTRIES         144
++
++// Most masks a frame may plausibly hold before the classification is not to be
++// trusted. Hardware's rooftop frame has three at 32/34/36, five counting the X==1
++// partners. A run much larger than that is not a mask group, it is a character
++// parked off the left edge at raw X 0/1 - which is exactly what the subway
++// capture caught, six sprites of one figure read as six masks. Over the cap the
++// pass stands down and leaves the chain alone.
++#define PPM_MASK_GROUP_MAX      5
++
++#define PPM_MASK_RELINK         1
++#define PPM_MASK_MOVE_AFTER     13
++// 2026-09-01: 13, from the second elevator capture, where the tester identified
++// every group from a rendered layout AND photographed the screen so nothing was
++// recalled from memory:
++//
++//     our #1-#5    entries 20-24   (unidentified, foreground)  keep unmasked
++//     our #6-#10   entries 25-29   PLAYER                      keep unmasked
++//     our #11      entry  30                                   keep unmasked
++//     our #12-#13  entries 31-32   npc                         keep unmasked
++//     our #14-#15  entries 33-34   SCROLLING ENEMY             should be masked
++//     our #16-#23  entries 35-42   the elevator it rides       should be masked
++//
++// so the masks belong immediately after our 13th composed sprite.
++//
++// The previous value, 8, came from an earlier frame with a different object set.
++// In THIS frame our #8 is entry 27, which is inside the player - 8 would have
++// hidden his back half. Same scene, different frame, different answer.
++//
++// That is the open question about this whole approach: whether one constant can
++// be right game-wide, or whether the boundary between foreground and background
++// moves with whatever objects happen to be alive. The tester's position is that a
++// fixed number should work if the render ORDER is consistent, and that fixing one
++// scene fixes the others. This build tests exactly that - if 13 also behaves in
++// the rooftop, the constant generalises and the approach is viable.
++//
++// KNOWN LIMITATION - this number cannot serve both scenes. In the rooftop capture
++// the player occupies our entries #3-#10, so 8 would splice the masks through the
++// middle of him. That frame wanted ~18. A fixed count is scene-specific, which is
++// why relocating masks by position is a PROBE and not the fix.
++//
++// The fix is the timing relationship: get our composition to happen before the
++// 68000 writes its masks, so they land where hardware puts them without help.
++// Expect elevator better, rooftop possibly worse with this build.
 +
  #define PPM_MAX_VRAM_SLOTS      64
  #define PPM_OBJECTS_COUNT       64
  #define PPM_MAX_OBJ_BLOCKS      32
-@@ -66,6 +168,24 @@ void ppm_obj_reset() {
+@@ -66,6 +326,24 @@ void ppm_obj_reset() {
  }
  
  void ppm_vram_set_budget(uint16_t blocks) {
@@ -136,7 +294,7 @@ index b568843..d8437b4 100644
      // temp failsafe
      if (blocks > 0x35) {
          printf("Allocation error (0x%x blocks)\n", blocks);
-@@ -207,47 +327,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -207,47 +485,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
              }
              break;
  
@@ -279,7 +437,11 @@ index b568843..d8437b4 100644
 +                        lz += 2049;
 +                        len = 3;
 +                    }
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +
 +                state = (len > 0) ? raw_n : 4;
 +                copy_addr = dest_addr - lz;
@@ -294,24 +456,355 @@ index b568843..d8437b4 100644
 +                        raw_n--;
 +                    }
 +                    else break;
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +            }
              }
              break;
  
-@@ -280,6 +480,7 @@ void ppm_obj_frame_end() {
-     ppm_block_unpack_addr = 0x9000;
-     ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
+@@ -275,19 +633,330 @@ void ppm_obj_frame_start() {
+     }
+ }
  
++// paprium-pocket: SAT SNAPSHOT, DIAGNOSTIC. NOT FOR SHIPPING - set to 0.
++//
++// Reads the sprite list THIS firmware builds at 0xB00, on real hardware, and
++// parks it in battery-backed RAM which the Pocket persists to Paprium.sav.
++// Firmware only - no RTL, no VDP tap, no cmdlog.
++//
++// bram is 4 KB and the game uses 0x000-0x8FF (arg4 -> 0x000, arg1..3 ->
++// 0x400/0x600/0x800), so 0x900+ is free and the save data is not touched.
++//
++//   0x900  'PBOT' + u16 boot counter          written unconditionally at setup
++//   0x910  'PSAT' + u16 best sat_count        the capture itself
++//   0x918  80 x ppm_sat_item   (640 B)
++//   0xB98  64 x ppm_intf_obj   (1024 B)
++//
++// TWO THINGS CHANGED AFTER THE FIRST ATTEMPT CAME BACK EMPTY.
++//
++// 1. The trigger no longer depends on an assumption. The first version fired from
++//    cmd_B1, on the belief that the game sends 0xB1 when the player pauses - which
++//    came from GPGX's NAME for that handler and was never measured. It now runs
++//    from ppm_obj_frame_end, which is the render path and certainly executes, and
++//    it keeps the frame with the HIGHEST sat_count seen so far. Busy scenes win,
++//    so playing to the rooftop captures the rooftop without the player timing
++//    anything.
++//
++// 2. 'PBOT' is written at setup, before any gameplay. It is a control: if the
++//    boot marker reaches the .sav and the capture does not, the write-back path
++//    works and the capture logic is at fault. If NEITHER arrives, the Pocket is
++//    not persisting MCU writes to backup RAM at all, and no amount of trigger
++//    work will help. The first attempt could not tell these apart, which is why
++//    it produced no information rather than a negative result.
++//
++// Note this game effectively never saves - scripts/decode_cmdlog.py says it
++// outright, "one capture must survive a full playthrough" - so nothing here may
++// depend on the game writing its own save.
++#define PPM_SAT_SNAPSHOT        1
 +
++#if PPM_SAT_SNAPSHOT
++#define SNAP_BOOT   0x900
++#define SNAP_BASE   0x910
++
++// Was "keep the busiest frame". Changed 2026-09-01: on a run to a late level the
++// player passes through many busy scenes and any of them can out-count the target,
++// so a long run could be spent and still capture the wrong fight. Now the LAST
++// busy frame wins, which the player controls exactly - quit where you want the
++// capture. Cheap enough to rewrite every frame that qualifies.
++
++void ppm_snapshot_boot(void) {
++    u8 *b = &ppmio.bram[SNAP_BOOT];
++    u16 n = (u16) ((b[4] << 8) | b[5]);
++
++    if (!(b[0] == 'P' && b[1] == 'B' && b[2] == 'O' && b[3] == 'T')) {
++        n = 0;
++    }
++    n++;
++
++    b[4] = (u8) (n >> 8);
++    b[5] = (u8) n;
++    b[0] = 'P'; b[1] = 'B'; b[2] = 'O'; b[3] = 'T';
++}
++
++static u16 snap_masks_killed = 0;
++static u8  snap_owner[80];        // SAT entry -> object index that wrote it
++
++void ppm_snapshot_sat(void) {
++    u16 count = ppmio.ramdp->sat_count;
++
++    if (count < 20) {
++        return;                 // ignore menus and transitions
++    }
++    if (count > 80) {
++        count = 80;
++    }
++
++    u8 *b = &ppmio.bram[SNAP_BASE];
++
++    memcpy(&b[8], &ppmio.ramdp->sat_data[0], 80 * 8);
++    memcpy(&b[8 + 640], &ppmio.ramdp->obj_data[0], 64 * 16);
++    memcpy(&b[8 + 640 + 1024], snap_owner, 80);      // 0xF88..0xFD7, fits the 1792
++
++    b[4] = (u8) (count >> 8);
++    b[5] = (u8) count;
++    // How many masks the probe neutralised this frame, so the capture itself
++    // proves the pass ran rather than leaving it to be assumed.
++    b[6] = (u8) (snap_masks_killed >> 8);
++    b[7] = (u8) snap_masks_killed;
++
++    // Magic last, so a half-written capture is never read as a good one.
++    b[0] = 'P'; b[1] = 'S'; b[2] = 'A'; b[3] = 'T';
++}
++#endif
++
+ void ppm_obj_frame_end() {
+ 
+     ppm_block_unpack_addr = 0x9000;
++
++#if PPM_DMA_OVERBUDGET
++    // paprium-pocket: DMA OVERBUDGET PROBE, DIAGNOSTIC. OFF BY DEFAULT.
++    //
++    // Hypothesis from the tester, and it inverts the assumption this file has
++    // been carrying: on ORIGINAL HARDWARE Paprium visibly tears when the screen
++    // is busy, but it does NOT lose animation. Our port is the other way round -
++    // no tearing, dropped frames. If the real cartridge routinely overruns its
++    // vblank and accepts tearing as the price, then respecting dma_budget exactly
++    // is OUR deviation, not the safe choice, and the frozen-walk symptom is
++    // self-inflicted.
++    //
++    // dma_budget is written by the 68000 and read by us; it is the game's own
++    // statement of how many words fit in vblank. This does NOT overwrite it -
++    // the game can still read back what it wrote. It only inflates the figure we
++    // budget OURSELVES against, so the cartridge queues more blocks per frame.
++    //
++    // Expect tearing or torn tiles if it works as intended. That is the point:
++    // the question is whether animation smooths out at the same time, which
++    // would mean we are trading an artefact hardware also has for frames it also
++    // has. If tiles corrupt without animation improving, the trade is bad and
++    // this stays off.
++    //
++    // Numerator/denominator rather than a shift so the ratio can be tuned from a
++    // single number. 3/2 = 1.5x is the first try.
++    {
++        uint32_t b = (uint32_t) ppmio.ramdp->dma_budget;
++        b = (b * PPM_DMA_OVERBUDGET_NUM) / PPM_DMA_OVERBUDGET_DEN;
++        if (b > 0xFFFF) {
++            b = 0xFFFF;
++        }
++        ppmio.ramdp->dma_remaining = (uint16_t) b - ppmio.ramdp->dma_total;
++    }
++#else
+     ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
++#endif
++
+ 
      //printf("dma: %i\n", ppmio.ramdp->dma_remaining);
  
++    uint16_t sat_first = ppmio.ramdp->sat_count;   // ours start here
++
      uint8_t *ptr = ppm_drawList;
-@@ -461,7 +662,40 @@ void ppm_obj_render(uint16_t obj_slot) {
+ 
+     while (ptr != ppm_drawListPtr) {
+         ppm_obj_render(*ptr++);
+     }
+ 
++#if PPM_MASK_RELINK
++    {
++        // Rebuilt 2026-09-02 after the SUBWAY capture, which showed the pass
++        // DELETING SPRITES rather than reordering them.
++        //
++        // The raw links in that capture read 6->8 while 7->8, and 11->20 while
++        // 19->20: predecessors rewired past a run of nodes, the skipped nodes
++        // still pointing exactly where they always did. That is only possible
++        // if the 68000 writes the link topology ONCE per scene and thereafter
++        // updates position and attributes alone - so a link this pass writes is
++        // a permanent edit to the game's list, not a per-frame cosmetic one, and
++        // a node dropped from the rebuild never comes back. Entries 14-19 in
++        // that capture were a 48x96 character that simply stopped being drawn.
++        //
++        // What dropped them: the previous build widened the mask test from
++        // X==0 to X<=1 to carry the partner along, and a character parked fully
++        // off-screen left sits at raw X 0 or 1. Six of its sprites were read as
++        // masks, masks[8] overflowed, and the overflow branch silently discarded
++        // them from the output order.
++        //
++        // Two rules now:
++        //
++        //   1. THE REBUILD IS A PERMUTATION. Every flattened node appears in the
++        //      output exactly once. Nothing has a branch that can drop a node,
++        //      and the count is checked before a single link is written.
++        //   2. ANYTHING IT CANNOT REPRESENT LEAVES THE CHAIN ALONE. Overflow, a
++        //      link past the end of the table, a cycle - all bail out without
++        //      writing, because doing nothing costs one frame of mask ordering
++        //      while doing the wrong thing costs the sprite for the whole scene.
++        //
++        // Sized for the real table (sat_data[144]), not the 80 the snapshot caps
++        // at - a link byte can legally be up to 143, and visited[10] was being
++        // indexed out of bounds by anything above 79.
++        uint16_t sat_last = ppmio.ramdp->sat_count;
++        uint8_t  order[PPM_SAT_ENTRIES];
++        uint8_t  grp[PPM_SAT_ENTRIES];      // 1 = part of the mask group
++        uint8_t  out[PPM_SAT_ENTRIES];
++        uint8_t  visited[(PPM_SAT_ENTRIES + 7) / 8];
++        uint8_t  n = 0, ngrp = 0, m = 0, inserted = 0, bail = 0;
++        uint16_t node = 0, guard = 0;
++
++        for (uint8_t i = 0; i < sizeof(visited); i++) {
++            visited[i] = 0;
++        }
++
++        // 1. flatten the whole chain, keeping every node
++        while (guard++ <= PPM_SAT_ENTRIES) {
++            if (node >= PPM_SAT_ENTRIES) {
++                bail = 1;                   // link past the end of the table
++                break;
++            }
++            if (visited[node >> 3] & (1u << (node & 7))) {
++                bail = 1;                   // cycle from an earlier frame
++                break;
++            }
++            visited[node >> 3] |= (1u << (node & 7));
++
++            if (n >= PPM_SAT_ENTRIES) {
++                bail = 1;                   // longer than the table: not ours to fix
++                break;
++            }
++
++            ppm_sat_item *e = &ppmio.ramdp->sat_data[node];
++            uint8_t link = e->sizeNext & 0xff;
++            uint8_t ours = (node >= sat_first && node < sat_last);
++            uint16_t x = e->posX & 0x1ff;
++
++            order[n] = (uint8_t) node;
++            // X==0 is the mask itself. X==1 is only ever counted as its partner,
++            // never on its own - see above for what "any X<=1" cost.
++            grp[n] = (!ours && x == 0) ? 1 : 0;
++            n++;
++
++            if (link == 0) {
++                break;
++            }
++            node = link;
++        }
++
++        // 2. adopt an X==1 entry into the group only when it is chain-adjacent
++        //    to a real mask, which is what makes it the partner rather than a
++        //    sprite that happens to be parked off the left edge
++        for (uint8_t i = 0; i < n && !bail; i++) {
++            if (grp[i]) {
++                continue;
++            }
++            uint8_t idx = order[i];
++            if (idx >= sat_first && idx < sat_last) {
++                continue;                   // ours; never touched
++            }
++            if ((ppmio.ramdp->sat_data[idx].posX & 0x1ff) != 1) {
++                continue;
++            }
++            if ((i > 0 && grp[i - 1]) || (i + 1 < n && grp[i + 1])) {
++                grp[i] = 1;
++            }
++        }
++
++        for (uint8_t i = 0; i < n; i++) {
++            ngrp += grp[i];
++        }
++        if (ngrp > PPM_MASK_GROUP_MAX) {
++            bail = 1;                       // not a mask group; see the cap
++        }
++
++        // 3. rebuild: everything else in order, the group re-inserted whole
++        //    after the first entry at or past the absolute index
++        for (uint8_t i = 0; i < n && !bail; i++) {
++            if (grp[i]) {
++                continue;
++            }
++            out[m++] = order[i];
++
++            if (!inserted && order[i] >= PPM_MASK_AFTER_INDEX) {
++                for (uint8_t j = 0; j < n; j++) {
++                    if (grp[j]) {
++                        out[m++] = order[j];
++                    }
++                }
++                inserted = 1;
++            }
++        }
++        if (!inserted && !bail) {
++            // No entry reached the index - a sparse frame. Put them at the end,
++            // where they mask nothing, rather than somewhere unpredictable.
++            for (uint8_t j = 0; j < n; j++) {
++                if (grp[j]) {
++                    out[m++] = order[j];
++                }
++            }
++        }
++
++        // 4. permutation check, then write. m != n means a node would have been
++        //    lost; that is the failure the subway capture was, so it is fatal to
++        //    the pass rather than to the sprite.
++        if (!bail && m == n && n > 0) {
++            for (uint8_t i = 0; i < m; i++) {
++                ppm_sat_item *e = &ppmio.ramdp->sat_data[out[i]];
++                uint8_t next = (i + 1 < m) ? out[i + 1] : 0;
++                e->sizeNext = (e->sizeNext & 0xff00) | next;
++            }
++            snap_masks_killed = ngrp;        // reported in the capture header
++        } else {
++            snap_masks_killed = 0xFF00 | n;  // capture says the pass stood down
++        }
++    }
++#endif
++
++#if PPM_MASK_PROBE
++    {
++        uint16_t sat_last = ppmio.ramdp->sat_count;   // ..and end here
++        uint16_t node = 0;
++        uint16_t guard = 0;
++
++        snap_masks_killed = 0;
++
++        while (guard++ < 80) {
++            ppm_sat_item *e = &ppmio.ramdp->sat_data[node];
++            uint16_t link = e->sizeNext & 0xff;
++            uint8_t ours = (node >= sat_first && node < sat_last);
++
++            if (!ours && (e->posX & 0x1ff) == 0) {
++                e->posY = 0;                  // screen -128: cannot mask
++                snap_masks_killed++;
++            }
++
++            if (link == 0) {
++                break;
++            }
++            node = link;
++        }
++    }
++#endif
++
++#if PPM_SAT_SNAPSHOT
++    // paprium-pocket: DIAGNOSTIC. Snapshot AFTER the render loop, so the capture
++    // is the frame just composed rather than the previous one. That matters when
++    // PPM_FORCE_SPRITE_PRI is also on: the point of that pairing is to read back
++    // the very entries the OR was applied to.
++    ppm_snapshot_sat();
++#endif
++
+     ppm_vram_slot *slot = ppm_vram_slots;
+ 
+     for (uint16_t x = 0; x < PPM_MAX_VRAM_SLOTS; slot++, x++) {
+@@ -457,11 +1126,52 @@ void ppm_obj_render(uint16_t obj_slot) {
+             continue;
+         }
+ 
++#if PPM_SAT_SNAPSHOT
++        // paprium-pocket: DIAGNOSTIC. Remember which object produced this entry,
++        // so a capture identifies its own sprites instead of needing a human to
++        // recognise boxes on a rendered layout.
++        if (ppmio.ramdp->sat_count < 80) {
++            snap_owner[ppmio.ramdp->sat_count] = (u8) obj_slot;
++        }
++#endif
+         ppmio.ramdp->sat_count++;
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -352,6 +845,19 @@ index b568843..d8437b4 100644
          satEntry++;
      }
  
+diff --git a/mcu/mame.h b/mcu/mame.h
+index 06ccf59..b4df976 100644
+--- a/mcu/mame.h
++++ b/mcu/mame.h
+@@ -155,6 +155,8 @@ void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, ui
+ void ppm_obj_add(uint8_t num);
+ void ppm_obj_frame_start();
+ void ppm_obj_frame_end();
++void ppm_snapshot_boot(void);   // paprium-pocket: DIAGNOSTIC, see mcu/mame.c
++void ppm_snapshot_sat(void);
+ void ppm_obj_reset();
+ void ppm_vram_set_budget(uint16_t blocks);
+ u32 ppm_block_addr(u32 num);
 diff --git a/mcu/mdp.c b/mcu/mdp.c
 index 0678fb9..90c45a8 100644
 --- a/mcu/mdp.c
@@ -388,7 +894,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..725bf2e 100644
+index 1a1de1d..b98d404 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -442,7 +948,18 @@ index 1a1de1d..725bf2e 100644
      cmp_ptr[0xF2] = cmd_F2_unpack;
      cmp_ptr[0xF4] = cmd_F4_unpack_scal;
      cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
-@@ -291,7 +303,14 @@ void cmd_DA_unpack() {
+@@ -261,6 +273,10 @@ void cmd_B1_sprite_pause() {
+ 
+ void cmd_C6_setup_data() {
+ 
++#if PPM_SAT_SNAPSHOT
++    ppm_snapshot_boot();
++#endif
++
+     // load/setup base data
+ 
+     u32 time = FPGAIO->time;
+@@ -291,7 +307,14 @@ void cmd_DA_unpack() {
      u32 dst = ppmio.ramdp->cmd_args[0];
  
      ppm_unpack(src, dst);
@@ -458,7 +975,7 @@ index 1a1de1d..725bf2e 100644
  }
  
  void cmd_DB_set_dma_ptr() {
-@@ -390,6 +409,71 @@ void cmd_F5_stamp_rescale() {
+@@ -390,6 +413,71 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -530,7 +1047,7 @@ index 1a1de1d..725bf2e 100644
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
-@@ -399,7 +483,12 @@ void cmd_8C_bgm_play() {
+@@ -399,7 +487,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {

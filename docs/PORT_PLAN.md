@@ -6718,3 +6718,70 @@ or by a hash rather than by reasoning:
   reached the build - `build_mcu.sh` did not install, and now does
 - claimed four slots of cap headroom would reduce frozen walks game-wide. Slot
   count is residency, `dma_budget` is fill rate; they are different limits
+
+## 2026-09-02 - the subway capture: the relink pass was deleting sprites
+
+`12415202` (the mask-pair build) was run on a rooftop attempt and passed through
+the subway on the way. Sprites there were wrong, a capture was taken, and it says
+something worse than mask ordering.
+
+**The chain had lost a character.** Entries 14-19 are a 48x96 figure at screen
+X 68-132, Y 69-165 - written to the table, on screen, and not reachable through
+the link chain, so the VDP never drew it. The old decoder never mentioned it,
+because every view it printed walked the chain and the chain is exactly what had
+lost them. Both `decode_sat_snapshot.py` and `draw_sat_layout.py` now report
+orphans; that is the change worth keeping out of the whole day.
+
+**The links name the culprit:**
+
+    6  -> 8      while  7  -> 8
+    11 -> 20     while  19 -> 20
+
+Predecessors rewired past a run of nodes, and the skipped nodes still pointing
+exactly where they always did. That shape is only possible if **the 68000 writes
+the link topology ONCE per scene and thereafter updates position and attributes
+alone.** Nothing repairs entry 6. So every link the relink pass writes is a
+permanent edit to the game's list, and a node dropped from the rebuild is gone
+for the rest of the scene - which is why one bad frame showed as a missing
+character for the whole subway.
+
+**What dropped them.** `12415202` widened the mask test from `X == 0` to
+`X & 0x1ff <= 1` to carry the partner sprite along. A character standing fully
+off-screen left is parked at raw X 0 or 1, so six sprites of one figure were read
+as six masks, `masks[8]` overflowed, and the overflow branch was
+
+    if (nmask < 8) { masks[nmask++] = node; }   // else the node simply vanishes
+
+`1ec0f2c3` (`== 0`) could not reach this. The header confirms the frame captured
+had **0 masks moved** - the damage was done earlier and had simply persisted.
+
+Two further unguarded drops in the same block, neither reached yet: the chain was
+truncated at 80 when `sat_data` holds 144, and `visited[10]` was indexed by a link
+byte that can legally name entry 143.
+
+### The rebuilt pass
+
+Two rules, both testable:
+
+1. **The rebuild is a permutation.** Every flattened node appears in the output
+   exactly once; no branch can drop one, and `m == n` is checked before a single
+   link is written.
+2. **Anything it cannot represent leaves the chain alone.** Cycle, link past the
+   table, chain longer than the table, or a mask group larger than
+   `PPM_MASK_GROUP_MAX` (5, which is hardware's rooftop group 32-36 counting
+   partners) - all stand down without writing. A frame of lost mask ordering
+   costs one frame; a wrong write costs the sprite for the scene.
+
+X == 1 is now only adopted as a partner when it is chain-adjacent to a real X == 0
+mask, never on its own. The capture header reports the pass: a plain number is
+entries moved, `0xFFnn` means it stood down with `nn` the chain length it saw.
+
+Run on the host against the subway frame and five synthetic cases before spending
+a fit - a no-mask frame comes out identity, a parked-left figure stands the pass
+down, a genuine three-mask group moves to index 32 and is idempotent on a second
+pass, and cycle / out-of-range links stand down untouched.
+
+**Open:** whether the rooftop and elevator gains from `12415202` survive a pass
+that is this much more conservative. If the gain came from moving pairs and the
+pair test now rarely fires, the gain goes with it - that is a real possible
+outcome and not a reason to loosen the rules back.

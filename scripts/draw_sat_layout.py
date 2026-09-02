@@ -97,8 +97,29 @@ def main():
         d.rectangle([x0, y0, x1, y1], outline=col, width=2)
         d.text((x0 + 3, y0 + 2), str(e['n']), fill=col)
 
+    # Orphans, drawn dashed in yellow. Added 2026-09-02: the subway capture had a
+    # whole character in entries 14-19 that this picture did not show, because it
+    # only ever drew the chain and the chain was what had lost them. A sprite the
+    # game wrote and the VDP never drew has to be visible here or the picture is
+    # quietly lying about the frame.
+    count = struct.unpack('>H', hdr[0x14:0x16])[0]
+    reached = set(e['n'] for e in chain)
+    orphans = [e for e in ents[:min(max(count + 4, 1), 80)]
+               if e['n'] not in reached and -64 < e['x'] < SCREEN_W and -64 < e['y'] < SCREEN_H]
+    for e in orphans:
+        x0, y0 = e['x'] * SCALE, e['y'] * SCALE
+        x1, y1 = (e['x'] + e['w']) * SCALE - 1, (e['y'] + e['h']) * SCALE - 1
+        for t in range(x0, x1, 12):
+            d.line([(t, y0), (min(t + 6, x1), y0)], fill=(255, 255, 80))
+            d.line([(t, y1), (min(t + 6, x1), y1)], fill=(255, 255, 80))
+        for t in range(y0, y1, 12):
+            d.line([(x0, t), (x0, min(t + 6, y1))], fill=(255, 255, 80))
+            d.line([(x1, t), (x1, min(t + 6, y1))], fill=(255, 255, 80))
+        d.text((x0 + 3, y0 + 2), "%d ORPHAN" % e['n'], fill=(255, 255, 80))
+
     legend = [
         "sprite layout from the hardware capture - %d of %d chain entries on screen" % (drawn, len(chain)),
+        "YELLOW DASHED = in the table, on screen, NOT in the link chain -> never drawn (%d)" % len(orphans),
         "BLUE = priority 1 (in front)     RED = priority 0 (behind high-priority background)",
         "number = SAT entry index",
     ]
