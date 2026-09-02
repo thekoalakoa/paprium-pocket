@@ -5897,6 +5897,53 @@ scope.
 clamps - not `dma_budget`. Those are different numbers and were conflated earlier
 in this file.
 
+# THE RULE THAT GENERALISED: absolute SAT index, not a count - 2026-09-01 late
+
+## Result
+
+    emulator rooftop, no symptom     masks at chain 25, 27, 29
+    our port, absolute-index 32      masks at chain 23, 24, 25
+    our port, before any fix         masks at chain  8, 10, 12
+
+Tester: "it fixed a lot of both" - elevator and rooftop.
+
+**This is the first value that transferred between scenes without being refitted.**
+Both earlier constants were derived from elevator frames and broke elsewhere; the
+index was derived from the mechanism and landed within two chain positions of
+where correct hardware puts the masks, in a scene it had never seen.
+
+## Why counts failed and the index did not
+
+`MOVE_AFTER` counted OUR composed sprites, so the correct value moved with how
+many of ours happened to precede the boundary - 8 in one elevator frame, 13 in
+another - and each spliced through whichever group sat at that ordinal: the player
+at 8, the NPC at 13.
+
+The 68000 writes its masks at whatever `sat_count` holds at that instant. On
+hardware ~32 sprites are already composed; on our port ~14. **Index 32 is where
+the game means them to be**, and our lateness is the entire bug. Expressed in
+absolute indices the target is fixed; expressed as a count of our own sprites it
+is not.
+
+## Remaining difference from hardware
+
+Hardware interleaves: 32, **33**, 34, **35**, 36 - each X=0 mask followed by its
+X=1 partner. We move only the X=0 sprites, so ours land contiguously at 23, 24, 25
+while the partners stay at their original early positions.
+
+Masking still functions - the partner only has to precede the mask on the same
+scanline, which it does - but the layout is not an exact reproduction. If anything
+subtle remains, moving each pair together is the next refinement, and it is a
+small change to the same pass: collect the X=1 node adjacent to each X=0 node and
+splice both.
+
+## Still not fixed by any of this
+
+The elevator's scrolling squares. They are plane tiles, not sprites - a frame
+captured with them filling the screen held 14 sprites and none of them were
+squares, and frames full of squares report zero masks. No mask work can touch
+them.
+
 # MASK RELINK: what it fixes, what it cannot - 2026-09-01 evening
 
 ## Confirmed fixable by moving the masks
