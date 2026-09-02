@@ -170,12 +170,24 @@ def main():
     noslot = struct.unpack('>H', t[7:9])[0]
     print("  block loads refused, out of DMA budget    : %d" % starved)
     print("  block loads refused, every slot in use    : %d" % noslot)
-    if starved:
-        print("  -> budget starvation. If this is large, the frame's budget is")
-        print("     being tested before it is refreshed, or the game's own")
-        print("     budget genuinely does not cover the scene.")
+    ok = struct.unpack('>I', t[9:13])[0]
+    frames = struct.unpack('>I', t[13:17])[0]
+    print("  block loads that SUCCEEDED                : %d" % ok)
+    print("  in-game frames                            : %d" % frames)
+
+    # A refusal count with no denominator is unreadable: 1176 is healthy against
+    # forty thousand loads and alarming against twelve hundred. Two ratios, so the
+    # number means something.
+    total = ok + starved
+    if total:
+        print("  refusal rate      : %.1f%%  (%d of %d attempts)"
+              % (100.0 * starved / total, starved, total))
+    if frames:
+        print("  refusals per frame: %.3f     loads per frame: %.2f"
+              % (starved / float(frames), ok / float(frames)))
     if noslot:
         print("  -> slot pressure, which is what PPM_VRAM_SAFE_SLOTS caps.")
+        print("     That is a DIFFERENT bug from budget starvation.")
 
     print()
     print("VERDICT")
