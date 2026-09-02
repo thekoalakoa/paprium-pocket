@@ -6865,3 +6865,91 @@ the 68000 never repaired - and only that A/B separates them. **Keep every .sav.*
   not say whether the pass wrote anything earlier in the boot.
 
 Cap stays 8, `PPM_MASK_TILE` stays `0x000`, `PPM_MASK_AFTER_INDEX` stays 32.
+
+### 2026-09-02, control run - the relink WRITE is what blanks the subway
+
+Symptom restated by the tester: **nearly every sprite disappears including the
+player.** That cannot come from orphans - the captures show ~10 unlinked entries
+out of 30, which is a figure or two. It is masking. A `1x4` sprite at X=0 covers
+32 scanlines and hides every sprite LATER in the chain on those lines; three of
+them on a Y ladder cover 136-231, most of the screen. Pull that block toward the
+front and the room goes dark.
+
+Measured on the rooftop capture, moving the group to the anchor:
+
+    as the game built it :  9 hidden   22,23,24,25,26,27,28, 36,41
+    after the move to 32 :  2 hidden   36,41
+    freed 22-28, the whole player group; nothing newly hidden
+
+Which is exactly why the same rule wrecks the station. `PPM_MASK_AFTER_INDEX` was
+being applied in BOTH directions, and dragging masks forward is never the fix.
+
+**Control `76d278e2`** - `PPM_RELINK_APPLY 0`, classify and count exactly as
+normal, store nothing:
+
+    frames the pass WOULD have written : 99
+    links actually stored              : none
+    tester: sprites present, nearly to the end of the subway
+
+Against `6596070d`, same scene, writes applied, mass disappearance. The
+classification fired 99 times, so the pass was fully engaged and only the store
+was removed. **The write is the cause.**
+
+The control also closes the gap that had kept this circular - the station's mask
+group is real and is the same shape as the rooftop's:
+
+    largest mask group seen : 6
+    first mask              : 1x4 tile 0x000
+
+(The `LINKS stored: 0` line in that capture is NOT evidence - the control
+firmware predates the counter, so those header bytes are zeroed RAM.)
+
+#### The rule, and the write set
+
+    if the group's new position is not LATER than its current one -> do not write
+    else                                                          -> splice, block intact
+
+Compared as positions in the rebuilt list, not against `PPM_MASK_AFTER_INDEX`,
+which is an absolute SAT index - comparing a chain position against it would only
+work by coincidence. And the flatten stays as ANALYSIS while the store is now
+minimal: only links that actually differ are written. On the rooftop capture that
+is **3 stores**, the three a block move needs, instead of 36. Storing a whole
+topology to make a three-link change is how one bad walk republishes a list the
+68000 will never repair.
+
+One-sided also makes the pass self-limiting: once the group has been moved it
+stands down rather than rewriting, so a scene gets at most one write.
+
+### Cross-checked against MisterPezz82/Paprium_MegaDrive_MiSTer
+
+The MiSTer port of the same mega-ppm firmware has the same rooms open:
+
+    #8  graphic errors in the Intercom elevator - corruption AND background
+        priority problems                                          OPEN
+    #10 animations skipped, "the more enemies on screen, the more problems"
+                                                                   OPEN
+    #5  v03 stuck at subway                                        OPEN
+    #6  subway graphics corruption near the train                  closed
+
+So the elevator and the density-dependent animation loss are not ours alone and
+are unsolved there too. Their June fix - *"fix 0x81 decompression (subway etc.),
+replacing MAME's broken heuristic"* - is the GPGX/FinalBurn LZO decoder we had
+already ported into `case 0x81`, so nothing to take. Worth noting anyway: **the
+subway has a history of corruption from a DECODE fault**, so if masking ever
+fails to explain a station symptom, the decoder is the better next suspect than
+the link chain.
+
+Two of their changes to compare against ours later, neither in this fit:
+
+- V.05 *"field-wise sprite attribute composition with the GPGX 0x7ff tile-index
+  mask"* - close to the queued item that `ppm_spr_data.offset` is `uint8_t`
+  where GPGX reads 9 bits
+- V.04 *"MCU shares the console SDRAM (port 2, lowest priority) and was starved
+  under dense scenes"* - independent support for the starvation theory behind
+  the elevator
+
+**Queued:** `'lz' may be used uninitialized` in the LZO decoder. Traced - it is
+the `state == 0` literal path where `len = 0`, so `copy_addr` is computed and
+never used. Undefined behaviour, harmless in practice, but it has been printed on
+every build for weeks and a warning nobody reads is a warning that hides the next
+one.
