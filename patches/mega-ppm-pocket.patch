@@ -1,8 +1,8 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..85879ca 100644
+index b568843..67fb7d6 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
-@@ -4,6 +4,243 @@
+@@ -4,6 +4,252 @@
  #include "appmain.h"
  
  #define PPM_DATA_START_ADDR     0x10000	// base sdram unpack address
@@ -209,7 +209,16 @@ index b568843..85879ca 100644
 +// 0xAE at 30,585 against 0xAF at 30,584.
 +//
 +// A guard placed above its own #define is silently false. Keep every switch here.
-+#define PPM_SAT_SNAPSHOT        0
++// PPM_SAT_SNAPSHOT lives in mame.h, NOT here.
++//
++// It was in this file twice over, and both times a `#if PPM_SAT_SNAPSHOT` that
++// could not see it silently compiled a counter out and the zero was then read as
++// a measurement. First below its own use in this file; then in paprium.c, which
++// is a different translation unit and never saw a mame.c #define at all - so the
++// 0xAE/0xAF/0xAD dispatch counters read zero and the decoder announced "0xAE is
++// NOT dispatched" about a chip that dispatches it 30,585 times.
++//
++// A switch that guards code in more than one file belongs in the header.
 +// 2026-09-01: 13, from the second elevator capture, where the tester identified
 +// every group from a rendered layout AND photographed the screen so nothing was
 +// recalled from memory:
@@ -246,7 +255,7 @@ index b568843..85879ca 100644
  #define PPM_MAX_VRAM_SLOTS      64
  #define PPM_OBJECTS_COUNT       64
  #define PPM_MAX_OBJ_BLOCKS      32
-@@ -66,6 +303,24 @@ void ppm_obj_reset() {
+@@ -66,6 +312,24 @@ void ppm_obj_reset() {
  }
  
  void ppm_vram_set_budget(uint16_t blocks) {
@@ -271,7 +280,7 @@ index b568843..85879ca 100644
      // temp failsafe
      if (blocks > 0x35) {
          printf("Allocation error (0x%x blocks)\n", blocks);
-@@ -207,47 +462,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -207,47 +471,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
              }
              break;
  
@@ -438,7 +447,7 @@ index b568843..85879ca 100644
              }
              break;
  
-@@ -260,12 +595,120 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +604,151 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -451,6 +460,7 @@ index b568843..85879ca 100644
      *ppm_drawListPtr++ = num;
 +#endif
 +}
++
 +
 +// The one open question left after the ordering fix: destructibles sometimes do
 +// not show their destroyed sprite. ppm_obj_render drops an object outright when
@@ -480,6 +490,29 @@ index b568843..85879ca 100644
 +u32 snap_cnt_ae = 0, snap_cnt_af = 0, snap_cnt_ad = 0, snap_cnt_refresh = 0;
 +static u16 snap_dma_starved = 0;        // out of DMA budget this frame
 +static u16 snap_noslot      = 0;        // every VRAM slot already in use
++// EVICTION AUDIT - the firmware-only question for the elevator corruption (#8).
++//
++// A slot is evicted when nobody REQUESTED its block this frame (usage is cleared
++// every frame in frame_start and only set by ppm_block_load). Sprites are
++// re-requested every frame so their slots are safe. BACKGROUND tiles are not: the
++// game DMAs the plane's name table, which keeps pointing at a tile index, but
++// nothing calls ppm_block_load for it again. So a background block ages at
++// usage == 0, becomes the preferred victim, and its slot is overwritten with other
++// art while the plane is still displaying it.
++//
++// That predicts the reported symptom exactly - recognisable artwork from
++// elsewhere, riding with the plane, accumulating and never recovering. It needs no
++// bus tap: eviction is a decision this firmware makes and can count.
++//
++// The number that matters is evictions of a slot that HELD REAL ART (block_num
++// non-zero) and was not re-requested. A static room should be near zero; if the
++// shaft is thrashing, it will not be.
++static u32 snap_evict_live  = 0;        // evicted a slot that held real art
++static u16 snap_evict_frame = 0;        // this frame's count
++static u16 snap_evict_worst = 0;        // worst single frame all run
++static u16 snap_evict_reload = 0;       // evicted, then the SAME block reloaded later
++static u16 snap_evicted_ring[32];       // recently evicted block numbers
++static u8  snap_evicted_at  = 0;
 +// A refusal count with no denominator is unreadable - 1176 refusals is healthy
 +// against forty thousand loads and alarming against twelve hundred. So count the
 +// successes and the frames too, and let the capture print the ratios.
@@ -556,10 +589,17 @@ index b568843..85879ca 100644
 +    ppm_block_unpack_addr = 0x9000;   // was reset by the batch; nothing else uses it
 +    ppm_dma_refresh();                // MUST precede any inline compose
 +#endif
++
++#if PPM_SAT_SNAPSHOT
++    if (snap_evict_frame > snap_evict_worst) {
++        snap_evict_worst = snap_evict_frame;
++    }
++    snap_evict_frame = 0;
++#endif
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +718,317 @@ void ppm_obj_frame_start() {
+@@ -275,18 +758,335 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -641,15 +681,27 @@ index b568843..85879ca 100644
 +
 +    memcpy(&b[8], &ppmio.ramdp->sat_data[0], 80 * 8);
 +    memcpy(&b[8 + 640], &ppmio.ramdp->obj_data[0], 64 * 16);
++    // ONE MAP FOR EVERY COUNTER. Two instruments were once given the same offset
++    // by hand and the second silently overwrote the first, which a capture then
++    // reported as a 4-billion eviction count. Offsets are named here, once, and
++    // derived from each other so they cannot overlap.
++    //
++    //   +0   dispatch   0xAE / 0xAF / 0xAD / dma_refresh     16 bytes
++    //   +16  eviction   live / worst / thrash                 8 bytes
++    //   +24  spare
++    #define SNAP_OFF_DISPATCH  (8 + 640 + 1024)
++    #define SNAP_OFF_EVICT     (SNAP_OFF_DISPATCH + 16)
++    #define SNAP_OFF_SPARE     (SNAP_OFF_EVICT + 8)
++
 +    // Dispatch counters, in the 80 bytes the (broken, unused) owner map had.
 +    {
-+        u8 *d = &b[8 + 640 + 1024];
++        u8 *d = &b[SNAP_OFF_DISPATCH];
 +        u32 v[4] = { snap_cnt_ae, snap_cnt_af, snap_cnt_ad, snap_cnt_refresh };
 +        for (u8 i = 0; i < 4; i++) {
 +            d[i * 4 + 0] = (u8) (v[i] >> 24); d[i * 4 + 1] = (u8) (v[i] >> 16);
 +            d[i * 4 + 2] = (u8) (v[i] >> 8);  d[i * 4 + 3] = (u8) v[i];
 +        }
-+        for (u8 i = 16; i < 80; i++) d[i] = 0;
++        for (u8 i = SNAP_OFF_SPARE - SNAP_OFF_DISPATCH; i < 80; i++) d[i] = 0;
 +    }
 +
 +    b[4] = (u8) (count >> 8);
@@ -676,7 +728,12 @@ index b568843..85879ca 100644
 +    t[11] = (u8) (snap_loads_ok >> 8);  t[12] = (u8) snap_loads_ok;
 +    t[13] = (u8) (snap_frames >> 24);   t[14] = (u8) (snap_frames >> 16);
 +    t[15] = (u8) (snap_frames >> 8);    t[16] = (u8) snap_frames;
-+    for (u8 k = 17; k < 24; k++) t[k] = 0;
++    t[23] = 0;
++    u8 *e = &b[SNAP_OFF_EVICT];
++    e[0] = (u8) (snap_evict_live >> 24); e[1] = (u8) (snap_evict_live >> 16);
++    e[2] = (u8) (snap_evict_live >> 8);  e[3] = (u8) snap_evict_live;
++    e[4] = (u8) (snap_evict_worst >> 8); e[5] = (u8) snap_evict_worst;
++    e[6] = (u8) (snap_evict_reload >> 8); e[7] = (u8) snap_evict_reload;
 +
 +    // Magic last, so a half-written capture is never read as a good one.
 +    b[0] = 'P'; b[1] = 'S'; b[2] = 'A'; b[3] = 'T';
@@ -826,7 +883,8 @@ index b568843..85879ca 100644
  
 +
 +#if !PPM_INLINE_COMPOSE
-+    ppm_block_unpack_addr = 0x9000;
+     ppm_block_unpack_addr = 0x9000;
+-    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
 +#endif
 +
 +    // The frame's DMA budget is refreshed in ppm_dma_refresh(), which moved to
@@ -834,6 +892,7 @@ index b568843..85879ca 100644
 +#if !PPM_INLINE_COMPOSE
 +    ppm_dma_refresh();
 +#endif
++
 +
 +    // TWIN CURSORS. ppm_block_unpack_addr is where the MCU unpacks blocks TO;
 +    // FPGAIO->sdram_ptr at the end of this function is where the 68000's DMA
@@ -845,8 +904,7 @@ index b568843..85879ca 100644
 +    // 0xAE is dispatched reliably - measured at 30,585 against 30,584 for 0xAF -
 +    // so this has never actually bitten. Resetting here as well is idempotent and
 +    // removes the dependency on one command firing for the pair to stay matched.
-     ppm_block_unpack_addr = 0x9000;
--    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
++    ppm_block_unpack_addr = 0x9000;
 +
  
      //printf("dma: %i\n", ppmio.ramdp->dma_remaining);
@@ -878,7 +936,7 @@ index b568843..85879ca 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -340,6 +1082,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1140,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -892,7 +950,7 @@ index b568843..85879ca 100644
          return;
      }
  
-@@ -461,7 +1210,40 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1268,40 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -933,7 +991,7 @@ index b568843..85879ca 100644
          satEntry++;
      }
  
-@@ -488,6 +1270,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -488,6 +1328,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // enough DMA budget?
      if (ppmio.ramdp->dma_remaining < 0x110) {
@@ -943,7 +1001,7 @@ index b568843..85879ca 100644
          return 0;
      }
  
-@@ -505,6 +1290,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1348,42 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -953,7 +1011,30 @@ index b568843..85879ca 100644
          return 0;
      }
  
-@@ -514,6 +1302,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+     // found slot & have budget, unpack and DMA the block
+     slot = &ppm_vram_slots[block_index];
++#if PPM_SAT_SNAPSHOT
++    // Count only evictions that DESTROY something: the slot held a real block and
++    // is being handed to a different one. Re-taking a slot for the same block is
++    // not a loss.
++    if (slot->block_num && slot->block_num != num) {
++        snap_evict_live++;
++        if (snap_evict_frame != 0xffff) snap_evict_frame++;
++        snap_evicted_ring[snap_evicted_at] = slot->block_num;
++        snap_evicted_at = (u8) ((snap_evicted_at + 1) & 31);
++    }
++    // Was the block we are ABOUT TO LOAD one we evicted recently? That is
++    // thrashing - paying to fetch back what we just threw away - and it means the
++    // slot budget is short for the scene rather than the eviction being one-way.
++    for (u8 q = 0; q < 32; q++) {
++        if (snap_evicted_ring[q] == num) {
++            if (snap_evict_reload != 0xffff) snap_evict_reload++;
++            snap_evicted_ring[q] = 0;
++            break;
++        }
++    }
++#endif
+     slot->block_num = num;
      slot->usage++;
      slot->age = 0;
  
@@ -964,12 +1045,17 @@ index b568843..85879ca 100644
      ppm_block_unpack_addr += 0x200;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..3d24a85 100644
+index 06ccf59..b9f9985 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -153,8 +153,11 @@ void ppm_init_mame();
+@@ -152,9 +152,16 @@ typedef struct { //byteswapped (endianess fix)
+ void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
++// Diagnostic capture. In the HEADER because it guards code in both mame.c and
++// paprium.c, and a guard that cannot see its own #define is silently false.
++#define PPM_SAT_SNAPSHOT        1
++
  void ppm_obj_add(uint8_t num);
 +extern u32 snap_cnt_ae, snap_cnt_af, snap_cnt_ad, snap_cnt_refresh;
  void ppm_obj_frame_start();
