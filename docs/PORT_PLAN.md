@@ -7070,3 +7070,35 @@ above, reaching the same fix by accident.
 The visual results are unaffected: pillars smash, masks ~34, station and rooftop
 clean, refusal rate healthy. **The fix stands; the explanation does not.** Do not
 cite the frame-start reasoning until the dispatch counts exist.
+
+**Offset check, done before any theorising (2026-09-02):** firmware writes
+`frames` to bram `0xFF5..0xFF8` (`t[13..16]`, `t = b[1752]`, `SNAP_BASE 0x910`)
+and the decoder reads file `0xFF5..0xFF8`. They match, `loads_ok` sits
+immediately before at `0xFF1..0xFF4` and reads correctly, the preceding memcpys
+end at `0xFE7`, and the last byte is inside the 4096-byte save. So it is NOT a
+header-packing or length miss - the zero is real. That eliminates one
+explanation; it does not establish that `0xAE` is dead, and the note above stands
+as written until the dispatch counters exist.
+
+### 2026-09-02, elevator on the inline build
+
+Tester: **the background enemy now scrolls correctly and the player no longer
+drops into the background.** Squares unchanged. So the elevator's depth problems
+were the same sprite-ordering bug as the rooftop and the subway - one cause, three
+scenes - and that is the priority half of MisterPezz82 #8, which is open there.
+
+The elevator-only capture also gives the first direct measurement of the shaft's
+DMA behaviour, and it does not say what the README's derivation implied:
+
+    elevator only          829 refused of 25413 attempts   3.3%
+    subway -> rooftop     2983 refused of 89918 attempts   3.3%
+
+Identical. The shaft does **not** starve the block loader relative to anywhere
+else. **But that counter lives in `ppm_block_load`, which handles SPRITE blocks,
+and the squares are plane tiles** - background streaming may take the stream-window
+path, which this never sees. So it rules the loader out and settles nothing about
+the squares. The README now says exactly that rather than either claim.
+
+Worth doing when the squares are next picked up: a counter on the background
+streaming path, so the ceiling is measured rather than derived from the
+2,816-4,608 words-per-frame arithmetic.
