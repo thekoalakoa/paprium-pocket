@@ -332,7 +332,7 @@ def main():
     print("     (the same-frame check above reads 0 by construction - the loader's")
     print("      high-water mark resets every frame, and this mechanism is")
     print("      cross-frame: one 0xDA, then many frames of reads)")
-    zero, dbmin, r0, stale_same = struct.unpack('>IIII', hs[40:56])
+    zero, dbmin, maxbelow, stale_same = struct.unpack('>IIII', hs[40:56])
     # VOLUME IS NOT EVIDENCE. After a 0xDA to 0x9000 the loader always walks that
     # pad, so any later 0xDB into 0x9xxx looks stale even when the 68000 is
     # deliberately fetching sprite tiles. Only CLUSTERING on one destination
@@ -347,7 +347,17 @@ def main():
         else:
             print("  -> stale hits are SCATTERED across the pad, which is what")
             print("     ordinary sprite fetching looks like. Expected, not evidence.")
-    print("  one recent real destination      : 0x%X" % r0)
+    if below:
+        print("  below-the-pad range              : 0x%X .. 0x%X" % (dbmin, maxbelow))
+        if maxbelow <= 0x400:
+            print("  -> they all sit in a tiny range near the bottom. These are")
+            print("     PARKING values, as meaningless as zeros would have been.")
+            print("     Discard the below-the-pad count; the real feed is the")
+            print("     0x9xxx traffic.")
+        else:
+            print("  -> they span a wide region the firmware never unpacks into.")
+            print("     These look like real read bases. Next question is who")
+            print("     fills that range - and it will not be MCU unpack.")
     print("  0xDB aimed at 0 (idle/reset)     : %d" % zero)
     print("  smallest NON-ZERO destination    : 0x%X" % dbmin)
     if zero and zero >= below:

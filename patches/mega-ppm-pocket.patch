@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..7d374eb 100644
+index b568843..cb1df7d 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -447,7 +447,7 @@ index b568843..7d374eb 100644
              }
              break;
  
-@@ -260,12 +604,253 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +604,262 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -580,6 +580,12 @@ index b568843..7d374eb 100644
 +u32 snap_db_zero = 0;                  // aimed at 0 exactly: an idle/reset value
 +u32 snap_db_min = 0xFFFFFFFF;          // smallest NON-ZERO destination seen
 +u32 snap_db_ring[2];                   // two real samples, newest last
++// 947 re-points aim below 0x9000 at REAL addresses (only 1 was zero), the lowest
++// being 0x80, in a region the firmware never unpacks into. The global max is
++// 0x9FC0 and says nothing about them. The max BELOW 0x9000 does: clustered near
++// 0x80-0x100 means parking values, as meaningless as zeros; spanning to 0x8FFF
++// means real read bases across a whole region.
++u32 snap_db_max_below = 0;
 +static u8 snap_db_ring_at = 0;
 +
 +void snap_db_note(u32 dst) {
@@ -607,6 +613,9 @@ index b568843..7d374eb 100644
 +    }
 +    if (dst < 0x9000) {
 +        snap_db_below++;
++        if (dst > snap_db_max_below) {
++            snap_db_max_below = dst;
++        }
 +    } else if (dst >= 0xF200) {
 +        snap_db_high++;
 +    }
@@ -701,7 +710,7 @@ index b568843..7d374eb 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +860,359 @@ void ppm_obj_frame_start() {
+@@ -275,18 +869,359 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -858,7 +867,7 @@ index b568843..7d374eb 100644
 +    SNAP_PUT32(36, snap_db_max);
 +    SNAP_PUT32(40, snap_db_zero);
 +    SNAP_PUT32(44, snap_db_min == 0xFFFFFFFF ? 0 : snap_db_min);
-+    SNAP_PUT32(48, snap_db_ring[0]);
++    SNAP_PUT32(48, snap_db_max_below);
 +    SNAP_PUT32(52, snap_db_stale_same);
 +
 +    // Magic last, so a half-written capture is never read as a good one.
@@ -1062,7 +1071,7 @@ index b568843..7d374eb 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,6 +1225,14 @@ void ppm_obj_frame_end() {
+@@ -299,6 +1234,14 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1077,7 +1086,7 @@ index b568843..7d374eb 100644
      FPGAIO->sdram_ptr = 0x9000;
  }
  
-@@ -340,6 +1274,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1283,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1091,7 +1100,7 @@ index b568843..7d374eb 100644
          return;
      }
  
-@@ -461,7 +1402,40 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1411,40 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1132,7 +1141,7 @@ index b568843..7d374eb 100644
          satEntry++;
      }
  
-@@ -488,6 +1462,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -488,6 +1471,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // enough DMA budget?
      if (ppmio.ramdp->dma_remaining < 0x110) {
@@ -1142,7 +1151,7 @@ index b568843..7d374eb 100644
          return 0;
      }
  
-@@ -505,15 +1482,45 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1491,45 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
