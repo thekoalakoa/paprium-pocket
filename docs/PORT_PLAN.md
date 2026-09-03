@@ -7257,8 +7257,28 @@ Verilog against FX68K's far more compact microcoded design - but **area was
 measured not to buy timing on this design** (see BUILD_REFERENCE.md: 1,600 ALMs
 and 40 M10K freed, setup did not improve).
 
-Worth trying anyway for a different reason: headroom for future features, and a
-smaller design may fit and route more predictably. **Not** as a timing fix.
+**The reason to do it is ALM HEADROOM, stated by the tester: room to fit future
+instruments, not to fix a bug.** That is the right justification and it should not
+get resold as anything else later. Several probes this project needed could not be
+built because the fitter had no slack - not because the 68000 was on the critical
+path.
+
+Keep all three caveats attached:
+
+- worst STA paths are VDP -> Z80 latches, not the 68000, so extra ALMs will not
+  move -2.549 on their own. `nosfx` already freed 1,600 ALMs and setup got *worse*
+- headroom is still genuinely useful: instruments, IMA work, a second decoder
+  buffer - the things that failed for want of slack
+- the risk is bus timing on the mailbox, the DMA cadence and the stream window,
+  so the gate is a **full playthrough** (boot -> cell -> subway -> elevator ->
+  rooftop), not a synth check
+
+**When:** after #8 has a firmware-only next step, or when a probe is needed that
+demonstrably will not fit on `nuked-md`. **Not** in the middle of a capture series.
+
+**Identity rule if it happens:** new seed table, hold > 0, setup not Probe-B-v1
+class, then hardware smoke. A compatibility failure means revert - do not start
+tuning Paprium around FX68K in the same week, or neither change can be attributed.
 
 **The risk that has to be weighed:** this core uses `nuked-md` because it is
 transistor-accurate, and Paprium's cartridge protocol is bus-timing sensitive -
