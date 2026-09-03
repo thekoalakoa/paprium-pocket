@@ -7085,7 +7085,18 @@ as written until the dispatch counters exist.
 Tester: **the background enemy now scrolls correctly and the player no longer
 drops into the background.** Squares unchanged. So the elevator's depth problems
 were the same sprite-ordering bug as the rooftop and the subway - one cause, three
-scenes - and that is the priority half of MisterPezz82 #8, which is open there.
+scenes.
+
+**Not** "half of MisterPezz82 #8". #8 IS the tile corruption - the floor band that
+climbs with the plane until INTERCOM COMPLETE - and it is untouched and still open.
+What was fixed here is a DIFFERENT bug that lives in the same level: sprite mask
+ordering. Same hallway, not the same fault. Keep the labels apart:
+
+    SAT masks landing too early (0xAD batched at 0xAF)   FIXED in 0.1.0 -
+                                                        subway, rooftop, elevator depth
+    Pezz #8 shaft / INTERCOM COMPLETE garbage            OPEN, pre-existing,
+                                                        stream window next
+    leftover walk skips                                  OPEN, fill / density
 
 The elevator-only capture also gives the first direct measurement of the shaft's
 DMA behaviour, and it does not say what the README's derivation implied:
