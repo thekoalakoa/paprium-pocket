@@ -150,6 +150,17 @@ def main():
     t = swapped(b[8 + 640 + 1024 + 80 + 0x10:])
     hits = struct.unpack('>H', t[0:2])[0]
 
+    # Dispatch counters, in the bytes the (broken, unused) owner map had.
+    d = swapped(b[8 + 640 + 1024 + 0x10:])
+    ae, af, ad, refresh = struct.unpack('>IIII', d[0:16])
+
+    print()
+    print("COMMAND DISPATCH (whole run)")
+    print("  0xAE frame start : %d" % ae)
+    print("  0xAF frame end   : %d" % af)
+    print("  0xAD sprite draw : %d" % ad)
+    print("  ppm_dma_refresh  : %d" % refresh)
+
     print()
     print("WHOLE RUN (sticky, not just this frame)")
     print("  objects dropped by the anim-over early-out : %d" % hits)
@@ -173,7 +184,16 @@ def main():
     ok = struct.unpack('>I', t[9:13])[0]
     frames = struct.unpack('>I', t[13:17])[0]
     print("  block loads that SUCCEEDED                : %d" % ok)
-    print("  in-game frames                            : %d" % frames)
+    print("  in-game frames (tick inside frame_start)  : %d" % frames)
+    if ae and not frames:
+        print("  -> 0xAE IS dispatched %d times but the tick inside" % ae)
+        print("     ppm_obj_frame_start never incremented. The dispatch is fine;")
+        print("     the reporting is at fault.")
+    elif not ae:
+        print("  -> 0xAE is NOT dispatched at all. ppm_dma_refresh() in")
+        print("     frame_start therefore never runs, and the destructible fix")
+        print("     came from frame_end no longer refreshing dma_remaining -")
+        print("     i.e. from us no longer clobbering a value the 68000 keeps.")
 
     # A refusal count with no denominator is unreadable: 1176 is healthy against
     # forty thousand loads and alarming against twelve hundred. Two ratios, so the

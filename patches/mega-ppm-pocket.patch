@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..c8dd16c 100644
+index b568843..ca763b3 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,232 @@
@@ -403,7 +403,11 @@ index b568843..c8dd16c 100644
 +                        lz += 2049;
 +                        len = 3;
 +                    }
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +
 +                state = (len > 0) ? raw_n : 4;
 +                copy_addr = dest_addr - lz;
@@ -418,16 +422,12 @@ index b568843..c8dd16c 100644
 +                        raw_n--;
 +                    }
 +                    else break;
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +            }
              }
              break;
  
-@@ -260,12 +584,101 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +584,120 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -451,6 +451,22 @@ index b568843..c8dd16c 100644
 +static u16 snap_animover_hits = 0;
 +// The other two silent returns in ppm_block_load, both of which mean "the block
 +// never arrived, draw with whatever tiles happen to be there".
++// DISPATCH COUNTERS. The frame tick in ppm_obj_frame_start read 0 on hardware
++// while slot-freeing - which only frame_start does for active slots - says it
++// runs. The offset check passed, so the zero is real and unexplained.
++//
++// snap_cnt_ae is incremented in cmd_AE_frame_start itself, in paprium.c, one
++// call earlier than snap_frames. That pair is the discriminator:
++//
++//   ae > 0, frames == 0   the dispatch happens and the reporting is at fault
++//   ae == 0, frames == 0  0xAE is genuinely not sent, and ppm_dma_refresh() in
++//                         frame_start never runs - so the pillar fix came from
++//                         frame_end NO LONGER refreshing, i.e. from us no longer
++//                         clobbering a value the 68000 maintains
++//
++// af and ad bound the frame rate and the sprite rate for scale, and refresh
++// counts the call we actually care about.
++u32 snap_cnt_ae = 0, snap_cnt_af = 0, snap_cnt_ad = 0, snap_cnt_refresh = 0;
 +static u16 snap_dma_starved = 0;        // out of DMA budget this frame
 +static u16 snap_noslot      = 0;        // every VRAM slot already in use
 +// A refusal count with no denominator is unreadable - 1176 refusals is healthy
@@ -479,6 +495,9 @@ index b568843..c8dd16c 100644
 +// dma_total and dma_cmd_count are 68000-owned, so reading them at frame start is
 +// reading what the game intends for this frame.
 +static void ppm_dma_refresh(void) {
++#if PPM_SAT_SNAPSHOT
++    snap_cnt_refresh++;
++#endif
 +#if PPM_DMA_OVERBUDGET
 +    // paprium-pocket: DMA OVERBUDGET PROBE, DIAGNOSTIC. OFF BY DEFAULT.
 +    //
@@ -529,7 +548,7 @@ index b568843..c8dd16c 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +688,298 @@ void ppm_obj_frame_start() {
+@@ -275,18 +707,306 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -567,7 +586,7 @@ index b568843..c8dd16c 100644
 +// Note this game effectively never saves - scripts/decode_cmdlog.py says it
 +// outright, "one capture must survive a full playthrough" - so nothing here may
 +// depend on the game writing its own save.
-+#define PPM_SAT_SNAPSHOT        1
++#define PPM_SAT_SNAPSHOT        0
 +
 +#if PPM_SAT_SNAPSHOT
 +#define SNAP_BOOT   0x900
@@ -593,7 +612,6 @@ index b568843..c8dd16c 100644
 +    b[0] = 'P'; b[1] = 'B'; b[2] = 'O'; b[3] = 'T';
 +}
 +
-+static u8  snap_owner[80];        // SAT entry -> object index that wrote it
 +
 +static u8  snap_animover_id   = 0xFF;   // objID low byte, last hit
 +static u8  snap_animover_anim = 0xFF;   // the anim index it asked for
@@ -613,7 +631,16 @@ index b568843..c8dd16c 100644
 +
 +    memcpy(&b[8], &ppmio.ramdp->sat_data[0], 80 * 8);
 +    memcpy(&b[8 + 640], &ppmio.ramdp->obj_data[0], 64 * 16);
-+    memcpy(&b[8 + 640 + 1024], snap_owner, 80);      // 0xF88..0xFD7, fits the 1792
++    // Dispatch counters, in the 80 bytes the (broken, unused) owner map had.
++    {
++        u8 *d = &b[8 + 640 + 1024];
++        u32 v[4] = { snap_cnt_ae, snap_cnt_af, snap_cnt_ad, snap_cnt_refresh };
++        for (u8 i = 0; i < 4; i++) {
++            d[i * 4 + 0] = (u8) (v[i] >> 24); d[i * 4 + 1] = (u8) (v[i] >> 16);
++            d[i * 4 + 2] = (u8) (v[i] >> 8);  d[i * 4 + 3] = (u8) v[i];
++        }
++        for (u8 i = 16; i < 80; i++) d[i] = 0;
++    }
 +
 +    b[4] = (u8) (count >> 8);
 +    b[5] = (u8) count;
@@ -829,7 +856,7 @@ index b568843..c8dd16c 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -340,6 +1033,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1060,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -843,19 +870,7 @@ index b568843..c8dd16c 100644
          return;
      }
  
-@@ -457,11 +1157,52 @@ void ppm_obj_render(uint16_t obj_slot) {
-             continue;
-         }
- 
-+#if PPM_SAT_SNAPSHOT
-+        // paprium-pocket: DIAGNOSTIC. Remember which object produced this entry,
-+        // so a capture identifies its own sprites instead of needing a human to
-+        // recognise boxes on a rendered layout.
-+        if (ppmio.ramdp->sat_count < 80) {
-+            snap_owner[ppmio.ramdp->sat_count] = (u8) obj_slot;
-+        }
-+#endif
-         ppmio.ramdp->sat_count++;
+@@ -461,7 +1188,40 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -896,7 +911,7 @@ index b568843..c8dd16c 100644
          satEntry++;
      }
  
-@@ -488,6 +1229,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -488,6 +1248,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // enough DMA budget?
      if (ppmio.ramdp->dma_remaining < 0x110) {
@@ -906,7 +921,7 @@ index b568843..c8dd16c 100644
          return 0;
      }
  
-@@ -505,6 +1249,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,6 +1268,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -916,7 +931,7 @@ index b568843..c8dd16c 100644
          return 0;
      }
  
-@@ -514,6 +1261,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -514,6 +1280,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      slot->usage++;
      slot->age = 0;
  
@@ -927,11 +942,14 @@ index b568843..c8dd16c 100644
      ppm_block_unpack_addr += 0x200;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..b4df976 100644
+index 06ccf59..3d24a85 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -155,6 +155,8 @@ void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, ui
+@@ -153,8 +153,11 @@ void ppm_init_mame();
+ u32 swapshorts(u32 val);
+ void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
  void ppm_obj_add(uint8_t num);
++extern u32 snap_cnt_ae, snap_cnt_af, snap_cnt_ad, snap_cnt_refresh;
  void ppm_obj_frame_start();
  void ppm_obj_frame_end();
 +void ppm_snapshot_boot(void);   // paprium-pocket: DIAGNOSTIC, see mcu/mame.c
@@ -975,7 +993,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..b98d404 100644
+index 1a1de1d..6c07c0f 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -1029,7 +1047,39 @@ index 1a1de1d..b98d404 100644
      cmp_ptr[0xF2] = cmd_F2_unpack;
      cmp_ptr[0xF4] = cmd_F4_unpack_scal;
      cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
-@@ -261,6 +273,10 @@ void cmd_B1_sprite_pause() {
+@@ -233,18 +245,31 @@ void cmd_84_sdram_off() {
+ 
+ void cmd_AD_obj_add() {
+ 
++#if PPM_SAT_SNAPSHOT
++    snap_cnt_ad++;
++#endif
+     u8 arg = ppmio.ramdp->reg_cmd;
+ 
+     ppm_obj_add(arg);
+ }
+ 
+ void cmd_AE_frame_start() {
++
++    // Counted HERE, one call before the tick inside ppm_obj_frame_start, so the
++    // pair says whether 0xAE is dispatched at all or only mis-reported.
++#if PPM_SAT_SNAPSHOT
++    snap_cnt_ae++;
++#endif
+     // frame begin
+     ppm_obj_frame_start();
+ }
+ 
+ void cmd_AF_frame_end() {
+ 
++#if PPM_SAT_SNAPSHOT
++    snap_cnt_af++;
++#endif
++
+     // frame finish
+     // af01: no scaling ongoing
+     // af02: must reserve bandwith for scaling buffer?
+@@ -261,6 +286,10 @@ void cmd_B1_sprite_pause() {
  
  void cmd_C6_setup_data() {
  
@@ -1040,7 +1090,7 @@ index 1a1de1d..b98d404 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -291,7 +307,14 @@ void cmd_DA_unpack() {
+@@ -291,7 +320,14 @@ void cmd_DA_unpack() {
      u32 dst = ppmio.ramdp->cmd_args[0];
  
      ppm_unpack(src, dst);
@@ -1056,7 +1106,7 @@ index 1a1de1d..b98d404 100644
  }
  
  void cmd_DB_set_dma_ptr() {
-@@ -390,6 +413,71 @@ void cmd_F5_stamp_rescale() {
+@@ -390,6 +426,71 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -1128,7 +1178,7 @@ index 1a1de1d..b98d404 100644
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
-@@ -399,7 +487,12 @@ void cmd_8C_bgm_play() {
+@@ -399,7 +500,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {
