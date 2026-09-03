@@ -7171,3 +7171,48 @@ only touches slots above the budget). The offset check passed. `deb45ef5` counts
     refuse still ~3%     keep looking at the stream window, not ppm_block_load
 
 **0.1.0 is not held for #8.** The depth and mask fix stands on its own.
+
+### 2026-09-03, dispatch capture - the anomaly was my instrument
+
+    0xAE frame start : 30585
+    0xAF frame end   : 30584          one fewer, a frame in flight
+    0xAD sprite draw : 231046
+    ppm_dma_refresh  : 0
+    frames (tick inside frame_start) : 0
+    block loads refused / succeeded  : 851 / 25899   = 3.2%, elevator only
+
+`0xAE` is dispatched reliably. The two counters reading zero sit **above** the
+`#define PPM_SAT_SNAPSHOT` in the file:
+
+    650  ppm_dma_refresh()      snap_cnt_refresh++    line 652
+    691  ppm_obj_frame_start()  snap_frames++         line 694
+    744  #define PPM_SAT_SNAPSHOT
+    1284                        snap_loads_ok++       compiled in, works
+
+**A guard placed above its own `#define` is silently false.** Those increments
+were never compiled into the firmware. They read zero because the code does not
+exist, not because the functions do not run. The define now lives at the top with
+every other switch.
+
+**What it settles:**
+
+- `ppm_obj_frame_start` runs every frame, so `ppm_block_unpack_addr` **is** reset
+  every frame. The twin-cursor split is **latent only** and has never bitten
+- `ppm_dma_refresh` runs at frame start, so the mechanism recorded for the
+  destructible fix in 0.1.0 is **correct** - the earlier "unproven" caveat above
+  is now resolved in its favour
+- refusal rate **3.2% inside the corrupting scene**, the same as everywhere.
+  `ppm_block_load` is confirmed as the wrong meter for the shaft. Next instrument
+  is `stream_ptr` read-back versus what the MCU set, which needs a read path on
+  `fpgio_sptr` in RTL
+
+**The reasoning failure worth keeping.** The write offset was checked, the zero was
+declared real, and two theories were built on it - one briefly implicating the
+shipped release. The counter was never checked for being *compiled in*. Same class
+as reading a stale fit summary: one gate verified and treated as proof. And
+`noslot = 0` contradicted the whole line from the start; it was noted and then
+argued around instead of believed.
+
+Queued for 0.1.1, not shipped hot: the twin cursors are now reset together in
+`0xAF` as well as `0xAE`. Firmware moves 3815042f -> 245749f8, so master no longer
+rebuilds the release byte-for-byte - the `0.1.0` tag is the reproducible point.
