@@ -250,6 +250,34 @@ def main():
         print("     look at which bytes were unpacked, or whether the background")
         print("     path comes through this window at all.")
 
+    # Eviction audit - the firmware-only question for the elevator corruption.
+    e = swapped(b[8 + 640 + 1024 + 16 + 0x10:])
+    ev_live = struct.unpack('>I', e[0:4])[0]
+    ev_worst = struct.unpack('>H', e[4:6])[0]
+    ev_reload = struct.unpack('>H', e[6:8])[0]
+
+    print()
+    print("VRAM SLOT EVICTIONS")
+    print("  slots taken from a block that held real art : %d" % ev_live)
+    print("  worst in a single frame                     : %d" % ev_worst)
+    print("  evicted then fetched back (thrash)          : %d" % ev_reload)
+    if frames:
+        print("  per frame                                   : %.2f" % (ev_live / float(frames)))
+    print()
+    print("  A slot is evicted when nobody REQUESTED its block that frame. Sprites")
+    print("  are re-requested every frame so they are safe; background tiles are")
+    print("  not - the game DMAs the plane's name table, and nothing calls the")
+    print("  block loader for them again. So a background block ages at usage 0,")
+    print("  becomes the preferred victim, and its slot is overwritten while the")
+    print("  plane is still showing it.")
+    if ev_live == 0:
+        print("  -> NOTHING was evicted. That mechanism is dead for this scene;")
+        print("     the wrong tiles came from somewhere else entirely.")
+    elif ev_reload > ev_live // 4:
+        print("  -> heavy thrash: much of what was thrown away had to be fetched")
+        print("     back. The slot budget is short for this scene, which is a")
+        print("     different fault from a one-way eviction.")
+
     print()
     print("VERDICT")
     print("  relink        REMOVED - sprites compose on 0xAD, nothing edits the list")
