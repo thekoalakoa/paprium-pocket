@@ -289,6 +289,37 @@ def main():
         print("     back. The slot budget is short for this scene, which is a")
         print("     different fault from a one-way eviction.")
 
+    # Stream-window handshake. SNAP_OFF_SPARE = dispatch + 16 + 8 = +24.
+    hs = swapped(b[8 + 640 + 1024 + 24 + 0x10:])
+    da, db, clob, lastdst, dst9000 = struct.unpack('>IIIII', hs[0:20])
+
+    print()
+    print("STREAM WINDOW HANDSHAKE")
+    print("  0xDA unpack-and-point            : %d" % da)
+    print("  0xDB explicit re-point           : %d" % db)
+    print("  0xAF rewound over a live 0xDA    : %d" % clob)
+    print("  0xDA destinations that were 0x9000 : %d" % dst9000)
+    print("  last 0xDA destination            : 0x%X" % lastdst)
+    print()
+    if da == 0:
+        print("  -> 0xDA never fired. This path is not how the shaft gets its")
+        print("     tiles, and the race cannot be #8.")
+    elif dst9000 == da:
+        print("  -> every 0xDA already targeted 0x9000, so the 0xAF rewind is a")
+        print("     NO-OP. The race does not exist. Look at wrong dest / wrong")
+        print("     block instead, still in cmd_DA.")
+    elif clob == 0:
+        print("  -> the rewind never landed on a live 0xDA pointer. The race does")
+        print("     not happen, whatever the destinations were.")
+    elif db >= da:
+        print("  -> the game re-points with 0xDB at least as often as it unpacks,")
+        print("     so it is not relying on the 0xDA pointer surviving. The")
+        print("     clobber count is probably harmless; treat with suspicion.")
+    else:
+        print("  -> the rewind DID land on live 0xDA pointers %d times, and the" % clob)
+        print("     game does not re-point often enough to cover it. This is the")
+        print("     first mechanism that fits the shaft symptom.")
+
     print()
     print("VERDICT")
     print("  relink        REMOVED - sprites compose on 0xAD, nothing edits the list")

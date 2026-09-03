@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..67fb7d6 100644
+index b568843..0d0cbe8 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -447,7 +447,7 @@ index b568843..67fb7d6 100644
              }
              break;
  
-@@ -260,12 +604,151 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +604,172 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -513,6 +513,27 @@ index b568843..67fb7d6 100644
 +static u16 snap_evict_reload = 0;       // evicted, then the SAME block reloaded later
 +static u16 snap_evicted_ring[32];       // recently evicted block numbers
 +static u8  snap_evicted_at  = 0;
++
++// STREAM-WINDOW HANDSHAKE. Two writers point the 68000's read window:
++//   0xDA  unpack to an arbitrary dest, then point at it - and the game RELIES on
++//         that persisting (dropping the write regressed the cell room on hardware)
++//   0xAF  rewind to 0x9000 unconditionally, every frame
++// plus 0xDB, which the game uses to re-point explicitly.
++//
++// If the game re-points with 0xDB before every read, the rewind is harmless. If it
++// leans on a 0xDA pointer surviving, an 0xAF in between hands the 68000 sprite
++// blocks where background art should be - which is what the shaft garbage looks
++// like. GPGX never rewinds: paprium_sprite_stop leaves decoder_ptr alone.
++//
++// snap_da_dest_9000 is the cheap disqualifier: if shaft 0xDAs already target
++// 0x9000 the rewind is a no-op and the race does not exist.
++u32 snap_da_count = 0, snap_db_count = 0, snap_af_clobber = 0;
++u32 snap_da_last_dest = 0, snap_da_dest_9000 = 0;
++static u8 snap_da_pending = 0;
++
++// paprium.c sets and clears this; it stays static here so nothing else can poke it.
++void snap_da_pending_set(void)   { snap_da_pending = 1; }
++void snap_da_pending_clear(void) { snap_da_pending = 0; }
 +// A refusal count with no denominator is unreadable - 1176 refusals is healthy
 +// against forty thousand loads and alarming against twelve hundred. So count the
 +// successes and the frames too, and let the capture print the ratios.
@@ -599,7 +620,7 @@ index b568843..67fb7d6 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +758,335 @@ void ppm_obj_frame_start() {
+@@ -275,18 +779,342 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -734,6 +755,13 @@ index b568843..67fb7d6 100644
 +    e[2] = (u8) (snap_evict_live >> 8);  e[3] = (u8) snap_evict_live;
 +    e[4] = (u8) (snap_evict_worst >> 8); e[5] = (u8) snap_evict_worst;
 +    e[6] = (u8) (snap_evict_reload >> 8); e[7] = (u8) snap_evict_reload;
++    u8 *h = &b[SNAP_OFF_SPARE];
++    #define SNAP_PUT32(o, v) do { h[(o)+0] = (u8)((v) >> 24); h[(o)+1] = (u8)((v) >> 16);                                   h[(o)+2] = (u8)((v) >> 8);  h[(o)+3] = (u8)(v); } while (0)
++    SNAP_PUT32(0,  snap_da_count);
++    SNAP_PUT32(4,  snap_db_count);
++    SNAP_PUT32(8,  snap_af_clobber);
++    SNAP_PUT32(12, snap_da_last_dest);
++    SNAP_PUT32(16, snap_da_dest_9000);
 +
 +    // Magic last, so a half-written capture is never read as a good one.
 +    b[0] = 'P'; b[1] = 'S'; b[2] = 'A'; b[3] = 'T';
@@ -936,7 +964,22 @@ index b568843..67fb7d6 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -340,6 +1140,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -299,6 +1127,14 @@ void ppm_obj_frame_end() {
+ 
+     ppm_close_sprite_table();
+     //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
++#if PPM_SAT_SNAPSHOT
++    // Counted BEFORE the rewind: did a 0xDA point the window somewhere else since
++    // the last frame end, and is that pointer about to be thrown away?
++    if (snap_da_pending) {
++        snap_af_clobber++;
++        snap_da_pending = 0;
++    }
++#endif
+     FPGAIO->sdram_ptr = 0x9000;
+ }
+ 
+@@ -340,6 +1176,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -950,7 +993,7 @@ index b568843..67fb7d6 100644
          return;
      }
  
-@@ -461,7 +1268,40 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1304,40 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -991,7 +1034,7 @@ index b568843..67fb7d6 100644
          satEntry++;
      }
  
-@@ -488,6 +1328,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -488,6 +1364,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // enough DMA budget?
      if (ppmio.ramdp->dma_remaining < 0x110) {
@@ -1001,7 +1044,7 @@ index b568843..67fb7d6 100644
          return 0;
      }
  
-@@ -505,15 +1348,42 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1384,42 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1045,16 +1088,26 @@ index b568843..67fb7d6 100644
      ppm_block_unpack_addr += 0x200;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..b9f9985 100644
+index 06ccf59..ca53c6a 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,16 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,26 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
 +// Diagnostic capture. In the HEADER because it guards code in both mame.c and
 +// paprium.c, and a guard that cannot see its own #define is silently false.
 +#define PPM_SAT_SNAPSHOT        1
++
++// Stream-window handshake counters. Shared between mame.c (0xAF) and paprium.c
++// (0xDA / 0xDB), which is why they are declared here.
++extern u32 snap_da_count;      // 0xDA unpack-and-point
++extern u32 snap_db_count;      // 0xDB explicit re-point
++extern u32 snap_af_clobber;    // 0xAF rewound to 0x9000 while a 0xDA dest stood
++extern u32 snap_da_last_dest;  // sticky: last destination a 0xDA set
++extern u32 snap_da_dest_9000;  // 0xDA destinations that WERE 0x9000 (rewind = no-op)
++void snap_da_pending_set(void);
++void snap_da_pending_clear(void);
 +
  void ppm_obj_add(uint8_t num);
 +extern u32 snap_cnt_ae, snap_cnt_af, snap_cnt_ad, snap_cnt_refresh;
@@ -1101,7 +1154,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..6c07c0f 100644
+index 1a1de1d..52d1d7a 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -1198,7 +1251,7 @@ index 1a1de1d..6c07c0f 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -291,7 +320,14 @@ void cmd_DA_unpack() {
+@@ -291,11 +320,33 @@ void cmd_DA_unpack() {
      u32 dst = ppmio.ramdp->cmd_args[0];
  
      ppm_unpack(src, dst);
@@ -1210,11 +1263,30 @@ index 1a1de1d..6c07c0f 100644
 +    // and the existence of 0xDB, the game genuinely relies on 0xDA leaving the
 +    // stream pointer at the decoded data. 0xDA is a real consumer of the window,
 +    // not a stray write. Do not remove it again.
++#if PPM_SAT_SNAPSHOT
++    snap_da_count++;
++    snap_da_last_dest = dst;
++    if (dst == 0x9000) {
++        snap_da_dest_9000++;    // rewind would be a no-op for this one
++    } else {
++        snap_da_pending_set();  // a pointer 0xAF would throw away
++    }
++#endif
 +    FPGAIO->sdram_ptr = ppmio.ramdp->cmd_args[0]; // optional ? - but load-bearing
  }
  
  void cmd_DB_set_dma_ptr() {
-@@ -390,6 +426,71 @@ void cmd_F5_stamp_rescale() {
+     // setup sdram pointer for read
++#if PPM_SAT_SNAPSHOT
++    // If this fires often the game re-points before it reads, and the 0xAF rewind
++    // cannot be hurting anything.
++    snap_db_count++;
++    snap_da_pending_clear();
++#endif
+     FPGAIO->sdram_ptr = swapshorts(ppmio.ramdp->cmd_args_long[0]);
+ }
+ 
+@@ -390,6 +441,71 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -1286,7 +1358,7 @@ index 1a1de1d..6c07c0f 100644
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
-@@ -399,7 +500,12 @@ void cmd_8C_bgm_play() {
+@@ -399,7 +515,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {
