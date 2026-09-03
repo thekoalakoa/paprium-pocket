@@ -68,9 +68,8 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 
 | Issue | Status |
 |---|---|
-| Elevator level: scrolling tile squares | **Characterised, not fixed.** It is a DMA limit, not a bug: the game grants 2,816–4,608 words per frame, so at 272 words per 16-tile block only 10–16 blocks can load per frame. A shaft that scrolls faster than that leaves stale squares, and no allocator change lifts that ceiling — confirmed on hardware, where giving the allocator four more blocks changed the shaft not at all while visibly improving animation everywhere else |
-| Characters animating on the spot — walking without the walk cycle advancing | **Much improved.** When a block cannot be loaded in time the firmware rewinds to the previous animation frame rather than dropping the sprite, which reads as a freeze. Raising the VRAM residency limit from 49 blocks to the 53 the game actually asks for makes those failures far rarer — verified on hardware. Not eliminated: the per-frame DMA ceiling below still applies |
-| Rooftop boss: player and bombs drop behind the background during the bombing phase | Open. Forcing the priority bit on every sprite was tried on hardware: other sprites came forward, the player and the bombs did not move. So it is **not** sprite priority, and no attribute change in the replacement firmware can fix it. The live candidates are that the player is drawn by the 68000 rather than by the cartridge, or region-based masking (window plane, or sprite masking). Needs a VDP/SAT capture to settle |
+| Elevator level: scrolling tile squares | **Characterised, not fixed.** The depth problems in this level — the background enemy scrolling wrongly, the player dropping behind the scenery — were the sprite-ordering bug and are fixed. The squares are separate and remain. The derivation is a DMA limit: the game grants 2,816–4,608 words per frame, so at 272 words per 16-tile block only 10–16 blocks can load per frame, and a shaft scrolling faster than that leaves stale squares — no allocator change lifts that ceiling, confirmed on hardware. One caveat on that derivation: an elevator-only run measures a **3.3%** block-load refusal rate, identical to the rest of the game, so the shaft does not starve the sprite block loader. That counter does not watch the background streaming path, so it neither confirms nor refutes the ceiling — it only rules out the loader |
+| Characters animating on the spot — walking without the walk cycle advancing | **Much improved, twice.** When a block cannot be loaded in time the firmware rewinds to the previous animation frame rather than dropping the sprite, which reads as a freeze; raising the VRAM residency limit from 49 blocks to the 53 the game asks for makes those failures far rarer. Composing sprites on the draw command rather than in one batch at frame end improved it again — the batch sampled every object's state at frame end, so an object slot reused twice within a frame lost its first pose entirely. Not eliminated: the per-frame DMA ceiling above still applies |
 | Full-health stage clear plays the ordinary cue | Not reproducible — the variation is inside the cartridge synth's render of one track, and the soundtrack has a single Stage Clear recording |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
@@ -81,6 +80,8 @@ core this forks. All verified on real hardware, in both Arcade and Original mode
 
 | Fix | Was |
 |---|---|
+| Rooftop boss, elevator and subway: the player, bombs and whole characters drawn behind the scenery, or vanishing | Sprites were composed in the wrong place in the frame. The reference implementation composes each sprite **as its draw command arrives**; the stock firmware queued every one and rendered the batch at frame end. The game interleaves — draw seventeen sprites, write its sprite **masks**, draw more — and a mask at X=0 hides every sprite later in the link chain on its scanlines. Batching put every cartridge sprite *after* the masks, so on the rooftop they sat at sprite-table entries 14–19 instead of the emulator's 31–36 and hid nine sprites including the entire player. Composing inline puts them at 34–39 and the count drops to three. Verified against a Genesis Plus GX savestate of the same scene, entry by entry |
+| Destructible pillars and crates keeping their intact artwork after being smashed | A regression from the fix above, found and fixed in the same session. The frame's DMA budget was refreshed at frame *end*, immediately before the old batch — correct while the batch was where everything was composed. Once composition moved earlier, each sprite tested a budget already spent by the previous frame, so a **newly needed** block was refused and the sprite drew with whatever tiles were already resident. Artwork already in VRAM was unaffected, which is why only first-time smashes showed it |
 | All punk-TV cues, and the looping area ambience | Silent. `sfx_player_update` abandons a channel once it empties, so the game's later `sfx_loop` — which enables looping and ramps the volume — landed on a dead channel |
 | Subway and other `0x81` assets | Corrupted. Stock `mega-ppm` ships MAME's reverse-engineered guess at the LZ decoder; replaced with the real LZO decoder |
 | Large enemies playing a normal enemy's death sound | Flag `0x0100` steps the sample rate down one index (9600 → 6000 Hz), so a large grunt's death is the ordinary death played slower. GPGX names that bit "amplify" and this port rendered it as a ×1.25 gain, which is why both sounded identical. Confirmed by A/B through the game's own sound test. The gain path is still in the mixer but is starved: the firmware clears bit 0 before the RTL sees it, so `0x0100` gets a rate step and **not** a gain — and one `& ~0x01` puts the old behaviour back if the reading is ever overturned |
@@ -113,6 +114,16 @@ still open:
   time the game's `sfx_loop` arrived — `sfx_player_update` abandons a channel the
   moment it empties, so the loop enable landed on a dead one. The bug is in the
   order of two events, which is invisible in a static read of the source
+- **Comparing the sprite table against the emulator, entry by entry.** A firmware
+  build that copies the cartridge's sprite list into the battery-backed save, plus
+  a script that reads the same table out of a Genesis Plus GX savestate, turns "the
+  player is behind the scenery" into two columns of numbers. The masks sat at
+  entries 14–19 here and 31–36 there, while entries 0–13 matched tile for tile —
+  which said the game was behaving identically and the *ordering* was ours. Every
+  earlier attempt to fix that symptom by editing the sprite list afterwards failed,
+  and one of them silently unlinked a character for a whole level; the comparison
+  is what showed the position was not a number to tune but an ordering that had
+  been removed
 - **Reading GPGX as a second implementation.** Where `mega-ppm` guessed, GPGX
   often had the real thing. The `0x81` decoder in stock firmware is MAME's
   reverse-engineered approximation, carrying an `unconfirmed end code` comment on
@@ -120,7 +131,9 @@ still open:
   the subway. The same comparison fixed sprite palettes: the attribute word was
   being composed by XORing the tile and object words together, which scrambles
   the palette bits whenever both are set, where GPGX composes field by field with
-  tile precedence
+  tile precedence. It also settled the sprite ordering: GPGX composes a sprite on
+  the draw command, `mega-ppm` queues it for frame end, and that one difference
+  was the rooftop bug
 - **Control experiments on unmodified hardware.** The "VM DAC" static was blamed
   on our audio filtering, and a plausible story was built for it. Running a stock
   Mega Drive core on the same Pocket and hearing Sonic 2's drums — the same
