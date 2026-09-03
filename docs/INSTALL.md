@@ -21,6 +21,21 @@ does not put it in the public domain - it is still their work.
 
 ---
 
+## Get the core
+
+Download **`openfpga-Paprium_<version>.zip`** from the
+[latest release](https://github.com/thekoalakoa/paprium-pocket/releases/latest)
+and unzip it onto the root of your SD card, merging with the folders already
+there.
+
+**The core is not in the git repository.** `paprium.rbf_r` is the compiled
+bitstream — a build artefact, deliberately not committed. If you cloned the repo
+and copied `pkg/pocket/` across, you have the metadata without the core and the
+Pocket will not run it. Use the release zip, or build the bitstream yourself
+(see the Building section of the README).
+
+---
+
 ## Install
 
 The easiest way, which force-copies everything and then prints the menu the card
