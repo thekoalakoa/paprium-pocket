@@ -327,10 +327,17 @@ you obtain the ROM or the soundtrack** — see [What this is not](#what-this-is-
 Releases are **beta** while the list under [Known issues](#known-issues) is open,
 and are published as GitHub pre-releases to say so.
 
-Each verified fix takes a patch bump — `0.1.1`, `0.1.2` and so on. "Verified"
-means tested on real hardware, not that it builds: several changes in this
-project's history looked right, fit cleanly, and were wrong on the device. The
-minor version moves when the known-issues list actually shrinks.
+**Any released update that changes the game takes a patch bump** — `0.1.1`,
+`0.1.2` and so on. If what a player sees or hears is different, the version moves,
+whether that is a fix, a regression repair, or a behaviour change.
+
+Two things that do *not* bump it: diagnostic bitstreams, which are never released
+and are marked `NOT-FOR-INSTALL` in the build archive; and documentation.
+
+A change is only released once it has been **tested on real hardware**, not merely
+built. Several changes in this project's history looked right, passed every fit
+gate, and were wrong on the device. The minor version moves when the known-issues
+list actually shrinks.
 
 ## Lineage
 
