@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Known issues
+    url: https://github.com/thekoalakoa/paprium-pocket#known-issues
+    about: The elevator squares and some animation skipping are already logged.
+  - name: Installing the core, the ROM and the music
+    url: https://github.com/thekoalakoa/paprium-pocket/blob/master/docs/INSTALL.md
+    about: Setup steps, file names and SD card paths.

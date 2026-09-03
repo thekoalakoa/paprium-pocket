@@ -1,0 +1,107 @@
+name: Bug report
+description: Something in the core behaves wrongly on hardware
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing this.
+
+        **Please check [Known issues](https://github.com/thekoalakoa/paprium-pocket#known-issues) first** — the
+        elevator's scrolling tile squares and some residual animation skipping are
+        already logged and understood.
+
+        **We cannot help you obtain the ROM or the soundtrack.** WaterMelon have
+        ceased trading and the game is no longer sold, but it is not public domain.
+        You supply your own cartridge dump and your own copy of the music.
+
+        One thing that helps more than anything else: **describe what you actually
+        saw, not what you think it means.** "The pillar still looks undamaged"
+        located a bug in one run. "Sprites are missing" took four.
+
+  - type: input
+    id: version
+    attributes:
+      label: Core version
+      description: From the core's own listing on the Pocket, or `core.json`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scene
+    attributes:
+      label: Where does it happen?
+      options:
+        - Subway / station
+        - Elevator (Intercom)
+        - Rooftop / bombing run
+        - Cell room
+        - Intro, menus or character select
+        - Somewhere else (describe below)
+        - Anywhere / not scene-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: |
+        What did you see on screen? If something is wrong with a sprite, the
+        distinction that matters most is whether it is **absent** or **drawn
+        wrongly** — missing entirely, drawn behind something it should be in front
+        of, drawn with the wrong artwork, or drawn with the wrong colours.
+      placeholder: |
+        The player's upper body disappears while the train passes in the
+        background. The legs are still drawn. It comes back when the train has
+        gone.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to get there
+      description: >
+        How reliably does it happen — every time, or occasionally? Anything that
+        makes it more or less likely (number of enemies on screen, a particular
+        attack, a particular route)?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: music
+    attributes:
+      label: Is music installed?
+      description: >
+        Only relevant to audio reports, but worth knowing. If music is silent,
+        rebuild the blob — the format changed and the core plays nothing rather
+        than noise when it sees an old one.
+      options:
+        - "Yes, and it plays"
+        - "Yes, but there is no music"
+        - "No, running without music"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Did an earlier version behave differently?
+      options:
+        - "Don't know / first version I have used"
+        - "This is new — an earlier version was fine"
+        - "It has always done this"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: >
+        Photos or video of the screen are genuinely useful — far more than a
+        description alone, and a still of the moment it goes wrong is often
+        enough. Attach them by dragging them in.
