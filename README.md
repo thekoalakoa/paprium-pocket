@@ -20,6 +20,17 @@ This exists for preservation. The cartridge depends on hardware that has never
 been dumped, and the company that made it has wound up; a core that runs the game
 from your own dump is a way of keeping it playable.
 
+## Download
+
+**[Get the latest release](https://github.com/thekoalakoa/paprium-pocket/releases/latest)** — `openfpga-Paprium_<version>.zip`, and unzip it onto your SD card.
+
+> [!NOTE]
+> **The core is not in this repository — it is in the release.** `paprium.rbf_r` is
+> the compiled bitstream, a build artefact, so it is deliberately not committed
+> (`.gitignore`). Cloning the repo and copying `pkg/pocket/` to your card gives you
+> the JSON metadata **without the core**, and the Pocket will not run it. Download
+> the release zip, or build the bitstream yourself — see [Building](#building).
+
 **Installation: [docs/INSTALL.md](docs/INSTALL.md)**
 
 ---
