@@ -320,6 +320,26 @@ def main():
         print("     game does not re-point often enough to cover it. This is the")
         print("     first mechanism that fits the shaft symptom.")
 
+    live, below, high, dblast, dbmax = struct.unpack('>IIIII', hs[20:40])
+    print("  0xDB aimed INTO the live scratch  : %d" % live)
+    print("     (below the pad %d, above 0xF200 %d)" % (below, high))
+    print("  0xDB last / max destination      : 0x%X / 0x%X" % (dblast, dbmax))
+    print()
+    if db == 0:
+        print("  -> 0xDB never fired; it is not the feeder after all.")
+    elif live == 0:
+        print("  -> no 0xDB ever aimed where the loader had already written this")
+        print("     frame. The collision is dead. Next: wrong src in 0xDA, or the")
+        print("     plane DMA destination in VRAM.")
+    elif live * 4 >= db:
+        print("  -> %d of %d re-points aimed into scratch the sprite loader had" % (live, db))
+        print("     already overwritten this frame. The mechanism fits - but the")
+        print("     shaft still has to be SPECIAL. Compare against a clean scene")
+        print("     before believing it; streets load sprites from 0x9000 too.")
+    else:
+        print("  -> %d of %d re-points landed in live scratch. Present but rare;" % (live, db))
+        print("     not obviously enough to rot a whole level.")
+
     print()
     print("VERDICT")
     print("  relink        REMOVED - sprites compose on 0xAD, nothing edits the list")
