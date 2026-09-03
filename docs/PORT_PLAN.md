@@ -7227,3 +7227,62 @@ argued around instead of believed.
 Queued for 0.1.1, not shipped hot: the twin cursors are now reset together in
 `0xAF` as well as `0xAE`. Firmware moves 3815042f -> 245749f8, so master no longer
 rebuilds the release byte-for-byte - the `0.1.0` tag is the reproducible point.
+
+## Queued experiments
+
+Not started. Recorded so they are not re-derived, and with what is already known
+about each so nobody spends a fit finding it out again.
+
+### The timing wall is VDP -> Z80, not the 68000
+
+Measured 2026-09-03 with `quartus_sta` on the shipping-timing build, after five
+fits had been spent reasoning about area and mux levels without once reading the
+failing path. **Read the path report first next time.**
+
+    -2.549  ym7101:vdp|prescaler_dff11  ->  z80cpu:z80|z80_dlatch:dw293
+    -2.398  ym7101:vdp|mclk_clk3_l      ->  z80cpu:z80|z80_dlatch:dw293
+    -2.361  ym7101:vdp|prescaler_dff11  ->  z80cpu:z80|z80_dlatch:dw293
+    -2.339  m68kcpu:m68k|w68            ->  m68kcpu:m68k|w980[4]
+    -2.290  m68kcpu:m68k|w67            ->  m68kcpu:m68k|w980[4]
+
+The three worst are VDP clock-prescaler flops into **Z80 transparent latches**.
+The first 68000-internal path is fourth, 0.2 ns better than the worst.
+
+### Experiment: swap nuked-md's 68000 for FX68K
+
+**Status: queued, and the measurement above says it will NOT fix timing.** Even a
+zero-delay 68000 leaves the critical path at -2.549, because the worst paths never
+touch the CPU. It would free area - `nuked-md/68k.v` is 6,299 lines of gate-level
+Verilog against FX68K's far more compact microcoded design - but **area was
+measured not to buy timing on this design** (see BUILD_REFERENCE.md: 1,600 ALMs
+and 40 M10K freed, setup did not improve).
+
+Worth trying anyway for a different reason: headroom for future features, and a
+smaller design may fit and route more predictably. **Not** as a timing fix.
+
+**The risk that has to be weighed:** this core uses `nuked-md` because it is
+transistor-accurate, and Paprium's cartridge protocol is bus-timing sensitive -
+the MCU mailbox, the DMA cadence, the stream window. FX68K is an excellent
+microcoded 68000 but it is a different model of the same chip. That is a
+compatibility gamble on the one game the core exists to run.
+
+### Open question: what is the Z80 doing?
+
+Unresolved, and **not answerable by reading the source** - it is a runtime
+property. It matters because it sits on the wrong end of the three worst paths.
+
+What is known:
+
+- it is the stock MD Z80, `nuked-md/z80.v`, 4,091 lines, instantiated inside
+  `md_board.v` - the CONSOLE model, not our cartridge
+- `md_board.v` has **no PAPRIUM parameter**; it is shared verbatim by the ntsc,
+  pal and paprium variants. Removing the Z80 for Paprium alone means
+  parameterising upstream console code every variant depends on
+- the failing endpoints are `z80_dlatch` transparent latches, which timing tools
+  analyse conservatively - so -2.549 may not be the physical margin it looks like
+- Paprium does its own 8-channel PCM on the cartridge, and the 68000 writes the
+  YM2612 directly for the VM DAC path, so the Z80 may be idle or held in reset.
+  Most MD games do run a Z80 sound driver. Both readings are live
+
+Settling it needs a runtime measurement, and every cheap one is RTL - which is the
+wall itself. Do not guess at it in either direction.
