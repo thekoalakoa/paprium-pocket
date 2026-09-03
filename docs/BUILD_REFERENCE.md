@@ -217,3 +217,21 @@ s4 boots and sounds right, but it is one place-and-route out of four that happen
 to land well, on RTL whose other three seeds sit at -2.72, -2.96 and -2.98. A build
 that depends on a seed is not reproducible in any meaningful sense. If the firmware
 form of the same fix lands at identity with 61d1ddd3, that is the copy to keep.
+
+## Area is not the timing lever on this design (2026-09-03)
+
+Measured while trying to fit a stream-pointer read-back for the elevator
+corruption. The `paprium_nosfx` variant drops the whole SFX mixer:
+
+    shipping        ALM 18,194 (98%)  M10K 294 (95%)  setup -2.596
+    nosfx + readback ALM 16,588 (90%)  M10K 254 (82%)  setup -2.959
+
+**1,600 ALMs and 40 M10K freed, and setup did not improve.** So congestion is not
+what sets the critical path here, and cutting features to buy timing headroom does
+not work - it spends real capability for nothing. That refuted a planned
+`PAPRIUM_CDDA=0` variant before it was built: if 1,600 ALMs buy no timing, the
+~169-ALM IMA decoder will not either, and the cost would have been music.
+
+Use this before proposing any "strip X to make room" build. The lever that does
+move timing on this device is the **fitter seed** (1.19 ns spread), and even that
+could not rescue the read-back - see `docs/attempts/`.
