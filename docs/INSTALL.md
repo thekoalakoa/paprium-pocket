@@ -235,24 +235,44 @@ missing file.
 
 ## Known issues
 
-Honest list. All of these predate this port and are present on other Paprium
-setups running the same replacement firmware.
+Honest list, current as of 0.1.0. All of these pre-date this port and are present
+on other Paprium setups running the same replacement firmware — several are open
+issues on the MiSTer port too.
 
 | Issue | Status |
 |---|---|
-| Elevator level: residual glitching | Characterised, not fixable here - see below |
-| Boss fight: player sprite drops behind the background | Under investigation |
+| Elevator shaft: corrupted background tiles | **Open.** A band of wrong tiles appears low in the shaft, rides upward with the background and builds until the level ends; the Intercom Complete screen after it is affected too. Pre-dates this port and matches an open issue on the MiSTer core. Under investigation |
+| Characters sliding without their walk animation, worse with more enemies on screen | **Much improved, not eliminated.** Two separate causes were fixed; a per-frame graphics-streaming ceiling remains |
+| Full-health stage clear plays the ordinary cue | Not reproducible — the variation is inside the cartridge synth's own render of one track |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
-Fixed since the first release: sprite attribute and palette corruption at the
-doorway and in the cell room, the DMA overrun that was writing over the sprite
-and hscroll tables, and the wrong sound effect on large enemy deaths.
+### Fixed in 0.1.0
 
-The elevator is **fill-bound, not a bug in this port**: the cartridge firmware
-budgets 10-16 blocks per frame from a constant in the game's own ROM, and when a
-block misses its deadline the renderer falls back to re-showing the previous
-animation frame. Uncapping it corrupts video instead. It is better than it was
-and it is not going to be perfect.
+- **Sprites drawn behind the scenery, or vanishing** — the rooftop boss fight, the
+  elevator, and the subway station. One cause behind all three: sprites were being
+  composed at the wrong point in the frame, so they landed after the game's own
+  sprite masks instead of before them
+- **Destructibles keeping their intact artwork** after being smashed
+- Audio and palette work: echo, stereo imaging, the large-enemy death sound,
+  one-shot cues, the looping area ambience, the Block 888 doorway palette, and the
+  decompressor that corrupted the subway
+
+The full list, with what each bug actually was, is in the
+[README](../README.md#fixed-here).
+
+### On the elevator, specifically
+
+The level had **two unrelated faults**. The depth problem — the background enemy
+scrolling wrongly and the player dropping behind the scenery — was the sprite
+ordering bug, and it is fixed. The corrupted tiles are separate and still open.
+
+The working explanation for those is a per-frame streaming limit: the game grants
+a fixed graphics budget per frame, and a shaft that scrolls faster than the budget
+can refill leaves stale tiles behind. That is a derivation rather than a
+measurement, and one measurement already complicates it — the sprite side of the
+loader runs at about 3% refusals in that scene, the same as everywhere else in the
+game, so whatever is short, it is not that. The background path has not been
+measured yet.
 
 Timing does not fully close on this device — a known property inherited from the
 base core, which runs correctly on hardware regardless.

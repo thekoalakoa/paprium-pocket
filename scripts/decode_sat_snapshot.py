@@ -185,15 +185,26 @@ def main():
     frames = struct.unpack('>I', t[13:17])[0]
     print("  block loads that SUCCEEDED                : %d" % ok)
     print("  in-game frames (tick inside frame_start)  : %d" % frames)
+    # NEVER announce a conclusion from a counter that might not have been compiled
+    # in. Twice now a #if that could not see its own #define produced a zero, and
+    # this script read the zero as hardware behaviour - once declaring that a
+    # command was not dispatched when it fires 30,585 times a run.
+    #
+    # frames and ppm_dma_refresh are counted in mame.c; 0xAE/0xAF/0xAD in
+    # paprium.c. If one file's counters are all zero while the other's are not,
+    # that is an instrument fault, not a measurement.
     if ae and not frames:
         print("  -> 0xAE IS dispatched %d times but the tick inside" % ae)
-        print("     ppm_obj_frame_start never incremented. The dispatch is fine;")
-        print("     the reporting is at fault.")
-    elif not ae:
-        print("  -> 0xAE is NOT dispatched at all. ppm_dma_refresh() in")
-        print("     frame_start therefore never runs, and the destructible fix")
-        print("     came from frame_end no longer refreshing dma_remaining -")
-        print("     i.e. from us no longer clobbering a value the 68000 keeps.")
+        print("     ppm_obj_frame_start never incremented - INSTRUMENT FAULT in")
+        print("     mame.c, not a hardware finding.")
+    elif not ae and frames:
+        print("  -> INSTRUMENT FAULT, not a finding: the paprium.c counters are")
+        print("     all zero while mame.c's are not, so they were compiled out.")
+        print("     0xAE dispatch was measured at 30,585 on deb45ef5. Do not read")
+        print("     these zeros as behaviour; fix the build and re-run.")
+    elif not ae and not frames:
+        print("  -> every counter is zero. Either the capture is not from a")
+        print("     snapshot build, or nothing ran. Check the bitstream md5.")
 
     # A refusal count with no denominator is unreadable: 1176 is healthy against
     # forty thousand loads and alarming against twelve hundred. Two ratios, so the
