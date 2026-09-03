@@ -7102,3 +7102,72 @@ the squares. The README now says exactly that rather than either claim.
 Worth doing when the squares are next picked up: a counter on the background
 streaming path, so the ceiling is measured rather than derived from the
 2,816-4,608 words-per-frame arithmetic.
+
+## 2026-09-03 - full playthrough captured, and TWO SEPARATE things
+
+52 minutes of OBS capture at 1080p60, sampled at one frame per minute across the
+whole run. **These are two different problems and must not be merged.**
+
+### 1. Elevator shaft garbage - PRE-DATES 0.1.0, this is MisterPezz82 #8
+
+A band of wrong tiles appears at the floor of the shaft, **climbs upward with the
+background and accumulates until the end of the level**, and the INTERCOM COMPLETE
+screen after it is corrupted too. Tester confirms he has seen this before 0.1.0
+and that it matches #8. **The sprite-ordering fix did not cause it and does not
+address it.**
+
+    9:10   clean
+    9:21   one band of garbage at floor level, second enemy just spawned
+    9:24   grown to fill the lower half, third character present
+    ~10-11 INTERCOM COMPLETE screen corrupted
+
+Everything else in the run is clean - streets, arcade, alleys, hangar, boss.
+**Confinement to one section is itself evidence**: any runaway pointer or growing
+per-frame drift would degrade every busy scene downstream, and nothing downstream
+degrades.
+
+The garbage is *recognisable artwork from elsewhere*, not flat stale fill, and it
+moves with the plane rather than flickering in place. That points at the **stream
+window** - the 68000 DMAs graphics from cart `0xC000-0xFFFF`, which the RTL
+redirects into SDRAM at `0x400000 + stream_ptr/2`, advancing two bytes per
+delivered word (`paprium_cart.sv`). That file already carries a fix for this
+pointer desyncing once.
+
+**`ppm_block_load` is the wrong meter for this.** It measured 3.3% refusals in
+this exact scene, identical to the rest of the game, because it serves SPRITE
+blocks. The background path is unmeasured. The next instrument belongs there -
+`stream_ptr` read back versus what the MCU set - and `fpgio_sptr` is currently
+**write-only**, so that needs a read path in RTL. NOT another SAT rewrite.
+
+### 2. Cursor split - a real hygiene bug that inline compose introduced
+
+Two cursors must start each frame together and advance in lockstep:
+
+    ppm_block_unpack_addr = 0x9000    MCU WRITE cursor  (where blocks unpack to)
+    FPGAIO->sdram_ptr     = 0x9000    68000 READ cursor (where the DMA reads from)
+
+Both used to be reset in `ppm_obj_frame_end`, two lines apart. `PPM_INLINE_COMPOSE`
+moved the write cursor to `frame_start` (`0xAE`) and left the read cursor in
+`frame_end` (`0xAF`). **They are now reset by different commands.** If `0xAE` is
+ever flaky the write cursor climbs while the read cursor resets, and the 68000
+reads the previous frame's data.
+
+Fix: put the unpack reset next to `sdram_ptr` in `0xAF` **and** keep it on `0xAE`.
+Harmless if both fire, required if either does not.
+
+**This does not explain problem 1** and must not be sold as its fix: a growing
+AE/AF gap would smear every busy scene, and 48 minutes of streets are clean.
+
+### The instrument contradiction, still open
+
+`frames = 0` (counted inside `ppm_obj_frame_start`) against `noslot = 0` (which
+requires that same function to run, since it is the only place active slots are
+freed - `ppm_obj_reset` runs only from `cmd_81_init`, and `ppm_vram_reset_blocks`
+only touches slots above the budget). The offset check passed. `deb45ef5` counts
+`0xAE` at the dispatch site in `paprium.c`, one call earlier than the tick.
+
+    0xAE >> 0            the frame tick is a header bug; cursor patch is latent
+    0xAE ~ 0, 0xAF >> 0  ship 0.1.1 with both resets, retest depth AND shaft
+    refuse still ~3%     keep looking at the stream window, not ppm_block_load
+
+**0.1.0 is not held for #8.** The depth and mask fix stands on its own.
