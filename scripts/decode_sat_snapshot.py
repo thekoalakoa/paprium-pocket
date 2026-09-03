@@ -320,25 +320,44 @@ def main():
         print("     game does not re-point often enough to cover it. This is the")
         print("     first mechanism that fits the shaft symptom.")
 
-    live, below, high, dblast, dbmax = struct.unpack('>IIIII', hs[20:40])
-    print("  0xDB aimed INTO the live scratch  : %d" % live)
-    print("     (below the pad %d, above 0xF200 %d)" % (below, high))
+    stale_first, below, stale, dblast, dbmax = struct.unpack('>IIIII', hs[20:40])
+    print("     (below the pad %d)" % below)
     print("  0xDB last / max destination      : 0x%X / 0x%X" % (dblast, dbmax))
     print()
     if db == 0:
         print("  -> 0xDB never fired; it is not the feeder after all.")
-    elif live == 0:
-        print("  -> no 0xDB ever aimed where the loader had already written this")
-        print("     frame. The collision is dead. Next: wrong src in 0xDA, or the")
-        print("     plane DMA destination in VRAM.")
-    elif live * 4 >= db:
-        print("  -> %d of %d re-points aimed into scratch the sprite loader had" % (live, db))
-        print("     already overwritten this frame. The mechanism fits - but the")
-        print("     shaft still has to be SPECIAL. Compare against a clean scene")
-        print("     before believing it; streets load sprites from 0x9000 too.")
-    else:
-        print("  -> %d of %d re-points landed in live scratch. Present but rare;" % (live, db))
-        print("     not obviously enough to rot a whole level.")
+
+    print("  0xDB aimed at bytes the loader has")
+    print("     overwritten SINCE the last 0xDA : %d" % stale)
+    print("     (the same-frame check above reads 0 by construction - the loader's")
+    print("      high-water mark resets every frame, and this mechanism is")
+    print("      cross-frame: one 0xDA, then many frames of reads)")
+    zero, dbmin, r0, stale_same = struct.unpack('>IIII', hs[40:56])
+    # VOLUME IS NOT EVIDENCE. After a 0xDA to 0x9000 the loader always walks that
+    # pad, so any later 0xDB into 0x9xxx looks stale even when the 68000 is
+    # deliberately fetching sprite tiles. Only CLUSTERING on one destination
+    # suggests a plane feed being re-read.
+    if stale:
+        print("  first stale destination          : 0x%X" % stale_first)
+        print("  stale hits at that same address  : %d of %d" % (stale_same, stale))
+        if stale_same * 2 >= stale:
+            print("  -> the stale hits CLUSTER on one destination. That is what a")
+            print("     plane feed being re-read after the loader ate it would look")
+            print("     like. Still needs a clean-scene capture before believing it.")
+        else:
+            print("  -> stale hits are SCATTERED across the pad, which is what")
+            print("     ordinary sprite fetching looks like. Expected, not evidence.")
+    print("  one recent real destination      : 0x%X" % r0)
+    print("  0xDB aimed at 0 (idle/reset)     : %d" % zero)
+    print("  smallest NON-ZERO destination    : 0x%X" % dbmin)
+    if zero and zero >= below:
+        print("  -> the 'below the pad' count is the game parking the pointer at")
+        print("     zero between uses. It is NOT a read source, and that whole")
+        print("     line means nothing. Discard it.")
+    elif below and zero < below:
+        print("  -> %d re-points aimed below 0x9000 at real addresses, where the" % (below - zero))
+        print("     firmware never unpacks anything. Either there is a writer we")
+        print("     have not found, or the game is reading uninitialised SDRAM.")
 
     print()
     print("VERDICT")
