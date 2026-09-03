@@ -1,0 +1,52 @@
+diff --git a/rtl/PAPRIUM/fpgio.sv b/rtl/PAPRIUM/fpgio.sv
+index bcba9a9..1681c73 100644
+--- a/rtl/PAPRIUM/fpgio.sv
++++ b/rtl/PAPRIUM/fpgio.sv
+@@ -4,6 +4,12 @@ module fpgio(
+ 	
+ 	input  McuBus mcu,
+ 	input  md_srst,
++
++	// paprium: DIAGNOSTIC read-back of the live stream pointer. fpgio_sptr has
++	// always been write-only, so nothing could tell whether the 68000's DMA
++	// consumed exactly what the MCU unpacked. "Drifted by N" is the measurement
++	// that separates one lost word from a whole wrong block.
++	input [20:0] stream_ptr,
+ 	
+ 	output [31:0]mcu_dati,
+ 	
+@@ -15,9 +21,22 @@ module fpgio(
+ 	output [7:0]debug_ctrl_value
+ );
+ 	
++	// A REGISTERED COPY WAS TRIED AND WAS WORSE: -4.026 against -2.774 for this
++	// combinational version, same seed. The reasoning was that mux levels between
++	// the free-running counter and the 32-bit read bus were the cost, and a flop
++	// stage would break that path. It moved setup 1.25 ns the wrong way, so the
++	// critical path is not that. Recorded so nobody re-tries it.
++	//
++	// What four fits do support, with no mechanism attached: at 98% ALM this
++	// design cannot absorb even a trivial addition with predictable timing.
++	//   combinational  seed 5 -2.774   seed 6 -3.040   seed 7 -2.911
++	//   registered     seed 5 -4.026
++	// Shipping is -2.596 at seed 5, and -2.715 is recorded as glitching at boot.
++
+ 	assign mcu_dati		= 
+ 	mcu.map.fpgio_ctrl  	? ctrl :
+ 	mcu.map.fpgio_time 	? time_st :
++	mcu.map.fpgio_sptr  	? {11'd0, stream_ptr} :
+ 	32'hffffffff;
+ //************************************************************************************* regs
+ 
+diff --git a/rtl/PAPRIUM/paprium_cart.sv b/rtl/PAPRIUM/paprium_cart.sv
+index 04702cd..bbf3929 100644
+--- a/rtl/PAPRIUM/paprium_cart.sv
++++ b/rtl/PAPRIUM/paprium_cart.sv
+@@ -180,6 +180,7 @@ module paprium_cart
+ 	(
+ 		.mcu(mcu),
+ 		.md_srst(reset),
++		.stream_ptr(stream_ptr),
+ 		.mcu_dati(mcu_dati_fpgio),
+ 		.md_rst(md_reset),
+ 		.exit(),

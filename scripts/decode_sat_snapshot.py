@@ -209,6 +209,47 @@ def main():
         print("  -> slot pressure, which is what PPM_VRAM_SAFE_SLOTS caps.")
         print("     That is a DIFFERENT bug from budget starvation.")
 
+    # Stream pointer audit. The MCU unpacks blocks to 0x9000, 0x9200, ... and sets
+    # the 68000's read cursor to 0x9000; the RTL advances it two bytes per
+    # delivered word. After a frame is drained the two should agree exactly.
+    mism = struct.unpack('>H', t[17:19])[0]
+    last = struct.unpack('>i', t[19:23])[0]
+    worst = struct.unpack('>i', swapped(b[8 + 640 + 1024 + 16 + 0x10:])[0:4])[0]
+
+    print()
+    print("STREAM POINTER AUDIT")
+    print("  frames where it did not land where expected : %d" % mism)
+    if mism:
+        print("  last delta  : %+d bytes" % last)
+        print("  worst delta : %+d bytes" % worst)
+        print()
+        # A STEADY SMALL LAG IS NOT DESYNC. The 68000 can still be draining the
+        # window when 0xAF runs, so on a busy frame the pointer legitimately sits
+        # a few words short of where the MCU finished. That reads as a mismatch
+        # every frame with a small, unchanging delta. Desync that could explain #8
+        # is a delta that GROWS, or steps of 0x200, and only in the car.
+        if abs(worst) <= 16 and abs(worst) - abs(last) <= 4:
+            print("  -> steady lag of a few words, not growing. That is DMA still")
+            print("     in flight when 0xAF ran, which is expected on a busy frame.")
+            print("     NOT desync. Do not read this as the cause of anything.")
+        elif worst and abs(worst) % 0x200 == 0:
+            print("  -> worst is %+d = %+d whole block(s). A wrong block was queued,"
+                  % (worst, worst // 0x200))
+            print("     not a counting fault.")
+        elif abs(worst) > abs(last) * 2 and abs(worst) > 16:
+            print("  -> the delta GROWS. That is the signature that would explain")
+            print("     garbage accumulating through a level. Check it is confined")
+            print("     to the elevator before believing it.")
+        elif abs(worst) <= 8:
+            print("  -> %+d bytes, one or two words: a lost or double-counted read"
+                  % worst)
+            print("     acknowledgement.")
+    else:
+        print("  -> the pointer landed exactly where the MCU finished, every frame.")
+        print("     If garbage still grew in this run, desync is NOT the story:")
+        print("     look at which bytes were unpacked, or whether the background")
+        print("     path comes through this window at all.")
+
     print()
     print("VERDICT")
     print("  relink        REMOVED - sprites compose on 0xAD, nothing edits the list")
