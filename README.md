@@ -304,6 +304,24 @@ them apart by **M10K**, not ALM: shipping is 294, `cmdlog` is 308.
 [docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) has the fit and timing gates,
 and the measurements behind them.
 
+## Reporting a bug
+
+[Open an issue](https://github.com/thekoalakoa/paprium-pocket/issues/new/choose).
+The template asks for the core version, the scene, and what you actually saw.
+
+That last one matters more than it sounds. **Describe what was on the screen, not
+what you think caused it.** Every bug in this project that took several attempts
+to find was reported as an interpretation; every one that fell quickly was
+reported as an observation. "The pillar still looks undamaged" located a fault in
+one run, because *undamaged* rather than *missing* meant the sprite was being
+drawn with stale artwork rather than not drawn at all — two different subsystems.
+"Sprites are missing" took four runs and three wrong theories.
+
+Photos or video of the moment it goes wrong are worth more than any description.
+
+Please check [Known issues](#known-issues) first, and note that **we cannot help
+you obtain the ROM or the soundtrack** — see [What this is not](#what-this-is-not).
+
 ## Versioning
 
 Releases are **beta** while the list under [Known issues](#known-issues) is open,
