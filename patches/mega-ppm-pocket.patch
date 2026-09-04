@@ -1587,7 +1587,7 @@ index b568843..69863b9 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..1d3923c 100644
+index 06ccf59..9ea7aab 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
 @@ -152,9 +152,109 @@ typedef struct { //byteswapped (endianess fix)
@@ -1670,7 +1670,7 @@ index 06ccf59..1d3923c 100644
 +// listed blocks are memcpy'd into the 0x9000 staging area in list order and
 +// one DMA per listed block streams them to tile 16 + 16k, charged 0x110 each
 +// against the game's own dma_budget - exactly what the retail cart spends.
-+#define PPM_LIST_ORDER_VRAM     0
++#define PPM_LIST_ORDER_VRAM     1
 +#define PPM_BLOCK_CACHE_BASE    0x1F8000
 +#define PPM_LIST_MAX            16
 +void snap_epoch_note(u32 ptr_prev);

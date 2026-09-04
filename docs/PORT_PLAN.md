@@ -8681,3 +8681,13 @@ Flash only after gate; md5 on the card before the A/B.
 Caveats accepted for this shot: list cap 16; a mid-list budget stop leaves
 the rest of the list's tiles undelivered that frame; the overflow counter
 is not exposed. Note if scenes look short on sprites.
+
+#### Two fits, both on dec2f09f's placement (that makes five)
+
+    busyrest-narrow-pad.CANDIDATE   mcu.txt 2c522e9f   ALM 18,194  setup -2.549  hold +0.004   archived, not flashed
+    listorder-busyrest-pad.CANDIDATE  6206eb53  mcu.txt 6255f498   ALM 18,194  setup -2.549  hold +0.004   ON THE CARD
+
+`6206eb53` deployed, md5 confirmed on the card, snapshot region zeroed,
+progress intact. Firmware switches as shipped on it: `PPM_DA_PAD 1`,
+`PPM_BUSY_REST 1` (pulse on `0xDB`/`0xDA` only), `PPM_LIST_ORDER_VRAM 1`,
+`PPM_ONSET_RING 1`. Test against the pre-registration at 19:1x.
