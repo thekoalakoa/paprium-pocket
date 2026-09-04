@@ -38,6 +38,7 @@ typedef struct{//mcu memory map
 	bit fpgio_sptr;//sdram ptr 
 	bit fpgio_vols;//sfx vol
 	bit fpgio_volb;//bgm vol
+	bit fpgio_wcnt;//delivered-word counter latch (diagnostic)
 	
 	bit mdp_ctrl;//md+ core control
 	bit mdp_fifo;//link to everdrive mcu

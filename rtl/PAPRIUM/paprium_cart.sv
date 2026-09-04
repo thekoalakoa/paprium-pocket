@@ -112,6 +112,40 @@ module paprium_cart
 
 	assign stream_addr = 24'h400000 + {{4{1'b0}}, stream_ptr[20:1]};
 
+	// ---- Delivered-word counter, per pointer epoch (diagnostic, see PORT_PLAN) ----
+	// Two counts of the same stream, latched every time the MCU re-points:
+	//   cnt_ack  what advanced stream_ptr: one per completed SDRAM read (above)
+	//   cnt_oe   what the 68000 asked for: one per cart_oe FALLING edge inside the
+	//            window, debounced the way the real cartridge counts it
+	//            (mega-ppm sdram_io.sv: cpu_oe_st[2:0]=='b110 - high for two
+	//            samples, then low). A glitch shorter than a sample is not a read.
+	// The RTL's own comment on stream_read_ack says the VDP glitches cart_cs/cart_oe
+	// inside one DMA word and that this once double-counted. The count was moved to
+	// the ack, but the ack is issued by the same rising-edge detector, so a re-armed
+	// glitch still issues a SECOND read for one 68000 word. cnt_ack - cnt_oe per
+	// epoch is that residual, measured in the same clock domain as the pointer
+	// itself. No firmware assumption about the game's read pattern is needed.
+	// The latch is what the MCU reads; the live counters are never exposed, so a
+	// read cannot tear between an epoch's two halves.
+	reg [15:0] cnt_ack = 0, cnt_oe = 0;
+	reg [15:0] cnt_ack_l = 0, cnt_oe_l = 0;
+	reg  [2:0] oe_st = 0;
+	wire       oe_fall = (oe_st == 3'b110);
+	always @(posedge clk) begin
+		oe_st <= {oe_st[1:0], cart_oe & cart_cs & (cpu.addr[23:14] == 10'd3)};
+		if(reset) begin
+			cnt_ack <= 0; cnt_oe <= 0; cnt_ack_l <= 0; cnt_oe_l <= 0; oe_st <= 0;
+		end
+		else if(mcu.ce && (mcu.we != 0) && mcu.map.fpgio_sptr) begin
+			cnt_ack_l <= cnt_ack;  cnt_oe_l <= cnt_oe;   // epoch just ended
+			cnt_ack   <= 0;        cnt_oe   <= 0;
+		end
+		else begin
+			if(stream_read_ack_toggle != stream_ack_d && cnt_ack != 16'hffff) cnt_ack <= cnt_ack + 1'd1;
+			if(oe_fall && cnt_oe != 16'hffff)                                cnt_oe  <= cnt_oe  + 1'd1;
+		end
+	end
+
 	wire [31:0] mcu_dati_fpgio;
 	wire [31:0] mcu_dati_ramdp;
 	wire [31:0] mcu_dati_mem;
@@ -124,6 +158,7 @@ module paprium_cart
 	wire sdram_en;
 
 	wire [31:0] mcu_dati =
+		mcu.map.fpgio_wcnt ? {cnt_ack_l, cnt_oe_l} :   // FPGAIO+0x14, read-only
 		mcu.map.fpgio ? mcu_dati_fpgio :
 		mcu.map.ramdp ? mcu_dati_ramdp :
 		(mcu.map.flash | mcu.map.sdram) ? mcu_dati_mem :
