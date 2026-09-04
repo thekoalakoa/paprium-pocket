@@ -7391,3 +7391,25 @@ claim that a full-health variant exists is withdrawn.
 Worth noting the shape of the error: an unverified report was written into the
 user-facing issue list, then given a mechanism that made it sound understood.
 Nobody checked the premise against the original hardware until now.
+
+### 2026-09-03: the 0xDA sources are sane
+
+    51 recorded, 46 distinct, 1 consecutive repeat
+    expanded range 192 .. 32768 bytes
+    sources seen repeatedly: 0x0069A0F8, 0x0069A686 - the game revisiting tilesets
+
+One consecutive repeat in fifty-one is noise, not a source that stopped advancing.
+The decoder's verdict branch fired on `rep > 0` and had to be raised to `rep * 10 >
+n`: a diagnostic that over-reports is worse than none, and this one would have sent
+us chasing an artefact of its own threshold.
+
+**A consistency check that lands:** the largest expanded payload is 32,768 bytes,
+exactly `0x8000`, and the `0xDB` feeder reads `0x80..0x7F80`. A full-size chunk
+decompresses into `0x0000..0x7FFF` and every read sits inside it. Two independently
+measured numbers agreeing that precisely is good evidence the load-and-stream
+picture is what it appears to be.
+
+So the remaining firmware-observable candidate is not the pointers, not the
+destinations, and not the sources - it is whether the BYTES those sources produce
+are correct. That is the CRC-vs-GPGX card: decompress the same source in both and
+compare. Not VDP or the name table until that is done.
