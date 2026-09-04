@@ -7960,3 +7960,4 @@ Reading, once a seed passes and is booted:
     cut-2 seed 6   ALM 18,162   setup -2.989   hold +0.087   md5 2635f4cb   FAIL
     cut-2 seed 7   ALM 18,199   setup -2.812   hold +0.044   md5 7d160710   FAIL
     (seed 8, 9 in progress)
+    cut-2 seed 8   ALM 18,026   setup -4.609   hold +0.039   md5 6bbcb0bd   FAIL
