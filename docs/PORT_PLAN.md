@@ -8477,3 +8477,14 @@ routine), so busy is already up for the next post-write test. Open before
 enabling: `0x1FE4` is read 70 times in 600 frames - 69 `0xDB`s and one
 other. If that one waits for busy CLEAR at boot, busy-at-rest hangs it.
 GPGX logs the PC of every reader.
+
+**Every reader of `0x1FE4`, from the PC log (boot 900 frames + train 600):**
+`0x07F46E` (shaft rows), `0x09DA9A` (train rows, x64), `0x0B4276` (a third
+stream path, x5 + x2 at boot), `0x0B41C4` (x1; waits on `0x1FEA` bit 15 and
+`0x1FE6` bit 14 first) - all four are `btst #2 / bne` poll-until-clear loops
+in front of a window copy, with a 65,534-iteration timeout. `0x0BCA22`
+(boot, x1) captures the word into d5 and does not test it. Busy-at-rest is
+the behaviour all four loops expect; nothing waits for busy SET. Judged safe
+to enable. `PPM_BUSY_REST` is implemented in `paprium.c` (the previous commit
+said so and was wrong - only the switch existed; the dispatcher edit had
+failed its shape check).
