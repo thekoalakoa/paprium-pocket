@@ -7728,3 +7728,39 @@ two latches and a 3-bit shifter next to the stream pointer, in the module
 that already sits on the worst STA paths. Gate unchanged: setup >= -2.60,
 boots, full playthrough. The refuted read-back read the live pointer; this
 reads a latch on the MCU's own write, and has not been fitted before.
+
+
+### Onset ring, run 2 (unplanned replicate): FLAT again
+
+The epoch build was still in the fitter when the tester ran the elevator a
+second time on `dec2f09f`. Free replicate, read against the same criteria:
+
+    whole run     742 refusals / 29911 frames = 0.0248 per frame, worst frame 15
+    last 480      0 refusals, 64 loads, 0 frames ending with zero blocks payable
+    bursts        sixteen load-frames, 1-6 loads each, never below 1 block left
+
+Three playthroughs now agree to a few percent on every sticky counter:
+
+    run            frames   refusals   /frame    loads/frame   0xDA   0xDB
+    CRC card        27809       737    0.0265        0.79        50   1173
+    onset ring 1    26830       683    0.0255        0.81        50   1173
+    onset ring 2    29911       742    0.0248        0.77        64   1246
+
+Starvation is closed as firmly as a firmware counter can close it.
+
+### Epoch-counter build: fitted, gated, on the card
+
+    bitstream   53076197   (ring dec2f09f, shipping 63891f17)
+    ALMs        18,074 / 18,480  (98%)   - 120 fewer than the ring build
+    M10K          294 / 308      (95%)
+    setup       -2.404 ns   slow 85C     gate >= -2.60   PASS
+    hold        +0.021 ns                                PASS
+    seed 5, firmware mcu.txt 5235f357
+
+Setup is the best of the three diagnostic fits, which says only that the
+fitter is not deterministic in the tail - not that the counters helped.
+Deployed with the snapshot region zeroed and game progress intact.
+
+**Run:** elevator, slide, squares, quit promptly after the squares. The ring
+keeps the last 99 epochs with traffic, not a number of seconds; the sticky
+first-mismatch frame survives regardless.
