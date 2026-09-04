@@ -8425,3 +8425,55 @@ Two shapes of fix:
   no-op and the racing reads are already right. One row wrong for one
   frame when a section jumps. Needs: the per-frame order of frame-start /
   `0xDB` / reads / frame-end, and the offset sequence. Both from the log.
+
+### The mechanism, in the game's own code (0x07F44E)
+
+Three logger cores built after 15:58 were never built: the applier had a
+syntax error from a heredoc that stripped a backslash, and each build was
+invoked as `... | tail -1 && retroarch ...`, so the pipe returned tail's
+status and RetroArch ran on the stale 15:58 core. The "0 of 69 mailbox
+reads", the PC readings and the frame-order run from those cores are
+**withdrawn**. The build script now refuses a core older than the run and a
+header missing the hooks it just applied; the applier is written with the
+Write tool and contains no escape sequences.
+
+With a real core (`2c72e463`, 17:26), the train state: **the game reads
+`0x1FE4` (`reg_status_1`) exactly once between every `0xDB` write and its
+first window read, 69 of 69.** The routine, disassembled from the ROM:
+
+    07F452  move.w  #$40, -$c(a6)      size = 64 bytes
+    07F460  move.l  #$db06, -(a7)
+    07F466  jsr     $b4344.l           send command (spins on 0x1FEA bit 15 first)
+    07F46E  move.w  $4(a3), d0         read 0x1FE4
+    07F472  btst.b  #2, d0             busy?
+    07F476  beq.b   $7f490             not busy -> read the window immediately
+    07F47A  ...poll bit 2 until clear, 65,534-iteration timeout...
+    07F490  movea.l $af848.l, a0       a0 = 0xC000
+    07F496  move.l  (a0), (a2)         sixteen longwords through the FIXED address
+    ...     move.l  (a0), $4(a2) ...
+
+Busy is tested ONCE; if clear the game reads at once. GPGX returns bit 2
+clear always (`0xFFFF & ~(1<<2)`). The Pocket's firmware sets bit 2 on
+entry to `ppm_cmd_handler` - after its main loop has noticed the command,
+one `sfx_player_update` later at worst - so during that gap the bit is
+still clear from the previous command, the game skips the loop, and its
+sixteen longwords come off the tape from wherever it sat: `0x9000`, the
+sprite pad, after the frame-end rewind. `move.l (a0)` with `a0` fixed is
+tape semantics; for this code to work the retail cart must raise busy in
+hardware on the command write. The reviewer's pre-registered branch
+"polls -> race dies" met the subtler case: it polls a flag the Pocket
+raises too late. The race lives.
+
+Train rows stream at -128 bytes per frame (63 consecutive `0xDB`s); the
+shaft's at 64 bytes per frame. Same code path, `0x1FE4` read once each.
+
+**Fix (`PPM_BUSY_REST`, firmware only, dec2f09f's placement):** keep bit 2
+of `reg_status_1` SET at rest; in `ppm_cmd_handler`, after the handler has
+run (pointer written), clear bit 2 for a pulse long enough for the poll
+loop to see it (~30 68000 cycles per iteration; pulse ~20 us), set it
+again, then write `reg_cmd = cmd_resp`. The game cannot issue its next
+command until that response lands (`0x1FEA` bit-15 spin in the send
+routine), so busy is already up for the next post-write test. Open before
+enabling: `0x1FE4` is read 70 times in 600 frames - 69 `0xDB`s and one
+other. If that one waits for busy CLEAR at boot, busy-at-rest hangs it.
+GPGX logs the PC of every reader.
