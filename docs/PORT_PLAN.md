@@ -8372,3 +8372,10 @@ arrive, invisible to the epoch counter (ack == oe), and never in GPGX.
 Decides it: does the game poll `0x1FEA` for the MCU's ack between the `0xDB`
 write and its first window read? If yes the race cannot happen and this
 hypothesis dies. Logging reads of `0x1FEA` in GPGX answers that.
+
+**Tester (retail cart):** the shaft background *changes* from the top of the
+shaft, to the mid-shaft boss fight, to the bottom. That is a streamed name
+table - one 64-byte row per frame out of the 32 KB `dst 0` payload as the
+car descends - which is exactly the fixed-address copy loop in the log.
+GPGX renders that stream as a uniform repeated wall (sixteen copies of one
+cell pair per row); the Pocket renders it as squares. Neither is the cart.
