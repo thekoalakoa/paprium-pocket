@@ -8379,3 +8379,8 @@ table - one 64-byte row per frame out of the 32 KB `dst 0` payload as the
 car descends - which is exactly the fixed-address copy loop in the log.
 GPGX renders that stream as a uniform repeated wall (sixteen copies of one
 cell pair per row); the Pocket renders it as squares. Neither is the cart.
+
+**Tester:** the shaft background advances as enemy waves are cleared - the
+car moves after each wave and the next section streams in. Same loop,
+gated by game events: the 128-frame burst is one descent, and the band
+appearing once enemies arrive is that descent coinciding with MCU load.
