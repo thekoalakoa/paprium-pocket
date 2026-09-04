@@ -1640,7 +1640,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..c4703af 100644
+index 1a1de1d..bf71d70 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -1723,7 +1723,7 @@ index 1a1de1d..c4703af 100644
      cmp_ptr[0xF2] = cmd_F2_unpack;
      cmp_ptr[0xF4] = cmd_F4_unpack_scal;
      cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
-@@ -191,7 +215,17 @@ void ppm_cmd_handler() {
+@@ -191,7 +215,25 @@ void ppm_cmd_handler() {
  
      cmp_ptr[cmd]();
  
@@ -1732,16 +1732,24 @@ index 1a1de1d..c4703af 100644
 +    // low long enough for the game's btst/bne loop to see it, then raise it
 +    // again BEFORE posting the response - the response is what lets the game
 +    // send its next command, so busy is already up for that one's test.
-+    ppmio.ramdp->reg_status_1 &= ~0x0004;
-+    for (volatile u32 i = 0; i < PPM_BUSY_PULSE_LOOPS; i++) { }
-+    ppmio.ramdp->reg_status_1 |= 0x0004;
++    // Only the pointer-moving commands are followed by that test (the ROM's
++    // 0xDB path and its siblings); pulsing after every 0xAD - seven a frame -
++    // stalled the 68000 ~300 us a frame and showed as lag in sprite-heavy
++    // moments. Everything else gets the old immediate clear.
++    if (cmd == 0xDB || cmd == 0xDA) {
++        ppmio.ramdp->reg_status_1 &= ~0x0004;
++        for (volatile u32 i = 0; i < PPM_BUSY_PULSE_LOOPS; i++) { }
++        ppmio.ramdp->reg_status_1 |= 0x0004;
++    } else {
++        ppmio.ramdp->reg_status_1 |= 0x0004;   // stays up at rest
++    }
 +#else
      ppmio.ramdp->reg_status_1 &= ~0x0004;
 +#endif
      ppmio.ramdp->reg_status_2.bits.busy = 0;
  
      ppmio.ramdp->reg_cmd = cmd_resp;
-@@ -233,18 +267,31 @@ void cmd_84_sdram_off() {
+@@ -233,18 +275,31 @@ void cmd_84_sdram_off() {
  
  void cmd_AD_obj_add() {
  
@@ -1773,7 +1781,7 @@ index 1a1de1d..c4703af 100644
      // frame finish
      // af01: no scaling ongoing
      // af02: must reserve bandwith for scaling buffer?
-@@ -261,6 +308,10 @@ void cmd_B1_sprite_pause() {
+@@ -261,6 +316,10 @@ void cmd_B1_sprite_pause() {
  
  void cmd_C6_setup_data() {
  
@@ -1784,7 +1792,7 @@ index 1a1de1d..c4703af 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -290,13 +341,74 @@ void cmd_DA_unpack() {
+@@ -290,13 +349,74 @@ void cmd_DA_unpack() {
      u32 src = (ppmio.ramdp->cmd_args[1] << 16) + ppmio.ramdp->cmd_args[2];
      u32 dst = ppmio.ramdp->cmd_args[0];
  
@@ -1862,7 +1870,7 @@ index 1a1de1d..c4703af 100644
  }
  
  void cmd_DF_eep_rd() {
-@@ -378,7 +490,15 @@ void cmd_F2_unpack() {
+@@ -378,7 +498,15 @@ void cmd_F2_unpack() {
      ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9000);
      ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9200);
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1879,7 +1887,7 @@ index 1a1de1d..c4703af 100644
  }
  
  void cmd_F4_unpack_scal() {
-@@ -390,6 +510,71 @@ void cmd_F5_stamp_rescale() {
+@@ -390,6 +518,71 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -1951,7 +1959,7 @@ index 1a1de1d..c4703af 100644
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
-@@ -399,7 +584,12 @@ void cmd_8C_bgm_play() {
+@@ -399,7 +592,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {
