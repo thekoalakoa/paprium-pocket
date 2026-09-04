@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..9435679 100644
+index b568843..ba6fbcb 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -392,11 +392,7 @@ index b568843..9435679 100644
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 16384;
 +                    if (lz == 16384) break;          // end of stream
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +                else {                               // code_00
 +                    if (state == 0) {
 +                        raw_n = c & 0x0F;
@@ -427,7 +423,11 @@ index b568843..9435679 100644
 +                        lz += 2049;
 +                        len = 3;
 +                    }
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +
 +                state = (len > 0) ? raw_n : 4;
 +                copy_addr = dest_addr - lz;
@@ -447,7 +447,7 @@ index b568843..9435679 100644
              }
              break;
  
-@@ -260,12 +604,347 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +604,448 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -544,21 +544,33 @@ index b568843..9435679 100644
 +// so a GPGX twin over decoder_ram can be compared directly.
 +#define SNAP_DA_MAX   48
 +#define SNAP_FENCE_LEN 0x8000u
-+#define SNAP_CRC_TAG  0xC2C1C2C1u          /* 0xC2C1CRC1 is not hex; tag kept 32-bit */
++#define SNAP_CRC_TAG  0xC2C1C2C1u
++// Distinct from SNAP_CRC_TAG so a decoder cannot read one card's arena as the
++// other's - the two layouts share every byte of it.
++#define SNAP_RING_TAG 0xB0D5E701u
++#define SNAP_EP_TAG   0xE70C0DE1u          /* epoch ring; distinct from both above */
 +
++#if PPM_DA_CRC
++// 768 bytes of records plus a 1 KB lookup table. The onset ring is 960 bytes and
++// this MCU has no room for both, which is the other half of why the CRC card is
++// retired rather than merely unread.
 +u32 snap_da_src[SNAP_DA_MAX];
 +u32 snap_da_len[SNAP_DA_MAX];
 +u32 snap_da_crc[SNAP_DA_MAX];
 +u32 snap_da_dst[SNAP_DA_MAX];
++#endif
 +static u8 snap_da_n = 0;
 +u32 snap_da_repeat = 0;
 +
 +u32 snap_fence_crc = 0;
 +u32 snap_fence_at = 0;                      // snap_frames when the fence was taken
 +
++#if PPM_DA_CRC
 +static u32 snap_crc_tab[256];
 +static u8  snap_crc_ready = 0;
++#endif
 +
++#if PPM_DA_CRC
 +static void snap_crc_init(void) {
 +    for (u32 i = 0; i < 256; i++) {
 +        u32 c = i;
@@ -588,8 +600,18 @@ index b568843..9435679 100644
 +    snap_fence_crc = snap_crc32(0, SNAP_FENCE_LEN);
 +    snap_fence_at = snap_frames;
 +}
++#else
++void snap_fence_take(void) { }
++#endif
 +
 +void snap_da_note_src(u32 src, u32 len, u32 dst) {
++#if !PPM_DA_CRC
++    // Retired with the CRC card. The point is not just that the output has no
++    // home in the arena any more - it is that hashing up to 32 KB costs ~3 ms,
++    // inside the frame, and the onset ring exists to measure per-frame load
++    // pressure. Leaving this in would tax the exact frames being counted.
++    (void) src; (void) len; (void) dst;
++#else
 +    u32 n = (len > SNAP_FENCE_LEN) ? SNAP_FENCE_LEN : len;
 +    if (snap_da_n && src == snap_da_src[snap_da_n - 1]) {
 +        snap_da_repeat++;
@@ -606,6 +628,7 @@ index b568843..9435679 100644
 +    if (dst + n <= SNAP_FENCE_LEN) {
 +        snap_fence_take();
 +    }
++#endif
 +}
 +
 +// paprium.c sets and clears this; it stays static here so nothing else can poke it.
@@ -713,7 +736,82 @@ index b568843..9435679 100644
 +// A refusal count with no denominator is unreadable - 1176 refusals is healthy
 +// against forty thousand loads and alarming against twelve hundred. So count the
 +// successes and the frames too, and let the capture print the ratios.
++u32 ppm_sptr_shadow = 0;                // last sdram_ptr the MCU wrote (RTL reg is write-only)
 +static u32 snap_loads_ok    = 0;        // blocks actually unpacked and queued
++
++#if PPM_EPOCH_RING
++// 10 bytes per active epoch: ack u16, oe u16, frame u16, ptr u32.
++static u8  snap_ep[PPM_EPOCH_CAP * 10];
++static u16 snap_ep_idx = 0;
++static u32 snap_ep_seen = 0;        // active epochs committed
++static u32 snap_ep_total = 0;       // every epoch, active or not
++static u32 snap_ep_mism = 0;        // epochs where ack != oe
++static u16 snap_ep_worst = 0;       // largest |ack - oe| in one epoch
++static u32 snap_ep_first_mism = 0;  // snap_frames at the first mismatch, 0 = none
++static u32 snap_ep_sum_ack = 0, snap_ep_sum_oe = 0;
++
++// Called IMMEDIATELY AFTER every write of FPGAIO->sdram_ptr, with the pointer
++// that was in force before it. The RTL latched the ended epoch on that write,
++// so the read here is the epoch [ptr_prev .. this write).
++void snap_epoch_note(u32 ptr_prev) {
++#if PPM_EPOCH_NOTE_STUB
++    (void) ptr_prev;
++    return;                 // bisect: statics and layout intact, runtime path removed
++#endif
++    u32 v   = FPGAIO->stream_cnt;
++    u16 ack = (u16) (v >> 16);
++    u16 oe  = (u16) v;
++    snap_ep_total++;
++    if (!ack && !oe) return;                        // idle epoch, not recorded
++    u16 d = ack > oe ? ack - oe : oe - ack;
++    if (d) {
++        snap_ep_mism++;
++        if (d > snap_ep_worst) snap_ep_worst = d;
++        if (!snap_ep_first_mism) snap_ep_first_mism = snap_frames;
++    }
++    snap_ep_sum_ack += ack;
++    snap_ep_sum_oe  += oe;
++    u8 *c = &snap_ep[snap_ep_idx * 10];
++    c[0] = (u8)(ack >> 8); c[1] = (u8) ack;
++    c[2] = (u8)(oe  >> 8); c[3] = (u8) oe;
++    c[4] = (u8)(snap_frames >> 8); c[5] = (u8) snap_frames;
++    c[6] = (u8)(ptr_prev >> 24); c[7] = (u8)(ptr_prev >> 16);
++    c[8] = (u8)(ptr_prev >> 8);  c[9] = (u8) ptr_prev;
++    snap_ep_idx = (u16)((snap_ep_idx + 1) % PPM_EPOCH_CAP);
++    if (snap_ep_seen != 0xFFFFFFFF) snap_ep_seen++;
++}
++#endif
++
++#if PPM_ONSET_RING
++// One cell per in-game frame, overwriting the oldest once full. Both halves of
++// the first byte saturate at 15: measured rates are 0.027 refusals and 0.79
++// loads per frame, so four bits is generous, and a frame that somehow exceeds
++// it reads as "at least 15" rather than wrapping to a small number.
++static u8  snap_ring[PPM_ONSET_FRAMES * 2];
++static u16 snap_ring_idx  = 0;          // next cell to write
++static u32 snap_ring_seen = 0;          // frames committed, to spot a short run
++static u8  snap_f_refuse  = 0;          // this frame, reset on commit
++static u8  snap_f_load    = 0;
++static u16 snap_f_worst   = 0;          // worst refusals in any single frame
++
++// Commit the frame that just ENDED. Called from frame_start before
++// ppm_dma_refresh(), so ramdp->dma_remaining is still last frame's leftover -
++// the number that decides starvation. Refreshing first would overwrite the
++// only value worth recording with a full budget.
++static void snap_ring_commit(void) {
++    u32 rem = ppmio.ramdp->dma_remaining;
++    u32 afford = rem / 0x110;           // whole blocks still payable for
++    if (afford > 255) afford = 255;
++    u8 *c = &snap_ring[snap_ring_idx * 2];
++    c[0] = (u8) (((snap_f_refuse > 15 ? 15 : snap_f_refuse) << 4)
++                 | (snap_f_load > 15 ? 15 : snap_f_load));
++    c[1] = (u8) afford;
++    if (snap_f_refuse > snap_f_worst) snap_f_worst = snap_f_refuse;
++    snap_ring_idx = (u16) ((snap_ring_idx + 1) % PPM_ONSET_FRAMES);
++    if (snap_ring_seen != 0xFFFFFFFF) snap_ring_seen++;
++    snap_f_refuse = snap_f_load = 0;
++}
++#endif
 +
 +// Refresh the frame's DMA budget.
 +//
@@ -780,6 +878,9 @@ index b568843..9435679 100644
 +#if PPM_SAT_SNAPSHOT
 +    snap_frames++;
 +#endif
++#if PPM_ONSET_RING
++    snap_ring_commit();     // MUST precede ppm_dma_refresh() - see the note there
++#endif
      ppm_drawListPtr = ppm_drawList;
 +#if PPM_INLINE_COMPOSE
 +    ppm_block_unpack_addr = 0x9000;   // was reset by the batch; nothing else uses it
@@ -795,7 +896,7 @@ index b568843..9435679 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +954,399 @@ void ppm_obj_frame_start() {
+@@ -275,18 +1055,466 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -907,6 +1008,28 @@ index b568843..9435679 100644
 +    _Static_assert(SNAP_OFF_T + 24 <= 1776, "t[] would overrun the save window");
 +    _Static_assert(SNAP_OFF_DAOTHER + 768 + 20 <= SNAP_OFF_DISPATCH,
 +                   "0xDA CRC table and meta would overrun the dispatch block");
++#if PPM_ONSET_RING
++    // The ring and the CRC table both want the whole arena. Only one can have
++    // it, and the compiler decides rather than a later reader discovering an
++    // overlap in a capture - which is exactly how the "4 billion evictions" and
++    // the bogus destination list were both produced.
++    #define SNAP_OFF_RING      (SNAP_OFF_ARENA)
++    #define SNAP_OFF_RINGMETA  (SNAP_OFF_RING + PPM_ONSET_FRAMES * 2)
++    _Static_assert(SNAP_OFF_RINGMETA + 24 <= SNAP_OFF_DISPATCH,
++                   "onset ring and its meta would overrun the dispatch block");
++    #if PPM_DA_CRC
++    #error "PPM_ONSET_RING and PPM_DA_CRC both claim the arena; enable one"
++    #endif
++#endif
++#if PPM_EPOCH_RING
++    #define SNAP_OFF_EP        (SNAP_OFF_ARENA)
++    #define SNAP_OFF_EPMETA    (SNAP_OFF_EP + PPM_EPOCH_CAP * 10)
++    _Static_assert(SNAP_OFF_EPMETA + 32 <= SNAP_OFF_DISPATCH,
++                   "epoch ring and its meta would overrun the dispatch block");
++    #if PPM_ONSET_RING || PPM_DA_CRC
++    #error "PPM_EPOCH_RING shares the arena with the onset ring and the CRC table; enable one"
++    #endif
++#endif
 +
 +    // Dispatch counters, in the 80 bytes the (broken, unused) owner map had.
 +    {
@@ -965,6 +1088,7 @@ index b568843..9435679 100644
 +    SNAP_PUT32(44, snap_db_min == 0xFFFFFFFF ? 0 : snap_db_min);
 +    SNAP_PUT32(48, snap_db_max_below);
 +    SNAP_PUT32(52, snap_db_stale_same);
++#if PPM_DA_CRC
 +    // 16 bytes x 48 records, meta at +768. Layout fixed by the handoff draft so a
 +    // GPGX twin can print the same table.
 +    u8 *o = &b[SNAP_OFF_DAOTHER];
@@ -994,6 +1118,50 @@ index b568843..9435679 100644
 +            m[4 + k * 4 + 2] = (u8) (mv[k] >> 8);  m[4 + k * 4 + 3] = (u8) mv[k];
 +        }
 +    }
++#endif  // PPM_DA_CRC
++
++#if PPM_EPOCH_RING
++    memcpy(&b[SNAP_OFF_EP], snap_ep, PPM_EPOCH_CAP * 10);
++    {
++        u8 *r = &b[SNAP_OFF_EPMETA];
++        u32 rv[8] = { ((u32) snap_ep_idx << 16) | PPM_EPOCH_CAP,
++                      snap_ep_seen,
++                      SNAP_EP_TAG,
++                      snap_ep_total,
++                      ((u32) snap_ep_worst << 16) | (snap_ep_mism > 0xFFFF ? 0xFFFF : snap_ep_mism),
++                      snap_ep_first_mism,
++                      snap_ep_sum_ack,
++                      snap_ep_sum_oe };
++        for (u8 k = 0; k < 8; k++) {
++            r[k * 4 + 0] = (u8) (rv[k] >> 24); r[k * 4 + 1] = (u8) (rv[k] >> 16);
++            r[k * 4 + 2] = (u8) (rv[k] >> 8);  r[k * 4 + 3] = (u8) rv[k];
++        }
++    }
++#endif
++
++#if PPM_ONSET_RING
++    // The ring, oldest-first order left to the decoder: snap_ring_idx says where
++    // the write head is, and the decoder rotates. Writing it out rotated here
++    // would cost MCU time in the frame being measured for no gain.
++    memcpy(&b[SNAP_OFF_RING], snap_ring, PPM_ONSET_FRAMES * 2);
++    {
++        u8 *r = &b[SNAP_OFF_RINGMETA];
++        // dma_budget is a ROM constant the GAME writes (0x0B00 or 0x1200 -> 10
++        // or 16 blocks a frame). Recording it makes the affordability column
++        // readable without going back to the disassembly to find which room
++        // this was.
++        u32 rv[6] = { ((u32) snap_ring_idx << 16) | PPM_ONSET_FRAMES,
++                      snap_ring_seen,
++                      SNAP_RING_TAG,
++                      ((u32) ppmio.ramdp->dma_budget << 16) | snap_f_worst,
++                      snap_dma_starved,
++                      snap_loads_ok };
++        for (u8 k = 0; k < 6; k++) {
++            r[k * 4 + 0] = (u8) (rv[k] >> 24); r[k * 4 + 1] = (u8) (rv[k] >> 16);
++            r[k * 4 + 2] = (u8) (rv[k] >> 8);  r[k * 4 + 3] = (u8) rv[k];
++        }
++    }
++#endif
 +
 +    // Magic last, so a half-written capture is never read as a good one.
 +    b[0] = 'P'; b[1] = 'S'; b[2] = 'A'; b[3] = 'T';
@@ -1143,7 +1311,8 @@ index b568843..9435679 100644
  
 +
 +#if !PPM_INLINE_COMPOSE
-+    ppm_block_unpack_addr = 0x9000;
+     ppm_block_unpack_addr = 0x9000;
+-    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
 +#endif
 +
 +    // The frame's DMA budget is refreshed in ppm_dma_refresh(), which moved to
@@ -1163,8 +1332,7 @@ index b568843..9435679 100644
 +    // 0xAE is dispatched reliably - measured at 30,585 against 30,584 for 0xAF -
 +    // so this has never actually bitten. Resetting here as well is idempotent and
 +    // removes the dependency on one command firing for the pair to stay matched.
-     ppm_block_unpack_addr = 0x9000;
--    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
++    ppm_block_unpack_addr = 0x9000;
 +
  
      //printf("dma: %i\n", ppmio.ramdp->dma_remaining);
@@ -1196,10 +1364,11 @@ index b568843..9435679 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,6 +1359,14 @@ void ppm_obj_frame_end() {
+@@ -299,7 +1527,22 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
+-    FPGAIO->sdram_ptr = 0x9000;
 +#if PPM_SAT_SNAPSHOT
 +    // Counted BEFORE the rewind: did a 0xDA point the window somewhere else since
 +    // the last frame end, and is that pointer about to be thrown away?
@@ -1208,10 +1377,18 @@ index b568843..9435679 100644
 +        snap_da_pending = 0;
 +    }
 +#endif
-     FPGAIO->sdram_ptr = 0x9000;
++    {
++        u32 prev_ptr = ppm_sptr_shadow;
++        FPGAIO->sdram_ptr = 0x9000;
++        ppm_sptr_shadow = 0x9000;
++#if PPM_EPOCH_RING
++        snap_epoch_note(prev_ptr);
++#endif
++    }
  }
  
-@@ -340,6 +1408,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+ void ppm_close_sprite_table() {
+@@ -340,6 +1583,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1225,7 +1402,7 @@ index b568843..9435679 100644
          return;
      }
  
-@@ -461,7 +1536,40 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1711,40 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1266,17 +1443,20 @@ index b568843..9435679 100644
          satEntry++;
      }
  
-@@ -488,6 +1596,9 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -488,6 +1771,12 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // enough DMA budget?
      if (ppmio.ramdp->dma_remaining < 0x110) {
 +#if PPM_SAT_SNAPSHOT
 +        if (snap_dma_starved != 0xffff) snap_dma_starved++;
 +#endif
++#if PPM_ONSET_RING
++        if (snap_f_refuse != 0xff) snap_f_refuse++;
++#endif
          return 0;
      }
  
-@@ -505,15 +1616,45 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1794,48 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1315,6 +1495,9 @@ index b568843..9435679 100644
  
 +#if PPM_SAT_SNAPSHOT
 +    snap_loads_ok++;                    // counted here, control flow untouched
++#if PPM_ONSET_RING
++    if (snap_f_load != 0xff) snap_f_load++;
++#endif
 +    if ((u32) ppm_block_unpack_addr + 0x200 > snap_loader_high_since_da) {
 +        snap_loader_high_since_da = (u32) ppm_block_unpack_addr + 0x200;
 +    }
@@ -1323,16 +1506,64 @@ index b568843..9435679 100644
      ppm_block_unpack_addr += 0x200;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..5ced9d6 100644
+index 06ccf59..826a609 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,31 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,79 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
 +// Diagnostic capture. In the HEADER because it guards code in both mame.c and
 +// paprium.c, and a guard that cannot see its own #define is silently false.
 +#define PPM_SAT_SNAPSHOT        1
++
++// Per-frame ring of load refusals over the last PPM_ONSET_FRAMES in-game frames.
++// The elevator band is a TIMED event - a few background tiles look misplaced,
++// then ~half a second later the squares fill in - so a whole-run refusal total
++// cannot see it. 737 refusals spread over 27809 frames and 737 refusals packed
++// into thirty read identically in a sticky counter and mean opposite things.
++// The ring keeps the tail of the run, which is where the onset is, because the
++// tester quits shortly after the band appears.
++#define PPM_ONSET_RING          1
++#define PPM_ONSET_FRAMES        480   // 8 seconds at 60 Hz, 2 bytes each
++
++// The 0xDA payload CRC recorder is RETIRED. It answered its question outright -
++// 48 of 48 records matched the reference decoder, so the unpack is byte-correct
++// and #8 is not a decompression fault. tools/da-twin still exists and can hash
++// any source address straight out of the ROM without an emulator run, so the
++// on-card half can come back by setting this to 1; it does not need to sit in
++// the arena consuming the only kilobyte of capture space we have.
++#define PPM_DA_CRC              0
++
++// Per-epoch delivered-word ring. An epoch is the interval between two MCU
++// writes of sdram_ptr. The RTL latches, on each write, how many SDRAM reads
++// advanced the pointer during the epoch that just ended and how many read
++// strobes the 68000 actually issued. Equal means the tape kept step with the
++// game; ack > oe is a double-advance, the mechanism the onset ring and the CRC
++// card left standing. Only epochs with any traffic are recorded - frame-end
++// rewinds with nothing read in between would otherwise flush the ring in
++// under two seconds.
++#define PPM_EPOCH_RING          0
++#define PPM_EPOCH_CAP           99  // 10 bytes each + 32 meta = 1022 of the 1024-byte arena
++// Bisect switch for the boot hang. 1 keeps every epoch static, offset and
++// arena write exactly as built, but snap_epoch_note() returns at once without
++// touching FPGAIO+0x14 or the ring. Holds bss and layout constant so the ONLY
++// variable is the note's runtime path. Default 0 = the real card.
++#define PPM_EPOCH_NOTE_STUB     0
++
++// Fix candidate for #8 (PORT_PLAN: "the page model's over-read content is an
++// exact formula"). The game's vblank DMA is a fixed 1,024 words and does not
++// re-point between pieces, so it reads past a payload whose length is not a
++// multiple of the page. GPGX's page model serves the stale mirror there -
++// the previous page's tail, then this page's head - and that is what every
++// clean playthrough on the emulator has rendered. A tape serves the next
++// bytes of SDRAM instead. This copies the mirror's content into place after
++// every 0xDA unpack so the tape serves the same bytes. Two memcpys of at
++// most one page, once per 0xDA. Default 0 until the elevator log says the
++// mechanism is present in the shaft and the reviewer says build.
++#define PPM_DA_PAD              0
++void snap_epoch_note(u32 ptr_prev);
++extern u32 ppm_sptr_shadow;         // last sdram_ptr the MCU wrote; the RTL register is write-only
 +
 +// Stream-window handshake counters. Shared between mame.c (0xAF) and paprium.c
 +// (0xDA / 0xDB), which is why they are declared here.
@@ -1394,7 +1625,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..694d6c0 100644
+index 1a1de1d..3ace46e 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -1417,7 +1648,24 @@ index 1a1de1d..694d6c0 100644
  void cmd_8C_bgm_play();
  void cmd_8D_bgm_cfg();
  void cmd_AD_obj_add();
-@@ -133,7 +139,7 @@ void ppm_init_cmd_ptr() {
+@@ -64,7 +70,15 @@ void ppm_reset() {
+ 
+     ppm_md_rst(1);
+     FPGAIO->ctrl.sdram_en = 1;
+-    FPGAIO->sdram_ptr = 0;
++    {
++        u32 prev_ptr = ppm_sptr_shadow;
++        u32 new_ptr = 0;
++        FPGAIO->sdram_ptr = new_ptr;
++        ppm_sptr_shadow = new_ptr;
++#if PPM_EPOCH_RING
++        snap_epoch_note(prev_ptr);
++#endif
++    }
+ 
+     printf("ppm init...\n");
+ 
+@@ -133,7 +147,7 @@ void ppm_init_cmd_ptr() {
      }
  
      cmp_ptr[0x83] = cmd_unknown_muted; // unk startup thing
@@ -1426,7 +1674,7 @@ index 1a1de1d..694d6c0 100644
      cmp_ptr[0x95] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0x96] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0xA4] = cmd_unknown_muted; // megawire settings
-@@ -142,7 +148,7 @@ void ppm_init_cmd_ptr() {
+@@ -142,7 +156,7 @@ void ppm_init_cmd_ptr() {
      cmp_ptr[0xD6] = cmd_unknown_muted; //???
  
      //unknown stuff
@@ -1435,7 +1683,7 @@ index 1a1de1d..694d6c0 100644
      cmp_ptr[0xD0] = cmd_unknown_muted;
  
      cmp_ptr[0x00] = cmd_00;
-@@ -161,6 +167,12 @@ void ppm_init_cmd_ptr() {
+@@ -161,6 +175,12 @@ void ppm_init_cmd_ptr() {
      cmp_ptr[0xE0] = cmd_E0_eep_wr;
      cmp_ptr[0xE7] = cmd_E7_mwire;
      cmp_ptr[0xEC] = cmd_EC_vram_budget;
@@ -1448,7 +1696,7 @@ index 1a1de1d..694d6c0 100644
      cmp_ptr[0xF2] = cmd_F2_unpack;
      cmp_ptr[0xF4] = cmd_F4_unpack_scal;
      cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
-@@ -233,18 +245,31 @@ void cmd_84_sdram_off() {
+@@ -233,18 +253,31 @@ void cmd_84_sdram_off() {
  
  void cmd_AD_obj_add() {
  
@@ -1480,7 +1728,7 @@ index 1a1de1d..694d6c0 100644
      // frame finish
      // af01: no scaling ongoing
      // af02: must reserve bandwith for scaling buffer?
-@@ -261,6 +286,10 @@ void cmd_B1_sprite_pause() {
+@@ -261,6 +294,10 @@ void cmd_B1_sprite_pause() {
  
  void cmd_C6_setup_data() {
  
@@ -1491,7 +1739,7 @@ index 1a1de1d..694d6c0 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -290,12 +319,40 @@ void cmd_DA_unpack() {
+@@ -290,13 +327,74 @@ void cmd_DA_unpack() {
      u32 src = (ppmio.ramdp->cmd_args[1] << 16) + ppmio.ramdp->cmd_args[2];
      u32 dst = ppmio.ramdp->cmd_args[0];
  
@@ -1500,6 +1748,23 @@ index 1a1de1d..694d6c0 100644
 +    u32 da_len = ppm_unpack(src, dst);
 +#if PPM_SAT_SNAPSHOT
 +    snap_da_note_src(src, da_len, dst);
++#endif
++#if PPM_DA_PAD
++    {
++        // mode is the 0xDA command word's low byte; the dispatcher split the
++        // command off as reg_cmd >> 8 and leaves the word in place until the
++        // handler returns (it writes cmd_resp afterwards).
++        u32 mode = ppmio.ramdp->reg_cmd & 0xFF;
++        u32 P = (mode == 2) ? 0x4000 : 0x800;
++        u32 T = da_len % P;
++        // Only a short tail can be over-read, and only a payload at least one
++        // page long has a "previous page" to mirror. Stay inside SDRAM.
++        if (T && da_len >= P && dst + da_len + P <= 0x100000) {
++            u8 *b = (u8 *) ppmio.sdram;
++            memcpy(b + dst + da_len,           b + dst + da_len - P, P - T);   // previous page's tail
++            memcpy(b + dst + da_len + (P - T), b + dst + da_len - T, T);       // this page's head
++        }
++    }
 +#endif
 +
 +    // paprium-pocket: RESTORED. Dropping this write was tested on hardware and
@@ -1519,11 +1784,20 @@ index 1a1de1d..694d6c0 100644
 +        snap_da_note_other(dst);
 +    }
 +#endif
-+    FPGAIO->sdram_ptr = ppmio.ramdp->cmd_args[0]; // optional ? - but load-bearing
++    {
++        u32 prev_ptr = ppm_sptr_shadow;
++        u32 new_ptr = ppmio.ramdp->cmd_args[0]; // optional ? - but load-bearing
++        FPGAIO->sdram_ptr = new_ptr;
++        ppm_sptr_shadow = new_ptr;
++#if PPM_EPOCH_RING
++        snap_epoch_note(prev_ptr);
++#endif
++    }
  }
  
  void cmd_DB_set_dma_ptr() {
      // setup sdram pointer for read
+-    FPGAIO->sdram_ptr = swapshorts(ppmio.ramdp->cmd_args_long[0]);
 +#if PPM_SAT_SNAPSHOT
 +    // If this fires often the game re-points before it reads, and the 0xAF rewind
 +    // cannot be hurting anything.
@@ -1531,10 +1805,36 @@ index 1a1de1d..694d6c0 100644
 +    snap_da_pending_clear();
 +    snap_db_note(swapshorts(ppmio.ramdp->cmd_args_long[0]));
 +#endif
-     FPGAIO->sdram_ptr = swapshorts(ppmio.ramdp->cmd_args_long[0]);
++    {
++        u32 prev_ptr = ppm_sptr_shadow;
++        u32 new_ptr = swapshorts(ppmio.ramdp->cmd_args_long[0]);
++        FPGAIO->sdram_ptr = new_ptr;
++        ppm_sptr_shadow = new_ptr;
++#if PPM_EPOCH_RING
++        snap_epoch_note(prev_ptr);
++#endif
++    }
  }
  
-@@ -390,6 +447,71 @@ void cmd_F5_stamp_rescale() {
+ void cmd_DF_eep_rd() {
+@@ -378,7 +476,15 @@ void cmd_F2_unpack() {
+     ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9000);
+     ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9200);
+     //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
+-    FPGAIO->sdram_ptr = 0x9000;
++    {
++        u32 prev_ptr = ppm_sptr_shadow;
++        u32 new_ptr = 0x9000;
++        FPGAIO->sdram_ptr = new_ptr;
++        ppm_sptr_shadow = new_ptr;
++#if PPM_EPOCH_RING
++        snap_epoch_note(prev_ptr);
++#endif
++    }
+ }
+ 
+ void cmd_F4_unpack_scal() {
+@@ -390,6 +496,71 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -1606,7 +1906,7 @@ index 1a1de1d..694d6c0 100644
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
-@@ -399,7 +521,12 @@ void cmd_8C_bgm_play() {
+@@ -399,7 +570,12 @@ void cmd_8C_bgm_play() {
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
      } else {
@@ -1619,6 +1919,22 @@ index 1a1de1d..694d6c0 100644
 +        mdp_play_once(arg & 0x7f);
      }
  }
+ 
+diff --git a/mcu/paprium.h b/mcu/paprium.h
+index 59e5d81..01f4c5c 100644
+--- a/mcu/paprium.h
++++ b/mcu/paprium.h
+@@ -21,6 +21,11 @@ typedef struct {
+     vu32 sdram_ptr; //sdram pointer for md side
+     vu32 vol_sfx;
+     vu32 vol_bgm;
++    // paprium-pocket diagnostic, RTL slot 5 (mcu_core.sv fpgio_wcnt). Read-only.
++    // Latched on every write to sdram_ptr: the epoch that JUST ENDED.
++    //   [31:16] SDRAM reads that advanced the pointer
++    //   [15: 0] 68000 read strobes the game issued (debounced like the real cart)
++    vu32 stream_cnt;
+ 
+ } FpgaIO;
  
 diff --git a/mcu/sfx.c b/mcu/sfx.c
 index 1263606..7367f71 100644
