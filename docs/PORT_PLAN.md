@@ -7806,3 +7806,63 @@ reviewer's read then points at pattern VRAM being written by something other
 than the window. The next step is offline and costs no ALMs - log in GPGX
 which VRAM tile addresses the game DMAs into during the shaft, and check
 whether anything else in the shipping layout can land on tiles 800-863.
+
+
+### Epoch build 53076197 hangs at boot. A withdrawn theory, and the bisect
+
+The epoch-counter build does not leave WaterMelon's disclaimer splash. The
+Pocket and VDP are alive (`sync ok`, ~60 Hz); the 68000 is parked on the
+mailbox. The boot marker in the save reads `PBOT` boot #3 with no `PSAT`, so
+the MCU firmware ran far enough to stamp the marker on every boot - the hang
+is consistent across three cold boots, and it is after the MCU is alive.
+
+#### Withdrawn: the stack-overflow theory
+
+Written down so nobody re-derives it. `ppm_stamp_rescale` (`cmd_F5`) has a
+**4,128-byte** frame (`uint8_t scaled_stamp[128][32]`; the prologue is
+`addi sp,sp,-32` then two `-2048`s). The internal DMEM is 8 KB and bss ends
+at `0x80001938`, leaving 1,736 bytes - 56 fewer than the ring build. For an
+hour that looked like a pre-existing overflow that 56 bytes of new statics
+had pushed onto `ppmio`, the struct holding the mailbox base pointers. It
+explained the symptom perfectly. It is wrong.
+
+`neorv32_dmem.vhd` decodes with `hi_abb_c = 31`, `lo_abb_c = 13`: the DMEM
+answers only `0x80000000-0x80001FFF`. The linker (`neorv32.ld`, `ram LENGTH
+= 256K`) starts the stack at `0x8003FFFC`, which the DMEM does not claim; it
+falls through to Wishbone, where `mcu.map.wram` (`addr[31:24] == 0x80`,
+`mcu_core.sv`) serves it from the **32 KB WRAM** (`paprium_wram`,
+`wram_addr[14:1]`). Stack and bss are different physical memories that alias
+at the same base address. The 4,128-byte frame has always had 32 KB of room,
+and no quantity of bss can reach the stack. There is no path from the stack
+to `ppmio`, in any build.
+
+Lesson, same as the last three: a number that fits the symptom is not a
+measurement. The numbers that refuted it (`hi_abb_c`, the linker origin, the
+map decode) were three greps away and were checked *before* the theory went
+to the reviewer - which is the only reason this section is a withdrawal
+rather than a correction.
+
+#### What the epoch card actually changed
+
+RTL: two counters, two latches, a 3-bit shifter, one extra term at the head
+of the `mcu_dati` mux (`fpgio_wcnt`, map slot 5), and the `McuMap` field.
+Firmware: `snap_epoch_note()` after each of five pointer writes - reads
+FPGAIO+0x14, no loops, no waits - plus 990 bytes of statics. Neither side
+shows a hang mechanism on reading. The fit passed every gate (-2.404).
+
+#### The bisect, and why the control is the ring firmware
+
+Reviewer's order: firmware side first. The cleanest firmware-side control is
+not a stub - it is the **ring firmware unchanged** (`PPM_ONSET_RING 1`,
+`PPM_EPOCH_RING 0`, mcu.txt `14844a95`, the same switches as the firmware
+inside `dec2f09f`, which booted and ran two elevators today). It never reads
+slot 5 and never calls the note. Fitted under the epoch RTL at seed 5:
+
+    boots  -> the firmware side is guilty: the note path or its statics
+    hangs  -> the RTL additions or the fit itself, regardless of firmware
+
+A seed-6 refit of the full epoch build was started and killed: it tested
+placement only, and a placement result cannot be read until the logic is
+cleared. Its partial state was deleted before the control fit.
+
+Card is on `dec2f09f` for the boot A/B against card and game state.
