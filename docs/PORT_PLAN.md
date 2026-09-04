@@ -8384,3 +8384,15 @@ cell pair per row); the Pocket renders it as squares. Neither is the cart.
 car moves after each wave and the next section streams in. Same loop,
 gated by game events: the 128-frame burst is one descent, and the band
 appearing once enemies arrive is that descent coinciding with MCU load.
+
+**Mailbox facts (both sides):** `ramdp_io.sv` is plain dual-port RAM - nothing
+reacts to the 68000's command write; `busy` (`reg_status_1` bit 2,
+`reg_status_2` b14) is only ever what the MCU writes *after* its loop
+reaches `ppm_cmd_handler`, one `sfx_player_update()` later at worst. GPGX's
+status reads return constants that always say "ready" and its `0x1FEA` read
+never carries the MCU's response. So a game that polls before reading the
+window waits nowhere in GPGX and, on the Pocket, only from the moment the
+MCU has already noticed - the latency window is unguarded on both. Whether
+the game polls at all is decided from its code (the ROM is local) and from a
+byte-read hook; the 1,200-frame run from state 10 never descended (wave-
+gated, no input) and issued no `0xDB`, so it decided nothing.
