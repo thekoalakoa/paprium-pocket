@@ -8155,3 +8155,27 @@ which nothing on the Pocket records - the GPGX DMA hook does.
 Sprite BLOCK loads are a different path: the firmware charges 0x110 per
 block (`ppm_vram_load_block`, 0x100 words payload) and blocks are exactly
 16 tiles, so block DMAs are exact and cannot over-read.
+
+#### Functional cut fitted: FAILS GATE at -2.839
+
+    bitstream   ddb83efd   slot-5 read inside fpgio.sv, cart mux == ring's, ring fw, seed 5
+    ALMs        18,127 / 18,480   M10K 294 / 308
+    setup       -2.839   hold +0.104        FAIL  (gate >= -2.60)
+
+Not installed; archived as `fcut-fpgio-slot5.FAILED-GATE-2.839`. Card
+stays on `dec2f09f`.
+
+Placement record for the day, distinct placements: ring@5 PASS, epoch@5
+PASS (hangs; the control shares it), cut-2 @5-9 FAIL x5, epoch @6-9 FAIL
+x4, fcut@5 FAIL. **Two passing placements in twelve.** Every RTL variant
+re-rolls, and the fitter's tail is ~1.5 ns wide around the gate.
+
+Recommendation, for the reviewer to accept or overrule: **pause RTL fits.**
+The GPGX track has produced a mechanism - fixed-size vblank DMA over-reading
+a short payload tail - that the epoch counter cannot see even when it
+works, because the tape counts correctly and still delivers the wrong
+bytes. Whether the counter is worth another two hours of fitter time
+depends on the DMA-destination hook and an elevator log, both of which cost
+no ALMs. If the hook shows the over-read words landing somewhere harmless
+in the elevator, the counter is back on; if they land in live tiles, #8
+has a different mechanism and the counter was never going to find it.
