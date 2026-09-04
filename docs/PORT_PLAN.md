@@ -7994,3 +7994,70 @@ second for bytes. Question it answers: are the elevator's window reads
 tape-shaped (strictly sequential, one per word) or page-shaped (re-reads,
 holes, partial pages)?
     epoch-rtl seed 8   ALM 18,199   setup -2.835   hold +0.072   md5 e21f67ca   FAIL
+
+
+### GPGX window-read logger: pipeline proven, boot and subway logged
+
+**What `gpgx-build/` actually was.** Not the pristine fork: `paprium.h` there
+was the MWMM music-render instrumentation from the synth work - hard-coded
+`C:/Users/Profe/gpgxbuild/render_*.bin` paths, an `exit(1)` when its render
+input is missing, an `exit(0)` when a render finishes. A core built from it
+"crashed" at content load with no Windows crash record, because it was
+exiting on purpose. Three rebuilds were spent on compiler and flag theories
+(gcc 16 vs the prebuilt's gcc 13, `-O3`/`-Ofast`, strict aliasing) before a
+stdout diff against the stock core showed debug prints the prebuilt does not
+have, and a grep found the `exit`. The pristine copy is `paprium.h.orig`,
+byte-identical to `src/Full Source/core/cart_hw/paprium.h`; the render copy
+is kept as `paprium.h.render-instrumented`. Build from `.orig` plus the
+patch, as-shipped Makefile.
+
+**Build recipe** (msys2 gcc 16.2; the fork's `Makefile.libretro`):
+`/c/msys64/usr/bin/make -f Makefile.libretro platform=win CC="gcc -pipe"
+CXX="g++ -pipe" -j4` compiles every object; the final link fails inside
+gcc's driver with "Cannot create temporary file in C:\WINDOWS" whenever it
+is spawned through msys make (libiberty cannot find a temp dir through that
+environment - not gcc's `-pipe`, not make's own temp files, not the
+optimisation flags, all three were chased). Run the link line directly from
+the shell: it is saved as `gpgx-build/link.cmd` (`eval "$(cat link.cmd)"`).
+RetroArch on Windows writes nothing to stdout; `--verbose --log-file` is
+how it reports. `--max-frames=N` runs headless-ish and exits; `-e N` loads
+save slot N at startup; `--max-frames-ss` writes a screenshot to
+`C:\RetroArch-Win64\screenshots`.
+
+**Tooling.** `scripts/apply_gpgx_winlog.py` (idempotent; hooks the page
+turn, `paprium_r16`'s default branch, `paprium_r8`, `paprium_cmd` for
+0xDA/0xDB/0xAF, and `paprium_audio` as the frame tick; 8-byte records to
+`paprium_winlog.bin` in the frontend's cwd), `scripts/analyze_winlog.py`
+(epochs delimited the way the firmware's epoch counter delimits them;
+validated on planted logs including the early-page attribution, which was
+off by one in the first draft), and `vdp-capture/launch-winlog.cmd`
+(RetroArch on our core, cwd pinned so the log lands in `vdp-capture\`).
+
+**Boot, 900 frames:** 10,656 window reads in 8 active epochs, every one
+strictly sequential from `0xC000`, mode-7 pages (1,024 words) read to the
+end before turning, zero re-reads / holes / byte reads / early turns.
+**Tape-shaped.**
+
+**The four Aug-31 states** (`states/Genesis Plus GX/Paprium.state6-9`):
+6 = near-static (64 words, one 0xDB); 7 and 9 = static (0xAF every frame,
+no window traffic in 10 s); **8 = the subway platform**, streaming - 21,888
+reads, 80 epochs, 69 `0xDB`, 7 `0xDA` in 600 frames. None is the elevator.
+
+**A real divergence, in the subway (state 8, epoch 11, frames 177-178).**
+The game read a full mode-7 page (`0xC000-0xC7FE`, 1,024 words), then on
+the next frame kept reading from `0xC000` - **80 more words with no page
+turn**. GPGX turns the page on a read at `0xC000` only while
+`decoder_size > 0`; with the decoder drained it is a plain read of the
+stale mirror, so GPGX hands the 68000 the old page's first 80 words. A
+tape hands it whatever follows the payload in SDRAM. Harmless if those 80
+words are an over-fetch the game discards (a DMA length rounded up, say);
+real if they are consumed. This log records reads, not where the DMA put
+them, so it cannot say which. The epoch ends with a `0xDA`, so no lasting
+pointer drift either way. First non-tape event seen in the emulator; the
+elevator has not been logged yet.
+
+**What would settle both the over-read and the pre-registered flat branch
+at once:** one more hook, in `vdp_ctrl.c`'s `vdp_dma_68k_ext` - source,
+VRAM destination, length per 68k-bus DMA. That is the "land/index"
+visibility the Pocket cannot afford at 98% ALM, for free, in the emulator.
+Proposed, not started.
