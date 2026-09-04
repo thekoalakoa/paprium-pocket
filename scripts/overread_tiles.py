@@ -27,6 +27,7 @@ import parse_gpgx_state as P
 import render_vram_tiles as R
 
 KIND_WORD, KIND_BYTE, KIND_PAGE, KIND_DB, KIND_DA, KIND_AF, KIND_DMA, KIND_DMA2 = range(8)
+KIND_MBX, KIND_STAT, KIND_PC, KIND_AE = 8, 9, 10, 11
 
 
 def load_log(path):

@@ -18,6 +18,7 @@
 #     pins that to vdp-capture\).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+T0=$(date +%s)
 G="$HERE/../gpgx-build"
 export PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH"
 cd "$G"
@@ -34,6 +35,16 @@ cp core/vdp_ctrl.c.orig core/vdp_ctrl.c
 [ -f Makefile.libretro.orig ] && cp Makefile.libretro.orig Makefile.libretro
 
 python "$HERE/scripts/apply_gpgx_winlog.py" core/cart_hw/paprium.h
+# the header must now carry every hook the applier's current version emits
+for tok in "PAPRIUM_WINLOG 1" "winlog(2," "winlog(0," ; do
+  grep -q "$tok" core/cart_hw/paprium.h || { echo "hook '$tok' missing from the applied header - applier is broken"; exit 1; }
+done
+for tok in "rec\[0\] = 11" "m68k\.pc" "winlog(9,"; do
+  if grep -q "$tok" "$HERE/scripts/apply_gpgx_winlog.py"; then
+    grep -q "$tok" core/cart_hw/paprium.h || { echo "applier has '$tok' but the applied header does not - apply failed"; exit 1; }
+  fi
+done
+OLDMD5=$(md5sum genesis_plus_gx_libretro.dll 2>/dev/null | cut -c1-8 || echo none)
 EXTRA=""
 if [ "${1:-}" = "--dma" ]; then
   python "$HERE/scripts/apply_gpgx_dmalog.py" core/vdp_ctrl.c
@@ -51,4 +62,8 @@ if [ ! -f link.cmd ]; then
     | grep -m1 "genesis_plus_gx_libretro.dll" > link.cmd
 fi
 eval "$(cat link.cmd)" > link-winlog.log 2>&1 || { echo "link failed:"; tail -3 link-winlog.log; exit 1; }
-echo "core: $G/genesis_plus_gx_libretro.dll  md5 $(md5sum genesis_plus_gx_libretro.dll | cut -c1-8)  dma=${1:-off}"
+NEWMD5=$(md5sum genesis_plus_gx_libretro.dll | cut -c1-8)
+MT=$(stat -c %Y genesis_plus_gx_libretro.dll)
+[ "$MT" -ge "$T0" ] || { echo "DLL is OLDER than this run (stale build) - refusing to call it built"; exit 1; }
+[ "$NEWMD5" != "$OLDMD5" ] || echo "WARNING: md5 unchanged from the previous core ($OLDMD5) - identical source?"
+echo "core: $G/genesis_plus_gx_libretro.dll  md5 $OLDMD5 -> $NEWMD5  built $(date -d @$MT +%H:%M)  dma=${1:-off}"
