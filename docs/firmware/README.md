@@ -6,7 +6,7 @@ UNCOMMITTED working-tree diff - that repo has no git identity configured
 here and nothing from this port has ever been committed to it. This patch
 is the versioned copy of that diff. Regenerate it with:
 
-    git -C repos/mega-ppm diff > docs/firmware/mega-ppm-port.patch
+    git -C repos/mega-ppm diff > patches/mega-ppm-pocket.patch
 
 Firmware states the diagnostic cards were built from, by `rtl/PAPRIUM/mcu.txt`
 md5 (the file Quartus bakes into the bitstream):
