@@ -7764,3 +7764,45 @@ Deployed with the snapshot region zeroed and game progress intact.
 **Run:** elevator, slide, squares, quit promptly after the squares. The ring
 keeps the last 99 epochs with traffic, not a number of seconds; the sticky
 first-mismatch frame survives regardless.
+
+
+### Correction: the footage does not settle wrong-place vs wrong-picture
+
+Above, the tester's "they looked shifted" was written up as settling it for
+the tape. That was too strong. The reviewer watched the 2026-09-03 capture
+(clip clock ~9:19-9:21) and reports the SQUARES phase, from ~00:44: wrong
+square tiles on the elevator floor - sign fragments, solid colours, UI bits
+replacing the green hex floor - accumulating on the floor 00:46-01:40 and
+scrolling with the plane; horizontal garbage bands in the distant BG from
+~01:47 scrolling with the parallax; sprites and HUD clean throughout. That
+reads as **wrong art in the right cells**, not the floor slid over.
+
+The two observations are of two phases. The tester described the precursor
+(seconds before the squares); the reviewer described the squares. The tape
+theory predicts that progression - one word of drift shifts a tile's rows
+within itself, several words fetch a *neighbouring tile's pattern* from the
+same stream into the same VRAM slot, which is wrong art in the right cell -
+but the squares phase on its own is equally consistent with pattern VRAM
+being overwritten by something other than the window. **On footage it is a
+draw.** The epoch counter decides, and its criteria are unchanged because it
+measures the cursor, not the look of the tiles.
+
+What the footage does constrain, for any theory:
+
+- **Sprites and HUD clean.** Under drift the miscount must live in the long
+  background-payload epochs and be reset before sprite fetches - plausible,
+  `0xAF` rewinds every frame and sprite fetches are short, and it is the
+  RTL's own recorded symptom ("tile noise on backgrounds while resident
+  font/UI stayed clean"). Under an overwrite theory, the writer targets
+  background tiles only.
+- **The wrong art is sign/UI fragments, not enemy frames.** Sprite blocks
+  carry sprite art; a sprite-slot overwrite painting the floor would be
+  expected to show enemy or player fragments. Same-stream neighbours lean
+  toward a misfetch from the background payload. A weak lean, recorded as
+  one.
+
+Refinement for the FLAT outcome only: if `ack == oe` through the band, the
+reviewer's read then points at pattern VRAM being written by something other
+than the window. The next step is offline and costs no ALMs - log in GPGX
+which VRAM tile addresses the game DMAs into during the shaft, and check
+whether anything else in the shipping layout can land on tiles 800-863.
