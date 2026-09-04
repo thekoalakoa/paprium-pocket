@@ -8276,3 +8276,19 @@ only; a ROM-only change refits onto the ring RTL at seed 5 with the
 placement `dec2f09f` already has. Bounded by the arena: `0x9000` payloads
 plus one page stay inside the sprite pad for every length on the CRC card;
 `dst 0` payloads are page-aligned (T = 0) and copy nothing.
+
+**Seen, not counted (subway-tile1509.png, sent to the tester):** the 54
+on-screen cells painting tile 1509 form two horizontal bands - the ceiling
+strip above the strap rail along the top of the subway car, and the band at
+HUD height above it. One repeated texture tile filling a rail: a filler tile.
+On GPGX it shows tile 1445's bytes, a matching wood/rail texture, by the
+accident of what the stale mirror held - which is why the emulator looks
+right. On the Pocket the same 54 cells get whatever SDRAM holds past the
+payload at `0x9000 + 22176`: leftover sprite scratch.
+
+**Hardware check that needs no build:** on the Pocket (`dec2f09f` or the
+shipping `63891f17`), look at the subway car's ceiling strip / strap rail.
+Clean repeated texture = the tape is not serving scratch there and the
+model needs revisiting; fragments or garbage in that band = the mechanism
+is on hardware in a second scene, and the padding fix has a target the eye
+can verify.
