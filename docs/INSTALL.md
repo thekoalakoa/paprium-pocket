@@ -243,7 +243,6 @@ issues on the MiSTer port too.
 |---|---|
 | Elevator shaft: corrupted background tiles | **Open.** A band of wrong tiles appears low in the shaft, rides upward with the background and builds until the level ends; the Intercom Complete screen after it is affected too. Pre-dates this port and matches an open issue on the MiSTer core. Under investigation |
 | Characters sliding without their walk animation, worse with more enemies on screen | **Much improved, not eliminated.** Two separate causes were fixed; a per-frame graphics-streaming ceiling remains |
-| Full-health stage clear plays the ordinary cue | Not reproducible — the variation is inside the cartridge synth's own render of one track |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
 ### Fixed in 0.1.0

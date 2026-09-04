@@ -7374,3 +7374,20 @@ would show up immediately.
 
 The first two are still firmware-observable. The third is not, and would need the
 kind of tap that does not fit - see `docs/attempts/`.
+
+### Closed 2026-09-03: the full-health stage clear does not exist
+
+Removed from the known-issues list in both README.md and docs/INSTALL.md. The
+tester has verified there is no different stage-clear cue at full health **in the
+original game** - the behaviour being chased was never real, so there was nothing
+for this port to be failing to reproduce.
+
+It had been carried as "not reproducible - the variation is inside the cartridge
+synth's own render of one track", which was a plausible-sounding explanation for
+a phenomenon that does not occur. The earlier investigation notes above are left
+in place because the YM2612 work they sit alongside is still valid; only the
+claim that a full-health variant exists is withdrawn.
+
+Worth noting the shape of the error: an unverified report was written into the
+user-facing issue list, then given a mechanism that made it sound understood.
+Nobody checked the premise against the original hardware until now.
