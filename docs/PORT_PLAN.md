@@ -8396,3 +8396,32 @@ MCU has already noticed - the latency window is unguarded on both. Whether
 the game polls at all is decided from its code (the ROM is local) and from a
 byte-read hook; the 1,200-frame run from state 10 never descended (wave-
 gated, no input) and issued no `0xDB`, so it decided nothing.
+
+### The game never waits for the MCU: 0 of 69
+
+Train state, 69 `0xDB` epochs, word AND byte reads of `0x1FE4-0x1FEB`
+hooked: **zero mailbox reads between the `0xDB` write and the first window
+read, in every epoch.** The game writes the command and reads the window at
+once. GPGX services the command inside the write; the Pocket's MCU services
+it one main-loop iteration later at worst - after a full `sfx_player_update`
+- and nothing in the RTL guards the gap. Every window read that lands in
+that gap is served from wherever the tape was: `0x9000`, the sprite pad,
+after the frame-end rewind. Rows of the shaft's streamed name table get
+sprite-pad bytes in their first cells; more MCU load, more cells. This is
+the leading mechanism for #8. It is invisible to the epoch counter (the
+reads are counted correctly) and impossible in GPGX (no gap).
+
+Two shapes of fix:
+
+- **Hardware.** On the 68000's write of a `0xDB` command word to `0x1FEA`,
+  the RTL loads `stream_ptr` from the mailbox words at `0x1E12/0x1E14`
+  itself. Zero latency. ~40 ALMs in the mailbox path; a placement roll
+  against a gate with two passes in twelve today.
+- **Firmware, placement kept.** After a row's sixteen reads the tape sits
+  exactly at the next row - if offsets step by the size each frame. The
+  only thing moving it away is the frame-end rewind to `0x9000` for the
+  sprite DMAs. So on the frame-start command, pre-point the tape to the
+  predicted next row (last `0xDB` offset + size); the late `0xDB` is then a
+  no-op and the racing reads are already right. One row wrong for one
+  frame when a section jumps. Needs: the per-frame order of frame-start /
+  `0xDB` / reads / frame-end, and the offset sequence. Both from the log.
