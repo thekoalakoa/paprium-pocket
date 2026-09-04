@@ -45,7 +45,9 @@ def main():
     recs = [struct.unpack_from('<BBHI', d, i * 8) for i in range(n)]
     kinds = Counter(r[0] for r in recs)
     print("records : %d   %s" % (n, "  ".join("%s %d" % (KIND.get(k, k), c) for k, c in sorted(kinds.items()))))
-    frames = recs[-1][3] >> 16
+    # kind 7 carries the 68000 source in its stamp, not a frame; take the max
+    # frame over the records that do carry one
+    frames = max((r[3] >> 16) for r in recs if r[0] <= 6)
     print("frames  : %d   (%.1f s at 60 Hz)" % (frames, frames / 60.0))
 
     # walk epochs
