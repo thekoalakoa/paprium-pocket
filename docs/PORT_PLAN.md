@@ -7920,3 +7920,39 @@ Why the mux term is suspect at all: it is the only edit to pre-existing
 logic. The design fails timing by 2.4 ns on paths STA does not tie to
 function; a term at the head of the MCU's data-in mux reshapes that mux for
 every MCU read, not only slot 5.
+
+
+#### Cut 2 fitted: counters survived, and it FAILS GATE at -3.343
+
+    bitstream   14314402   cut-2 RTL (mux term out, five regs noprune), ring fw, seed 5
+    ALMs        18,242 / 18,480   M10K 294 / 308
+    setup       -3.343   hold +0.006        FAIL  (gate >= -2.60; -2.715 glitches at boot)
+    pinned registers present in the fit report: yes (16 references)
+
+Not installed. Archived as `cut2-mux-out-noprune.FAILED-GATE-3.343`. Flashing
+it would test nothing: a hang at -3.343 is indistinguishable from a timing
+glitch. The card went back to `dec2f09f` so nothing hanging is left in play.
+
+#### The confound this exposes
+
+Every RTL change re-rolls the placement. The control was informative *only*
+because same RTL at the same seed gave the identical placement to the
+hanging build - that held the fitter still while the firmware changed. Cut 2
+changed the netlist (one term removed, five attributes added) and the fitter
+landed a full nanosecond worse. So the "which addition" question cannot be
+read from any cut that does not ALSO pass gate, and passing gate is seed
+luck with a ~1.2 ns spread. This was always true of every diagnostic fit;
+it has just not bitten until a cut and a bad seed coincided.
+
+Sweep in progress: cut-2 RTL at seeds 6, 7, 8, 9 in sequence, stopping at
+the first placement with setup >= -2.60. Every seed's metrics and md5 are
+recorded whether or not it passes. This is also what the "hangs" branch's
+cut 3 was going to be (a seed), so nothing is spent twice.
+
+Reading, once a seed passes and is booted:
+
+    boots  -> the mux term. The slot-5 read moves inside fpgio.sv's own mux.
+    hangs  -> the counters' presence. Then the honest question is whether an
+              RTL counter can be added to this design at all under the
+              current gate, or whether the epoch measurement has to come from
+              somewhere that adds no logic to the MCU or 68000 paths.
