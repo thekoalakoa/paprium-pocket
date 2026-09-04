@@ -7993,3 +7993,4 @@ One hook in its `default:` branch sees every word; `paprium_r8` gets a
 second for bytes. Question it answers: are the elevator's window reads
 tape-shaped (strictly sequential, one per word) or page-shaped (re-reads,
 holes, partial pages)?
+    epoch-rtl seed 8   ALM 18,199   setup -2.835   hold +0.072   md5 e21f67ca   FAIL
