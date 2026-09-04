@@ -8075,3 +8075,43 @@ mux), ring firmware `14844a95`.
 **Epoch-RTL sweep closed (15:0x).** Seeds 6-9: -2.835 / -3.057 / -2.835 /
 -3.235. The only placement of this netlist inside the gate remains seed 5,
 and it hangs. Not extended. The functional cut fits now, per the lock.
+
+### The subway over-read is a DMA, and the page/tape models diverge on it
+
+Subway (state 8), epoch 11, from the stamps: **1,024 reads at frame 177,
+v_counter 225**, then **80 reads at frame 178, v_counter 225**. GPGX runs a
+whole 68k-bus DMA inside one call with `v_counter` frozen, so each burst is
+one DMA; the same scanline on consecutive frames is the game's per-frame
+vblank transfer. No command of any kind between the two bursts (the epoch
+walker saw none - the 0xAF for that frame sits outside them), so the pointer
+was neither re-pointed nor rewound between them.
+
+Frame 177: DMA the whole 1,024-word page. Frame 178: DMA 80 words **from
+0xC000 again**, with the decoder drained.
+
+- **GPGX (page):** no page turn (`decoder_size == 0`), so the DMA reads the
+  stale mirror - the first 80 words of the page it just loaded.
+- **Tape (real cart, Pocket RTL):** the pointer sits just past the payload;
+  the DMA reads the next 80 words of SDRAM - whatever follows.
+
+Both counters on the Pocket would count exactly 80 (ack == oe). The tape is
+**counting correctly and delivering different bytes**, because the game's
+access pattern assumes page semantics for that transfer. Five tiles (160
+bytes) of VRAM get different data on the two platforms, at a destination
+this log does not record.
+
+Why this matters beyond the subway: if the same pattern occurs in the
+elevator against the 32 KB background payload, it is a #8 mechanism that
+fits every constraint on the table - bytes correct (CRC card), block cache
+idle (onset ring), sprites clean (a different path), right art in the
+wrong place at first, then wrong art in the right cells as it accumulates -
+**and it is invisible to the epoch counter by construction.** It is the
+pre-registered "flat -> look past the cursor" branch, with a specific
+place to look.
+
+What is inference here: that the game *wanted* the old page. It could
+equally be an over-length DMA the game discards. The DMA-destination hook
+settles it (is the destination a live name-table/pattern region?), and an
+elevator log settles whether the pattern occurs in the shaft at all. Neither
+has been run. The subway has a history - the sprite-deletion bug was fixed
+there - and any residual tile garbage there was never looked for.
