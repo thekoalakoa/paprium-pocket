@@ -7979,3 +7979,17 @@ none within the gate. Not extended, per the lock. Fallback sweep started
 13:3x: original epoch RTL (`bace7b0`) at seeds 6-9, ring firmware 14844a95.
     epoch-rtl seed 6   ALM 18,105   setup -2.835   hold +0.061   md5 074cfd28   FAIL
     epoch-rtl seed 7   ALM 18,122   setup -3.057   hold +0.082   md5 13b68037   FAIL
+
+**Reviewer, 14:2x:** finish seeds 8-9; if both miss, stop - do not burn
+10-13. Next fit either way is the functional cut: the slot-5 read inside
+`fpgio.sv`, `paprium_cart`'s mux byte-identical to the ring build's. GPGX
+offline read-pattern logger greenlit as a parallel track (zero ALMs).
+
+**Logger hook, settled by reading:** in GPGX every read of `0xC000-0xFFFF` -
+CPU and 68k-bus VDP DMA - goes through `paprium_r16` (bank 0 has a `read16`
+handler, and `vdp_dma_68k_ext` uses the handler when one is set,
+`vdp_ctrl.c:3179`). Page turns are trapped at the top of the same function.
+One hook in its `default:` branch sees every word; `paprium_r8` gets a
+second for bytes. Question it answers: are the elevator's window reads
+tape-shaped (strictly sequential, one per word) or page-shaped (re-reads,
+holes, partial pages)?
