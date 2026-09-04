@@ -110,4 +110,4 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT HIGH
 set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 
-set_global_assignment -name SEED 6
+set_global_assignment -name SEED 8
