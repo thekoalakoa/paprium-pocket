@@ -127,9 +127,14 @@ module paprium_cart
 	// itself. No firmware assumption about the game's read pattern is needed.
 	// The latch is what the MCU reads; the live counters are never exposed, so a
 	// read cannot tear between an epoch's two halves.
-	reg [15:0] cnt_ack = 0, cnt_oe = 0;
-	reg [15:0] cnt_ack_l = 0, cnt_oe_l = 0;
-	reg  [2:0] oe_st = 0;
+	// noprune: with the slot-5 read term cut (bisect), nothing reads these. Left
+	// alone the fitter sweeps them and the "keep the counters" build silently
+	// becomes the ring build. Pinned, what survives of them is exactly their
+	// fanout on cart_oe/cart_cs/cpu.addr and the ack toggle - which is the thing
+	// this cut is meant to test against the functional mux term.
+	(* noprune *) reg [15:0] cnt_ack = 0, cnt_oe = 0;
+	(* noprune *) reg [15:0] cnt_ack_l = 0, cnt_oe_l = 0;
+	(* noprune *) reg  [2:0] oe_st = 0;
 	wire       oe_fall = (oe_st == 3'b110);
 	always @(posedge clk) begin
 		oe_st <= {oe_st[1:0], cart_oe & cart_cs & (cpu.addr[23:14] == 10'd3)};
@@ -157,8 +162,12 @@ module paprium_cart
 	wire mcu_ack_bram;
 	wire sdram_en;
 
+	// BISECT CUT 2 (boot hang, see PORT_PLAN): the slot-5 read term is removed
+	// from this mux. Counters, latches, the fpgio_wcnt decode and the McuMap
+	// field all stay, so the term is the only variable. A firmware that reads
+	// FPGAIO+0x14 gets 0xffffffff from fpgio.sv while this is in force.
+	//	mcu.map.fpgio_wcnt ? {cnt_ack_l, cnt_oe_l} :   // FPGAIO+0x14, read-only
 	wire [31:0] mcu_dati =
-		mcu.map.fpgio_wcnt ? {cnt_ack_l, cnt_oe_l} :   // FPGAIO+0x14, read-only
 		mcu.map.fpgio ? mcu_dati_fpgio :
 		mcu.map.ramdp ? mcu_dati_ramdp :
 		(mcu.map.flash | mcu.map.sdram) ? mcu_dati_mem :

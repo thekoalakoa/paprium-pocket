@@ -7884,3 +7884,39 @@ same placement and the same timing. So the control differs from the hanging
 build in **nothing but the ROM contents** - placement is held constant.
 Boots -> firmware, with no placement caveat. Hangs -> the RTL logic, or a
 glitch both placements share. Deployed, region zeroed, progress intact.
+
+
+#### Control result: HANGS. RTL side, placement held constant
+
+`80e68bc9` (epoch RTL, ring firmware) does not boot. Cold boot: a **red
+screen with `00F0` in the upper-left** - a harder failure than the splash
+freeze, recorded as observed and not explained. Soft reset: wedges on the
+disclaimer like `53076197`. The ring firmware never reads slot 5 and never
+calls the note, and the control's placement is identical to the hanging
+build's, so `snap_epoch_note` and the firmware statics are cleared. The fault
+is in the RTL additions, or in a glitch both placements share.
+
+#### Cut 2: mux term out, counters pinned
+
+Reviewer's call: drop the `mcu_dati` slot-5 term, keep the counters. One
+correction to make that a real cut: with the term gone nothing reads
+`cnt_ack_l`/`cnt_oe_l`, and the fitter sweeps the counters, latches and
+`oe_st` as dead logic - "keep the counters" silently becomes the ring build,
+and a boot would say only that *something* in the additions is at fault. So
+the five registers carry `(* noprune *)`. Pinned and unread, what survives
+of them is exactly their **fanout** on `cart_oe`, `cart_cs`, `cpu.addr`, the
+ack toggle and the `fpgio_sptr` write - the placement-pressure hypothesis -
+against the mux term's functional one. `fpgio_wcnt` decode and the `McuMap`
+field stay. Ring firmware `14844a95`, seed 5.
+
+    boots  -> the mux term was functional. A read term the firmware never
+              selects broke boot; the fix is to move the slot-5 read inside
+              fpgio.sv's own mux and leave paprium_cart's untouched.
+    hangs  -> the counters' fanout, or a glitch both placements share.
+              Cut 3 is then a SEED, not a removal: cut-2 RTL at seed 6.
+              Boots -> placement; hangs -> the counters' presence itself.
+
+Why the mux term is suspect at all: it is the only edit to pre-existing
+logic. The design fails timing by 2.4 ns on paths STA does not tie to
+function; a term at the head of the MCU's data-in mux reshapes that mux for
+every MCU read, not only slot 5.
