@@ -7307,7 +7307,7 @@ What is known:
 Settling it needs a runtime measurement, and every cheap one is RTL - which is the
 wall itself. Do not guess at it in either direction.
 
-## 2026-09-03, end of day - the stream-window path is CLEAN, and #8 is not in it
+## 2026-09-03, end of day - the POINTER CHOREOGRAPHY is coherent. That is all.
 
 Six mechanisms examined inside mega-ppm, all cleared. The picture that emerged is
 coherent and, as far as every measurement goes, correct behaviour.
@@ -7344,11 +7344,28 @@ hid the answer for two captures.
 **The decoder suppressed an all-zero list** with `if any(six)`, when zero was the
 measurement. A suppressed zero is a hidden result; it now always prints.
 
-### Where #8 goes next
+### What is actually proven, and what is not
 
-Not into this path. Everything from the mailbox command to the stream window to
-the SDRAM layout checks out. The remaining candidates are downstream of what the
-MCU controls:
+**Proven:** the pointer choreography is coherent - load at 0, stream it out over
+~158 reads, repeat. Destinations, ordering and the SDRAM layout all check out, and
+the sprite pad cannot collide with the payload.
+
+**NOT proven, and the earlier heading claimed it:** that the BYTES are right, or
+that they land in the right place in VRAM. "The path is clean" overshot by exactly
+that much. Two things remain firmly inside firmware scope:
+
+- **a wrong `src` in a `0xDA`** would produce a perfectly well-formed payload of
+  the WRONG DATA, streamed through a pointer sequence that measures as flawless.
+  Every counter built today would read healthy. This is still a stream/firmware
+  bug and it is not ruled out
+- the VDP DMA destination, and the plane's name table, are downstream
+
+The cheap next step for the first is firmware-only and mirrors what was just done
+for `dst`: **record the `src` argument of each `0xDA`**, and whether it repeats or
+advances. A `src` that does not move between chunks, or repeats across scenes,
+would show up immediately.
+
+### Downstream candidates
 
 - what the 68000 does with the streamed bytes - the VDP DMA destination
 - the decompression itself: wrong `src` in a `0xDA`, giving a correct-looking
