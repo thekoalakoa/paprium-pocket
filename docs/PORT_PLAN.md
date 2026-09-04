@@ -7972,3 +7972,8 @@ seeds 6-9, ring firmware, first placement >= -2.60 wins. Read, fixed now:
     hangs  -> functional -> the slot-5 read moves inside fpgio.sv's own mux
 
 Card stays on `dec2f09f` throughout.
+    cut-2 seed 9   ALM 18,114   setup -3.241   hold +0.095   md5 7f7d1bff   FAIL
+
+**Cut 2 closed.** Five placements (-3.343, -2.989, -2.812, -4.609, -3.241),
+none within the gate. Not extended, per the lock. Fallback sweep started
+13:3x: original epoch RTL (`bace7b0`) at seeds 6-9, ring firmware 14844a95.
