@@ -8635,3 +8635,13 @@ old cache path stays selectable for A/B. Risk: staging is `0x9000..0x9000
 and clear of the `0xDA` sprite-pad payloads only if those are not live at
 frame end - the CRC card saw `0x9000` payloads up to 23 KB (`0xEB00`), and
 `0xAF` rewinds over them today already, so no new collision.
+
+**Cache placement, decided:** SDRAM is 2 MB (`0x200000`). Init data unpacks
+from `PPM_DATA_START_ADDR = 0x10000` upward (SMP, unk2, ANM, ...; the
+finish address is printed at boot, not fixed), and BGM modules unpack one
+at a time from that finish upward. The bg payloads own `0x0000-0x7FFF`, the
+pad `0x9000-0xFA00`. The decoded-block cache is read only by the MCU's
+memcpy, never by the tape, so it goes at the **top of SDRAM: `0x1F8000`,
+32 KB** (53 x 0x200 = 27 KB used). The BGM unpacker gets a runtime guard:
+a module whose decoded length would cross `0x1F8000` is refused with a
+print rather than silently corrupting the cache.
