@@ -8186,3 +8186,9 @@ build's (`c934a5f8`): 22,619 records, epoch 11, 256 words past the page.
 The instrument is deterministic; the finding is not an artefact of one
 build. Fitter idle pending the reviewer's sweep-or-pause call. Card on
 `dec2f09f`.
+
+**Cell room (cellroom.state), 30 s, no input:** a live scene (Tug mid-fight)
+with **zero window reads** - every sprite resident, nothing streams. Of the
+five states on hand only the subway streams unattended. The elevator log
+therefore needs a human ride, or a state saved at the instant the car
+starts descending (the shaft scrolls on its own from there).
