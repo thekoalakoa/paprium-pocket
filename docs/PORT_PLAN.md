@@ -7978,3 +7978,4 @@ Card stays on `dec2f09f` throughout.
 none within the gate. Not extended, per the lock. Fallback sweep started
 13:3x: original epoch RTL (`bace7b0`) at seeds 6-9, ring firmware 14844a95.
     epoch-rtl seed 6   ALM 18,105   setup -2.835   hold +0.061   md5 074cfd28   FAIL
+    epoch-rtl seed 7   ALM 18,122   setup -3.057   hold +0.082   md5 13b68037   FAIL
