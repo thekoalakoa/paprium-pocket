@@ -8292,3 +8292,12 @@ Clean repeated texture = the tape is not serving scratch there and the
 model needs revisiting; fragments or garbage in that band = the mechanism
 is on hardware in a second scene, and the padding fix has a target the eye
 can verify.
+
+**Scene names, per the tester:** *subway* is the platform right before
+boarding; *train* is inside the car. State 8 loads on the subway platform
+and boards the train during the run: the 12-DMA stream at frames 167-178 is
+**the train interior's tileset being loaded as the player boards**, and the
+54 cells painting tile 1509 are the train car's ceiling strip and strap
+rail. Everywhere above that says "subway" about the over-read, the stream,
+the 54 cells or the by-eye check, read **train**. The sprite-deletion bug
+that was fixed earlier was the subway platform; this is the next scene.
