@@ -8179,3 +8179,10 @@ depends on the DMA-destination hook and an elevator log, both of which cost
 no ALMs. If the hook shows the over-read words landing somewhere harmless
 in the elevator, the counter is back on; if they land in live tiles, #8
 has a different mechanism and the counter was never going to find it.
+
+**Reproducibility (15:4x):** the script-built core (`46fe2c60`) replays
+subway state 8 for 600 frames to a log **byte-identical** to the first
+build's (`c934a5f8`): 22,619 records, epoch 11, 256 words past the page.
+The instrument is deterministic; the finding is not an artefact of one
+build. Fitter idle pending the reviewer's sweep-or-pause call. Card on
+`dec2f09f`.
