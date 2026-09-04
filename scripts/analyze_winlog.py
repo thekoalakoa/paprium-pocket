@@ -32,7 +32,7 @@ import struct
 import sys
 from collections import Counter
 
-KIND = {0: 'word', 1: 'byte', 2: 'page', 3: 'DB', 4: 'DA', 5: 'AF', 6: 'dma', 7: 'dma+'}
+KIND = {0: 'word', 1: 'byte', 2: 'page', 3: 'DB', 4: 'DA', 5: 'AF', 6: 'dma', 7: 'dma+', 8: 'mbx', 9: 'stat', 10: 'PC', 11: 'AE'}
 
 
 def main():
@@ -47,7 +47,7 @@ def main():
     print("records : %d   %s" % (n, "  ".join("%s %d" % (KIND.get(k, k), c) for k, c in sorted(kinds.items()))))
     # kind 7 carries the 68000 source in its stamp, not a frame; take the max
     # frame over the records that do carry one
-    frames = max((r[3] >> 16) for r in recs if r[0] <= 6)
+    frames = max((r[3] >> 16) for r in recs if r[0] != 7 and r[0] != 10)
     print("frames  : %d   (%.1f s at 60 Hz)" % (frames, frames / 60.0))
 
     # walk epochs
@@ -80,8 +80,8 @@ def main():
 
     for kind, _, addr, stamp in recs:
         fr = stamp >> 16
-        if kind in (6, 7):
-            continue
+        if kind >= 6:
+            continue                      # DMA, mailbox, PC and frame-start records are not window reads
         if kind in (3, 4, 5, 2):
             if kind == 2:
                 # A page turn is "early" only against a page opened in THIS

@@ -13,18 +13,32 @@ one is set (vdp_ctrl.c:3179). So CPU reads and 68k-bus VDP DMA reads of
 trapped at the top of the same function. Byte reads go via paprium_r8.
 
 Record, 8 bytes, little-endian:
-    u8   kind     0 = word read   1 = byte read   2 = page turn   3 = 0xDB cmd   4 = 0xDA cmd   5 = 0xAF cmd
-    u8   pad
-    u16  address  (kind 0/1: the 68000 address; kind 2: page size; kind 3: cmd arg low)
+    u8   kind     0 word read        address = 68000 address
+                  1 byte read        address = 68000 address
+                  2 page turn        address = page size in bytes
+                  3 0xDB command     address = offset word at 0x1E12, pad = size at 0x1E14 / 64
+                  4 0xDA command     address = command low byte (mode)
+                  5 0xAF frame end
+                  8 word read of 0x1FEA (mailbox command word)
+                  9 word/byte read of 0x1FE4..0x1FEB (status words)   address = address
+                 10 PC of the 68000 at a 0xDB write   pad = PC bits 23..16, address = bits 15..0
+                 11 0xAE frame start
+    u8   pad      see above
+    u16  address
     u32  stamp    frame counter (high 16) | v_counter (low 16)
 
-The question this exists to answer: are the elevator's window reads
-TAPE-shaped (strictly sequential, one read per word, no re-reads, no holes)
-or PAGE-shaped? A tape RTL is right by construction only for the first.
+This file is written with the Write tool on purpose: every heredoc that
+carried escape sequences arrived with a backslash stripped, and a broken
+version of this applier produced three stale-core runs before anyone
+noticed the build had been dying at this step. No backslash escapes below:
+tabs and newlines are built with chr().
 """
 import sys
 
 MARK = "PAPRIUM_WINLOG"
+TAB = chr(9)
+NL = chr(10)
+Q = chr(34)
 
 
 def main():
@@ -35,92 +49,102 @@ def main():
 
     # 1. switch + writer, next to DEBUG_MODE
     old = "#define DEBUG_MODE 0"
-    assert old in s
-    s = s.replace(old, old + """
-
-/* paprium-pocket: window read logger. See scripts/apply_gpgx_winlog.py. */
-#define PAPRIUM_WINLOG 1
-#if PAPRIUM_WINLOG
-#include <stdio.h>
-static FILE *winlog_fp = NULL;
-static unsigned int winlog_frames = 0;
-static void winlog(unsigned char kind, unsigned short address)
-{
-    unsigned char rec[8];
-    unsigned int stamp;
-    if (!winlog_fp) {
-        winlog_fp = fopen("paprium_winlog.bin", "wb");
-        if (!winlog_fp) return;
-    }
-    stamp = (winlog_frames << 16) | (v_counter & 0xFFFF);
-    rec[0] = kind; rec[1] = 0;
-    rec[2] = address & 0xFF; rec[3] = address >> 8;
-    rec[4] = stamp & 0xFF; rec[5] = (stamp >> 8) & 0xFF;
-    rec[6] = (stamp >> 16) & 0xFF; rec[7] = (stamp >> 24) & 0xFF;
-    fwrite(rec, 1, 8, winlog_fp);
-}
-#endif""")
+    assert old in s, "DEBUG_MODE"
+    s = s.replace(old, old + NL.join([
+        "",
+        "",
+        "/* paprium-pocket: window read logger. See scripts/apply_gpgx_winlog.py. */",
+        "#define PAPRIUM_WINLOG 1",
+        "#if PAPRIUM_WINLOG",
+        "#include <stdio.h>",
+        "static FILE *winlog_fp = NULL;",
+        "static unsigned int winlog_frames = 0;",
+        "static void winlog_raw(unsigned char kind, unsigned char pad, unsigned short address, unsigned int stamp)",
+        "{",
+        "    unsigned char rec[8];",
+        "    if (!winlog_fp) {",
+        "        winlog_fp = fopen(" + Q + "paprium_winlog.bin" + Q + ", " + Q + "wb" + Q + ");",
+        "        if (!winlog_fp) return;",
+        "    }",
+        "    rec[0] = kind; rec[1] = pad;",
+        "    rec[2] = address & 0xFF; rec[3] = address >> 8;",
+        "    rec[4] = stamp & 0xFF; rec[5] = (stamp >> 8) & 0xFF;",
+        "    rec[6] = (stamp >> 16) & 0xFF; rec[7] = (stamp >> 24) & 0xFF;",
+        "    fwrite(rec, 1, 8, winlog_fp);",
+        "}",
+        "static void winlog(unsigned char kind, unsigned short address)",
+        "{",
+        "    winlog_raw(kind, 0, address, (winlog_frames << 16) | (v_counter & 0xFFFF));",
+        "}",
+        "#endif",
+    ]))
 
     # 2. page turn: right after decoder_ptr advances
-    old = """		paprium_s.decoder_ptr += size;
-		paprium_s.decoder_size -= size;
-	}"""
-    assert old in s
-    s = s.replace(old, """		paprium_s.decoder_ptr += size;
-		paprium_s.decoder_size -= size;
-#if PAPRIUM_WINLOG
-		winlog(2, (unsigned short) size);
-#endif
-	}""")
+    old = NL.join([TAB + TAB + "paprium_s.decoder_ptr += size;",
+                   TAB + TAB + "paprium_s.decoder_size -= size;",
+                   TAB + "}"])
+    assert old in s, "page turn"
+    s = s.replace(old, NL.join([TAB + TAB + "paprium_s.decoder_ptr += size;",
+                                TAB + TAB + "paprium_s.decoder_size -= size;",
+                                "#if PAPRIUM_WINLOG",
+                                TAB + TAB + "winlog(2, (unsigned short) size);",
+                                "#endif",
+                                TAB + "}"]))
 
     # 3. word reads of the window: the default branch of paprium_r16
-    old = """	default:
-		data = *(uint16 *)(paprium_s.ram + address);
-		break;
-	}"""
-    assert old in s
-    s = s.replace(old, """	default:
-		data = *(uint16 *)(paprium_s.ram + address);
-#if PAPRIUM_WINLOG
-		if (address >= 0xC000) winlog(0, (unsigned short) address);
-#endif
-		break;
-	}""")
+    old = NL.join([TAB + "default:",
+                   TAB + TAB + "data = *(uint16 *)(paprium_s.ram + address);",
+                   TAB + TAB + "break;",
+                   TAB + "}"])
+    assert old in s, "r16 default"
+    s = s.replace(old, NL.join([TAB + "default:",
+                                TAB + TAB + "data = *(uint16 *)(paprium_s.ram + address);",
+                                "#if PAPRIUM_WINLOG",
+                                TAB + TAB + "if (address >= 0xC000) winlog(0, (unsigned short) address);",
+                                "#endif",
+                                TAB + TAB + "break;",
+                                TAB + "}"]))
 
-    # 4. byte reads of the window
-    old = "	int data = paprium_s.ram[address^1];"
-    assert s.count(old) == 1, s.count(old)
-    s = s.replace(old, old + """
-#if PAPRIUM_WINLOG
-	if (address >= 0xC000) winlog(1, (unsigned short) address);
-#endif""")
+    # 3b. word reads of the mailbox command/status words through paprium_r16
+    old = NL.join([TAB + "switch( address ) {", TAB + "case 0x1FE4:"])
+    assert old in s, "r16 switch head"
+    s = s.replace(old, NL.join(["#if PAPRIUM_WINLOG",
+                                TAB + "if (address == 0x1FEA) winlog(8, 0x1FEA);",
+                                TAB + "else if (address == 0x1FE4 || address == 0x1FE6) winlog(9, (unsigned short) address);",
+                                "#endif",
+                                TAB + "switch( address ) {", TAB + "case 0x1FE4:"]), 1)
 
-    # 5. the commands that move the pointer, as epoch markers. paprium_cmd(int
-    #    data) takes the whole 16-bit word and derives cmd = data >> 8 on its
-    #    first line; hook right after that. (An earlier draft fell back to the
-    #    'case 0x1FEA:' label, which is in paprium_r16 - a READ of the command
-    #    register - and would have marked epochs on the wrong event.)
-    old = """static void paprium_cmd(int data)
-{
-	int cmd = data >> 8;"""
-    assert old in s, "paprium_cmd head not in the expected shape"
-    s = s.replace(old, old + """
-#if PAPRIUM_WINLOG
-	if (cmd == 0xDB) winlog(3, (unsigned short)(data & 0xFF));
-	else if (cmd == 0xDA) winlog(4, (unsigned short)(data & 0xFF));
-	else if (cmd == 0xAF) winlog(5, 0);
-#endif""", 1)
+    # 4. byte reads of the window, and byte reads of the mailbox words
+    old = TAB + "int data = paprium_s.ram[address^1];"
+    assert s.count(old) == 1, ("r8", s.count(old))
+    s = s.replace(old, NL.join([old,
+                                "#if PAPRIUM_WINLOG",
+                                TAB + "if (address >= 0xC000) winlog(1, (unsigned short) address);",
+                                TAB + "else if (address >= 0x1FE4 && address <= 0x1FEB) winlog(9, (unsigned short) address);",
+                                "#endif"]))
 
-    # 6. frame counter: paprium_audio(int cycles) is called from system.c once
-    #    per frame's audio step. v_counter in the stamp orders reads within a
-    #    frame; this orders frames.
-    old = """void paprium_audio(int cycles)
-{"""
-    assert old in s, "paprium_audio not found"
-    s = s.replace(old, old + """
-#if PAPRIUM_WINLOG
-	winlog_frames++;
-#endif""", 1)
+    # 5. the commands: paprium_cmd(int data) derives cmd = data >> 8 first
+    old = NL.join(["static void paprium_cmd(int data)", "{", TAB + "int cmd = data >> 8;"])
+    assert old in s, "paprium_cmd head"
+    s = s.replace(old, old + NL + NL.join([
+        "#if PAPRIUM_WINLOG",
+        TAB + "{",
+        TAB + TAB + "unsigned int pc = m68k.pc;",
+        TAB + TAB + "unsigned short off = *(uint16 *)(paprium_s.ram + 0x1E12);",
+        TAB + TAB + "unsigned short sz  = *(uint16 *)(paprium_s.ram + 0x1E14);",
+        TAB + TAB + "unsigned int stamp = (winlog_frames << 16) | (v_counter & 0xFFFF);",
+        TAB + TAB + "if (cmd == 0xDB) { winlog_raw(3, (unsigned char)(sz >> 6), off, stamp); winlog_raw(10, (pc >> 16) & 0xFF, (unsigned short)(pc & 0xFFFF), stamp); }",
+        TAB + TAB + "else if (cmd == 0xDA) winlog_raw(4, 0, (unsigned short)(data & 0xFF), stamp);",
+        TAB + TAB + "else if (cmd == 0xAF) winlog_raw(5, 0, 0, stamp);",
+        TAB + TAB + "else if (cmd == 0xAE) winlog_raw(11, 0, 0, stamp);",
+        TAB + "}",
+        "#endif",
+    ]), 1)
+
+    # 6. frame counter: paprium_audio(int cycles) runs once per frame's audio step
+    old = NL.join(["void paprium_audio(int cycles)", "{"])
+    assert old in s, "paprium_audio"
+    s = s.replace(old, old + NL + NL.join(["#if PAPRIUM_WINLOG", TAB + "winlog_frames++;", "#endif"]), 1)
 
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
     print("applied to", p)
