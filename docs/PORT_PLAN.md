@@ -8568,3 +8568,27 @@ unpack cache, but assign VRAM tiles in list order (`16 + 16k` for the
 k-th block of the frame) and DMA every listed block from its SDRAM slot
 every frame, as the retail cart does. The game's `dma_budget` is sized for
 it (16 blocks; GPGX streams 9 in the shaft). Design for the reviewer.
+
+**Pulse narrowed** to `0xDB`/`0xDA` only; other commands keep busy up. New
+firmware md5 in the build log; the card still carries the wide-pulse
+`7e43f08f`. Not fitted - it rides with the next card.
+
+**Sizing the layout fix.** `ppm_vram_load_block`: a block already in a slot
+returns that slot's tile with no DMA; a new block takes an LRU slot, is
+unpacked, DMA'd once, and returns the slot's tile. The retail contract is
+list-order placement re-streamed every frame. The change:
+
+  1. `ppm_obj_render`: the k-th block of the frame's list gets VRAM tile
+     `16 + 16k` regardless of which SDRAM slot holds it (the slot stays the
+     unpack cache; `ppm_vram_load_block` still decides load-or-hit).
+  2. every listed block is DMA'd from its SDRAM slot to its list-order
+     tile every frame, budget-checked per block as now (`0x110` each; the
+     game's `dma_budget` allows 16, GPGX streams 9 in the shaft).
+  3. the frame-end `0x9000` rewind and the DMA descriptor table are
+     unchanged in mechanism; only the destination tiles and the "already
+     resident, skip DMA" shortcut change.
+
+Firmware only, dec2f09f's placement. Risk: the extra DMA per frame for
+cached blocks costs budget the cache was saving; if a scene's list exceeds
+the budget the game itself would also exceed it on the retail cart, so the
+budget refusals should not rise. The onset ring measures exactly that.
