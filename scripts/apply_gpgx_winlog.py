@@ -23,6 +23,8 @@ Record, 8 bytes, little-endian:
                   9 word/byte read of 0x1FE4..0x1FEB (status words)   address = address
                  10 PC of the 68000 at a 0xDB write   pad = PC bits 23..16, address = bits 15..0
                  11 0xAE frame start
+                 12 PC of the 68000 at a read of 0x1FE4/0x1FE6   pad = PC 23..16, address = PC 15..0
+                    (follows the kind-9 record it belongs to)
     u8   pad      see above
     u16  address
     u32  stamp    frame counter (high 16) | v_counter (low 16)
@@ -31,7 +33,7 @@ This file is written with the Write tool on purpose: every heredoc that
 carried escape sequences arrived with a backslash stripped, and a broken
 version of this applier produced three stale-core runs before anyone
 noticed the build had been dying at this step. No backslash escapes below:
-tabs and newlines are built with chr().
+tabs, newlines and quotes are built with chr().
 """
 import sys
 
@@ -76,6 +78,14 @@ def main():
         "{",
         "    winlog_raw(kind, 0, address, (winlog_frames << 16) | (v_counter & 0xFFFF));",
         "}",
+        "/* a status-word read plus the PC that issued it */",
+        "static void winlog_status(unsigned short address)",
+        "{",
+        "    unsigned int stamp = (winlog_frames << 16) | (v_counter & 0xFFFF);",
+        "    unsigned int pc = m68k.pc;",
+        "    winlog_raw(9, 0, address, stamp);",
+        "    winlog_raw(12, (pc >> 16) & 0xFF, (unsigned short)(pc & 0xFFFF), stamp);",
+        "}",
         "#endif",
     ]))
 
@@ -110,7 +120,7 @@ def main():
     assert old in s, "r16 switch head"
     s = s.replace(old, NL.join(["#if PAPRIUM_WINLOG",
                                 TAB + "if (address == 0x1FEA) winlog(8, 0x1FEA);",
-                                TAB + "else if (address == 0x1FE4 || address == 0x1FE6) winlog(9, (unsigned short) address);",
+                                TAB + "else if (address == 0x1FE4 || address == 0x1FE6) winlog_status((unsigned short) address);",
                                 "#endif",
                                 TAB + "switch( address ) {", TAB + "case 0x1FE4:"]), 1)
 
@@ -120,7 +130,7 @@ def main():
     s = s.replace(old, NL.join([old,
                                 "#if PAPRIUM_WINLOG",
                                 TAB + "if (address >= 0xC000) winlog(1, (unsigned short) address);",
-                                TAB + "else if (address >= 0x1FE4 && address <= 0x1FEB) winlog(9, (unsigned short) address);",
+                                TAB + "else if (address >= 0x1FE4 && address <= 0x1FEB) winlog_status((unsigned short) address);",
                                 "#endif"]))
 
     # 5. the commands: paprium_cmd(int data) derives cmd = data >> 8 first
