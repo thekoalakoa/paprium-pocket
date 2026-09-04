@@ -410,42 +410,36 @@ def main():
             print("     offset 0. The payload the 0xDB feeder reads at 0x80..0x7F80")
             print("     lives there, so the region IS legitimately written.")
             print("     The sprite pad starts at 0x9000 and never overlaps it.")
-        n = o[24]
-    rep = o[25]
-    if n:
+        # 16B x 48 records, meta at +768. Always print rows, including zeros - a
+    # suppressed zero has hidden a finding here before.
+    mn, cap = struct.unpack('>HH', o[768:772])
+    fence_crc, fence_len, tag, fence_age = struct.unpack('>4I', o[772:788])
+    print()
+    print("0xDA PAYLOAD CRCs   (%d of %d recorded, tag 0x%08X)" % (mn, cap, tag))
+    print("    #        src         dst        len        crc32")
+    rows = []
+    for i in range(min(mn, cap)):
+        src, ln, crc, dst = struct.unpack('>4I', o[i*16:(i+1)*16])
+        rows.append((src, ln, crc, dst))
+        if i < 16:
+            print("  %3d  0x%08X  0x%06X  %8d  0x%08X" % (i, src, dst, ln, crc))
+    if mn > 16:
+        print("  ... %d more" % (mn - 16))
+    print()
+    print("  fence crc  : 0x%08X over [0, 0x%X)" % (fence_crc, fence_len))
+    print("  fence age  : %d frames" % fence_age)
+    print("     (the fence is taken once per 60 in-game frames, plus a refresh")
+    print("      right after any 0xDA that expanded inside the region - a 32 KB")
+    print("      CRC every SAT frame would tax the MCU ~18% and corrupt the very")
+    print("      scene being measured)")
+    if rows:
+        crcs = [r[2] for r in rows]
+        print("  distinct payload CRCs : %d of %d" % (len(set(crcs)), len(crcs)))
         print()
-        print("0xDA SOURCES  (%d recorded, %d repeated the previous src)" % (n, rep))
-        print("    #        src        expanded")
-        rows = []
-        for i in range(min(n, 60)):
-            src, ln = struct.unpack('>II', o[28 + i*8: 36 + i*8])
-            rows.append((src, ln))
-        for i, (src, ln) in enumerate(rows[:12]):
-            print("  %3d  0x%08X  %8d" % (i, src, ln))
-        if len(rows) > 12:
-            print("  ... %d more" % (len(rows) - 12))
-        srcs = [r[0] for r in rows]
-        lens = [r[1] for r in rows]
-        distinct = len(set(srcs))
-        print()
-        print("  distinct sources : %d of %d" % (distinct, len(srcs)))
-        print("  expanded range   : %d .. %d bytes" % (min(lens), max(lens)))
-        # A single consecutive repeat is noise - the game revisits tilesets. The
-        # failure mode worth chasing is a source that STOPS ADVANCING, which shows
-        # as repeats being a real fraction of the calls, not one in fifty.
-        if rep * 10 > len(srcs):
-            print("  -> %d of %d 0xDA calls decompressed the SAME source as the" % (rep, len(srcs)))
-            print("     before. A payload that never changes while the game streams")
-            print("     new background would look exactly like tiles that stop")
-            print("     updating. Worth chasing.")
-        else:
-            print("  -> sources advance. %d distinct of %d, %d consecutive repeat(s)"
-                  % (distinct, len(srcs), rep))
-            print("     - the duplicates are the game revisiting tilesets, which is")
-            print("     ordinary. A stale-source bug is not it. Next is the")
-            print("     CRC-vs-GPGX card, NOT VDP/nametable.")
-
-        print("  These are the only firmware writes below 0x9000.")
+        print("  Compare against the GPGX twin over decoder_ram with the same")
+        print("  algorithm. MATCH -> the payload is byte-correct and #8 leaves the")
+        print("  stream path for 68000->VDP DMA / nametable. MISMATCH -> the")
+        print("  unpack is wrong and it is still firmware.")
 
     # The object-table dump was reclaimed as counter space - it had not informed a
     # conclusion since the SAT ownership map was deleted, while every new counter
