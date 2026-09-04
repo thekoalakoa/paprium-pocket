@@ -7956,3 +7956,7 @@ Reading, once a seed passes and is booted:
               RTL counter can be added to this design at all under the
               current gate, or whether the epoch measurement has to come from
               somewhere that adds no logic to the MCU or 68000 paths.
+
+    cut-2 seed 6   ALM 18,162   setup -2.989   hold +0.087   md5 2635f4cb   FAIL
+    cut-2 seed 7   ALM 18,199   setup -2.812   hold +0.044   md5 7d160710   FAIL
+    (seed 8, 9 in progress)
