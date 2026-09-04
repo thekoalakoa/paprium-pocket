@@ -32,7 +32,7 @@ import struct
 import sys
 from collections import Counter
 
-KIND = {0: 'word', 1: 'byte', 2: 'page', 3: 'DB', 4: 'DA', 5: 'AF'}
+KIND = {0: 'word', 1: 'byte', 2: 'page', 3: 'DB', 4: 'DA', 5: 'AF', 6: 'dma', 7: 'dma+'}
 
 
 def main():
@@ -63,8 +63,23 @@ def main():
     prev = None
     page_size = None
     page_read = 0
+    # 68k-bus VDP DMA records (apply_gpgx_dmalog.py): kind 6 carries the VDP
+    # address register and the frame stamp, kind 7 the length (words), the
+    # code register in the pad byte, and the 68000 source in the stamp.
+    dmas = []
+    pend = None
+    for kind, pad, addr, stamp in recs:
+        if kind == 6:
+            pend = (stamp >> 16, stamp & 0xFFFF, addr)
+        elif kind == 7 and pend is not None:
+            dmas.append({'frame': pend[0], 'vc': pend[1], 'dest': pend[2],
+                         'code': pad, 'len': addr, 'src': stamp})
+            pend = None
+
     for kind, _, addr, stamp in recs:
         fr = stamp >> 16
+        if kind in (6, 7):
+            continue
         if kind in (3, 4, 5, 2):
             if kind == 2:
                 # A page turn is "early" only against a page opened in THIS
@@ -123,6 +138,31 @@ def main():
     tot_ho = sum(e['holes'] for e in epochs)
     tot_by = sum(e['bytes'] for e in epochs)
     tot_ea = sum(1 for e in epochs if e['early'])
+
+    if dmas:
+        tgt = {1: 'VRAM', 3: 'CRAM', 5: 'VSRAM'}
+        win = [d for d in dmas if 0xC000 <= (d['src'] & 0xFFFF) <= 0xFFFF and (d['src'] >> 16) == 0]
+        print()
+        print("68K-BUS VDP DMA  (%d transfers, %d sourced from the stream window)" % (len(dmas), len(win)))
+        print("   frame   vc   src       dest    target   words")
+        for d in win[:60]:
+            print("  %6d  %3d  0x%06X  0x%04X  %-6s  %5d"
+                  % (d['frame'], d['vc'], d['src'], d['dest'], tgt.get(d['code'], '0x%X' % d['code']), d['len']))
+        if len(win) > 60:
+            print("  ... %d more" % (len(win) - 60))
+        # Cross-reference: for every epoch that read PAST a drained page (the
+        # over-read), was there a DMA whose source range covers those words?
+        # A DMA that does -> the words were CONSUMED into VRAM at 'dest'.
+        for i, e in enumerate(epochs):
+            if e['rereads'] and e['page']:
+                lo = 0xC000 + e['page']       # first over-read byte address
+                hits = [d for d in win if d['frame'] in (e['start'], e['start'] + 1)
+                        and (d['src'] & 0xFFFF) <= lo < (d['src'] & 0xFFFF) + d['len'] * 2]
+                if hits:
+                    print("  epoch %d over-read is INSIDE a DMA: dest 0x%04X %s, %d words from 0x%04X -> CONSUMED"
+                          % (i, hits[0]['dest'], tgt.get(hits[0]['code'], '?'), hits[0]['len'], hits[0]['src'] & 0xFFFF))
+                else:
+                    print("  epoch %d over-read is covered by NO DMA in its frames -> not consumed by DMA" % i)
 
     print()
     print("VERDICT")
