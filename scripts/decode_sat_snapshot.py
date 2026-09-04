@@ -430,18 +430,20 @@ def main():
         print()
         print("  distinct sources : %d of %d" % (distinct, len(srcs)))
         print("  expanded range   : %d .. %d bytes" % (min(lens), max(lens)))
-        if rep:
-            print("  -> %d 0xDA calls decompressed the SAME source as the one" % rep)
+        # A single consecutive repeat is noise - the game revisits tilesets. The
+        # failure mode worth chasing is a source that STOPS ADVANCING, which shows
+        # as repeats being a real fraction of the calls, not one in fifty.
+        if rep * 10 > len(srcs):
+            print("  -> %d of %d 0xDA calls decompressed the SAME source as the" % (rep, len(srcs)))
             print("     before. A payload that never changes while the game streams")
             print("     new background would look exactly like tiles that stop")
             print("     updating. Worth chasing.")
-        elif distinct == len(srcs):
-            print("  -> every source is distinct and none repeats. The srcs look")
-            print("     sane, so a stale-source bug is not it. Next is the")
-            print("     CRC-vs-GPGX card, not VDP/nametable.")
         else:
-            print("  -> sources repeat but not consecutively, which may just be the")
-            print("     game revisiting chunks. Compare against a clean scene.")
+            print("  -> sources advance. %d distinct of %d, %d consecutive repeat(s)"
+                  % (distinct, len(srcs), rep))
+            print("     - the duplicates are the game revisiting tilesets, which is")
+            print("     ordinary. A stale-source bug is not it. Next is the")
+            print("     CRC-vs-GPGX card, NOT VDP/nametable.")
 
         print("  These are the only firmware writes below 0x9000.")
 
