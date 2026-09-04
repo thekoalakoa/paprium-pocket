@@ -7866,3 +7866,8 @@ placement only, and a placement result cannot be read until the logic is
 cleared. Its partial state was deleted before the control fit.
 
 Card is on `dec2f09f` for the boot A/B against card and game state.
+
+**A/B result:** `dec2f09f` boots past the disclaimer on the same card and
+save. Card and game state cleared; the hang belongs to bitstream `53076197`
+- its RTL additions, its firmware, or its fit. The control (epoch RTL, ring
+firmware) is the cut between the first two.
