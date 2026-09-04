@@ -8115,3 +8115,17 @@ settles it (is the destination a live name-table/pattern region?), and an
 elevator log settles whether the pattern occurs in the shaft at all. Neither
 has been run. The subway has a history - the sprite-deletion bug was fixed
 there - and any residual tile garbage there was never looked for.
+
+**Correction to the figure above (15:2x):** the page that opened epoch 11
+was **0x6A0 = 848 words**, the short tail of a payload, not a full 0x800.
+The game's vblank DMA is a fixed 1,024 words (every 2,048-byte page in the
+log is read as exactly 1,024; the small 416/192/128-byte chunks exactly),
+so the first burst alone overran the payload by 176 words, and the second
+80-word burst from 0xC000 made it **256 words - 16 tiles - past the payload's
+end.** GPGX serves leftover mirror bytes for all 256; a tape serves the
+next 256 words of SDRAM. Page sizes in the subway log: 4096 x3, 2048 x10,
+1696 x1, 416, 192, 128 x64. Only the one short tail was over-read, so the
+mechanism is *systematic for any payload whose length is not a multiple of
+the fixed DMA size* - and the elevator's background payloads measured on
+the CRC card were exactly 16,384 and 32,768 bytes, page-aligned. Whether
+the shaft has short-tail pages at all is what the elevator log is for.
