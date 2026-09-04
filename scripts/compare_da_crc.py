@@ -23,12 +23,12 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 TWIN = os.path.join(HERE, '..', 'tools', 'da-twin', 'da_twin.exe')
 
-# Same arena base as decode_sat_snapshot.py: the snapshot region starts at
-# 0x900 in the save, and the CRC record array sits 8 + 640 + 0x10 into it.
-# The tag check below is what actually validates this - do not adjust the
-# constant to make the tag pass, find out why it moved.
-SNAP_BASE = 0x900
-ARENA = SNAP_BASE + 8 + 640 + 0x10
+# The save carries a 16-byte boot header at 0x900; the snapshot proper starts
+# at 0x910, and the CRC record array sits 8 + 640 into that. The tag check
+# below is what actually validates this - do not adjust the constant to make
+# the tag pass, find out why it moved.
+SNAP_BASE = 0x910
+ARENA = SNAP_BASE + 8 + 640
 
 
 def swapped(b):
