@@ -8242,3 +8242,37 @@ Firmware-only: a ROM-only change refits onto the ring RTL at seed 5 with
 the placement `dec2f09f` already has (-2.549, boots), exactly as the
 control demonstrated. Not built until the elevator log says the mechanism
 is present in the shaft. The fitter stays idle by the reviewer's call.
+
+### The page model's over-read content is an exact formula; the tape can reproduce it
+
+Verified in the subway savestate: VRAM `0xBCA0-0xBE9F` (the 256 over-read
+words) **equals, byte for byte,** `previous page's tail` followed by `this
+page's head` - i.e. what GPGX's mirror holds after the last page turn.
+`decoder_size` in GPGX is the decompressor's own output count (the LZ loop's
+`size++`), not a header field; mega-ppm's `ppm_unpack` returns the same kind
+of count. The CRC card compared those two decoders to each other.
+
+Name tables in that state: **tile 1509 - the first over-read tile - is
+referenced ~100 times on plane A, dozens on screen, in every palette and
+flip**; tile 1517 a few times. No DMA ever wrote `0xBCA0-0xBE9F` before the
+over-read. The game paints a tile the payload never delivered. In GPGX it
+shows tile 1445's bytes (a dithered texture) and everyone calls the subway
+clean; on the Pocket it shows whatever SDRAM holds past the payload.
+
+Mode -> page size, both sides: the `0xDA` command word's low byte is the
+mode (GPGX `case 0xDA: paprium_decoder(data)`; firmware `reg_cmd & 0xFF`,
+the dispatcher already splits `reg_cmd >> 8` off as the command). Mode 2 ->
+0x4000, mode 7 -> 0x800.
+
+**Fix, exactly (`PPM_DA_PAD`):** after `len = ppm_unpack(src, dst)`, with
+`P = mode == 2 ? 0x4000 : 0x800` and `T = len % P`, if `T != 0`:
+
+    SDRAM[dst+len       .. dst+len+(P-T))  <-  SDRAM[dst+len-P .. dst+len-T)   previous page's tail
+    SDRAM[dst+len+(P-T) .. dst+len+P)      <-  SDRAM[dst+len-T .. dst+len)     this page's head
+
+Two memcpys of at most P bytes, once per `0xDA`. Then a DMA that reads past
+the payload gets on the Pocket exactly the bytes it gets in GPGX. Firmware
+only; a ROM-only change refits onto the ring RTL at seed 5 with the
+placement `dec2f09f` already has. Bounded by the arena: `0x9000` payloads
+plus one page stay inside the sprite pad for every length on the CRC card;
+`dst 0` payloads are page-aligned (T = 0) and copy nothing.
