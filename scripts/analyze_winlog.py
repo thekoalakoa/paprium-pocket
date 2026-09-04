@@ -103,6 +103,7 @@ def main():
             cur = {'start': fr, 'reads': 0, 'rereads': 0, 'holes': 0, 'bytes': 0,
                    'first': None, 'last': None, 'page': None, 'early': False}
         cur['reads'] += 1
+        cur['bytes_read'] = cur.get('bytes_read', 0) + (1 if kind == 1 else 2)
         if cur['first'] is None:
             cur['first'] = addr
         cur['last'] = addr
@@ -122,22 +123,32 @@ def main():
 
     print()
     print("EPOCHS  (delimited by 0xDA / 0xDB / 0xAF and page turns)")
-    print("   #   frame   first    last    reads  rereads  holes  bytes  early  ended-by")
+    print("   #   frame   first    last    reads  rereads  holes  bytes  early   over  ended-by")
     bad = 0
     for i, e in enumerate(epochs):
+        # 'over': words read beyond the page that was opened for this epoch.
+        # Sequential in address, still an over-read on a tape: GPGX serves
+        # leftover mirror bytes past the page, a tape serves the SDRAM that
+        # follows the payload. Only meaningful when the epoch began with a
+        # page turn (page size known).
+        over = 0
+        if e['page']:
+            over = max(0, (e.get('bytes_read', 0) - e['page']) // 2)
+        e['over'] = over
         flag = ""
-        if e['rereads'] or e['holes'] or e['bytes'] or e['early']:
+        if e['rereads'] or e['holes'] or e['bytes'] or e['early'] or over:
             bad += 1
             flag = "  <-- not tape-shaped"
-        print("  %3d  %6d  0x%04X  0x%04X  %6d  %7d  %5d  %5d  %5s  %s%s"
+        print("  %3d  %6d  0x%04X  0x%04X  %6d  %7d  %5d  %5d  %5s  %5d  %s%s"
               % (i, e['start'], e['first'], e['last'], e['reads'], e['rereads'],
-                 e['holes'], e['bytes'], 'YES' if e['early'] else '-', e['end'], flag))
+                 e['holes'], e['bytes'], 'YES' if e['early'] else '-', over, e['end'], flag))
 
     tot_reads = sum(e['reads'] for e in epochs)
     tot_re = sum(e['rereads'] for e in epochs)
     tot_ho = sum(e['holes'] for e in epochs)
     tot_by = sum(e['bytes'] for e in epochs)
     tot_ea = sum(1 for e in epochs if e['early'])
+    tot_ov = sum(e.get('over', 0) for e in epochs)
 
     if dmas:
         tgt = {1: 'VRAM', 3: 'CRAM', 5: 'VSRAM'}
@@ -166,8 +177,8 @@ def main():
 
     print()
     print("VERDICT")
-    print("  epochs %d   reads %d   rereads %d   holes %d   byte reads %d   early page turns %d"
-          % (len(epochs), tot_reads, tot_re, tot_ho, tot_by, tot_ea))
+    print("  epochs %d   reads %d   rereads %d   holes %d   byte reads %d   early page turns %d   words read past a page %d"
+          % (len(epochs), tot_reads, tot_re, tot_ho, tot_by, tot_ea, tot_ov))
     if bad == 0:
         print("  TAPE-SHAPED. Every epoch reads strictly sequentially from its start,")
         print("  one word per read, and no page is turned early. A tape that advances")
