@@ -8192,3 +8192,53 @@ with **zero window reads** - every sprite resident, nothing streams. Of the
 five states on hand only the subway streams unattended. The elevator log
 therefore needs a human ride, or a state saved at the instant the car
 starts descending (the shaft scrolls on its own from there).
+
+### DMA hook: the subway over-read landed in background tiles (CONFIRMED)
+
+Core `fda1ce92` (`gpgx_winlog_build.sh --dma`), subway state 8, 600 frames:
+15,744 68k-bus DMAs, **12 sourced from the stream window**, one per frame at
+v_counter 225, each 1,024 words from `0xC000`:
+
+    frame  dest     frame  dest     frame  dest     frame  dest
+    167  0x6600     170  0x7E00     173  0x9600     176  0xAE00
+    168  0x6E00     171  0x8600     174  0x9E00     177  0xB600  <- 848 payload + 176 over
+    169  0x7600     172  0x8E00     175  0xA600     178  0xBE00  <- 80 over (second DMA)
+
+A contiguous fill of VRAM `0x6600-0xBE9F` = **tiles 816-1583, the subway's
+background tileset**, above the sprite slot pool (tiles 16-799). The 256
+over-read words land at `0xBCA0-0xBE9F` = **tiles 1509-1524**. Consumed,
+in the background pattern region. Not inference: measured.
+
+What the two platforms put there: GPGX, the stale mirror - the previous
+page's bytes at the same offsets, i.e. real tiles from the same tileset,
+visually plausible. The Pocket tape, the next 512 bytes of SDRAM after the
+payload - for a `0x9000` payload that is leftover sprite-block scratch from
+earlier frames: sprite fragments, flat fills. If those tiles are ever
+displayed, one platform shows plausible art and the other shows garbage.
+
+**Correction to the framing above.** "The real cartridge is a tape" was
+about krikzz's `mega-ppm` - the same replacement firmware and RTL the
+Pocket runs (`sdram_io.sv`). The retail cart runs WaterMelon's firmware,
+which nobody here has measured. GPGX is a reimplementation too. The two
+reimplementations diverge at the over-read and NEITHER is known to match
+the original; GPGX is the one that plays clean.
+
+**Elevator prediction, from the CRC card, to be tested not assumed:** the
+~23 KB payloads to `0x9000` (23232 / 23296 / 22496 / 23168 / 23200) are the
+same size class as this subway stream (24,224 bytes), so they are probably
+background tilesets streamed the same way, and their tails over-read by
+672 / 640 / 16 / 704 / 688 words - **40-44 tiles per payload**, against 16
+in the subway. The `dst 0` 16/32 KB payloads are page-aligned and would not
+over-read under a 2 KB DMA. The elevator log with DMA destinations decides
+whether the shaft streams the same way and where its tails land.
+
+**A fix candidate that costs no ALMs and keeps a known-good placement.**
+Make the tape serve what the page model serves: after every `0xDA` unpack
+of `len` bytes, have the firmware copy the bytes the stale mirror would
+hold into SDRAM `[dst+len, dst+len+2048)` - the previous page's tail
+followed by the last page's head, from the payload itself. Then an
+over-reading DMA gets the same bytes on the Pocket that it gets in GPGX.
+Firmware-only: a ROM-only change refits onto the ring RTL at seed 5 with
+the placement `dec2f09f` already has (-2.549, boots), exactly as the
+control demonstrated. Not built until the elevator log says the mechanism
+is present in the shaft. The fitter stays idle by the reviewer's call.
