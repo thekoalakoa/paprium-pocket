@@ -8301,3 +8301,10 @@ and boards the train during the run: the 12-DMA stream at frames 167-178 is
 rail. Everywhere above that says "subway" about the over-read, the stream,
 the 54 cells or the by-eye check, read **train**. The sprite-deletion bug
 that was fixed earlier was the subway platform; this is the next scene.
+
+**Formula validated on real data (16:2x):** `PPM_DA_PAD` as written in
+`paprium.c`, applied to the train tileset exactly as the twelve DMAs
+delivered it (VRAM `0x6600-0xBCA0`, 22,176 bytes, P 0x800, T 1,696),
+reproduces the 512 bytes GPGX's mirror actually served to the over-reading
+DMAs (`0xBCA0-0xBEA0`) **byte for byte**. The firmware is right before it is
+flashed. Pad fit launched at seed 5 on the ring RTL (`be39b32`).
