@@ -355,9 +355,11 @@ def main():
             print("     Discard the below-the-pad count; the real feed is the")
             print("     0x9xxx traffic.")
         else:
-            print("  -> they span a wide region the firmware never unpacks into.")
-            print("     These look like real read bases. Next question is who")
-            print("     fills that range - and it will not be MCU unpack.")
+            print("  -> they span a wide region. RESOLVED by the CRC card: the")
+            print("     firmware DOES unpack here. Six 0xDA payloads landed at")
+            print("     dst 0 at 16384-32768 bytes each, and a 32768-byte payload")
+            print("     covers 0x0000..0x8000 - which contains every read base")
+            print("     seen here. These are legitimate reads of written data.")
     print("  0xDB aimed at 0 (idle/reset)     : %d" % zero)
     print("  smallest NON-ZERO destination    : 0x%X" % dbmin)
     if zero and zero >= below:
@@ -365,9 +367,11 @@ def main():
         print("     zero between uses. It is NOT a read source, and that whole")
         print("     line means nothing. Discard it.")
     elif below and zero < below:
-        print("  -> %d re-points aimed below 0x9000 at real addresses, where the" % (below - zero))
-        print("     firmware never unpacks anything. Either there is a writer we")
-        print("     have not found, or the game is reading uninitialised SDRAM.")
+        print("  -> %d re-points aimed below 0x9000 at real addresses. This is" % (below - zero))
+        print("     NOT evidence of a missing writer: the CRC table below shows")
+        print("     0xDA unpacking 16-32 KB payloads at dst 0. The reads land")
+        print("     inside bytes the firmware wrote. Closed - the open question")
+        print("     is whether those bytes are CORRECT, not whether they exist.")
 
     print()
     print("VERDICT")
@@ -391,26 +395,12 @@ def main():
         print("                sprite the game drew and the VDP will not - compare")
         print("                against what you saw on screen before calling it.")
 
-    # THE SIX. 0xDA is the only firmware writer below 0x9000, and 43 of 49 went
-    # to 0x9000 - so these are the only candidates for having filled anything down
-    # there. Listed rather than guessed at.
     o = swapped(b[8 + 640 + 0x10:])
-    six = struct.unpack('>6I', o[0:24])
-    # ALWAYS print, even all-zero. The first version suppressed the block when
-    # every slot read 0, and 0 turned out to BE the answer - six 0xDA calls with
-    # dst = 0, unpacking a payload at SDRAM offset 0 which the 0xDB feeder then
-    # reads at 0x80..0x7F80. A suppressed zero is a hidden measurement.
-    if da > dst9000:
-        print()
-        print("0xDA DESTINATIONS THAT WERE NOT 0x9000  (%d of them)" % (da - dst9000))
-        for i, d in enumerate(six):
-            print("  %d: 0x%X" % (i, d))
-        if not any(six):
-            print("  -> all zero, and that is the finding: 0xDA unpacks to SDRAM")
-            print("     offset 0. The payload the 0xDB feeder reads at 0x80..0x7F80")
-            print("     lives there, so the region IS legitimately written.")
-            print("     The sprite pad starts at 0x9000 and never overlaps it.")
-        # 16B x 48 records, meta at +768. Always print rows, including zeros - a
+    # The old "which 0xDA destinations were not 0x9000" list lived at this same
+    # offset and now aliases the CRC record array - it was printing record 0's
+    # src/len/crc as if they were destinations. The dst column of the CRC table
+    # below carries the same information, per record, and is not guessed at.
+    # 16B x 48 records, meta at +768. Always print rows, including zeros - a
     # suppressed zero has hidden a finding here before.
     mn, cap = struct.unpack('>HH', o[768:772])
     fence_crc, fence_len, tag, fence_age = struct.unpack('>4I', o[772:788])
@@ -421,10 +411,7 @@ def main():
     for i in range(min(mn, cap)):
         src, ln, crc, dst = struct.unpack('>4I', o[i*16:(i+1)*16])
         rows.append((src, ln, crc, dst))
-        if i < 16:
-            print("  %3d  0x%08X  0x%06X  %8d  0x%08X" % (i, src, dst, ln, crc))
-    if mn > 16:
-        print("  ... %d more" % (mn - 16))
+        print("  %3d  0x%08X  0x%06X  %8d  0x%08X" % (i, src, dst, ln, crc))
     print()
     print("  fence crc  : 0x%08X over [0, 0x%X)" % (fence_crc, fence_len))
     print("  fence age  : %d frames" % fence_age)

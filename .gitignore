@@ -61,3 +61,6 @@ Paprium.md
 sfx-dump/
 cdda/
 cdda-blob/
+
+# built by hand from tools/da-twin/da_twin.c; see docs/CRC_SNAPSHOT.md
+tools/da-twin/da_twin.exe
