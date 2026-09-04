@@ -8070,3 +8070,8 @@ need no `noprune`. Dry run against the working tree (which is `bace7b0`'s
 cart): every hunk matches. Fits the moment seed 9 releases the fitter, at
 seed 5 first (the placement that hangs with the term at the head of the
 mux), ring firmware `14844a95`.
+    epoch-rtl seed 9   ALM 18,078   setup -3.235   hold +0.120   md5 113812cb   FAIL
+
+**Epoch-RTL sweep closed (15:0x).** Seeds 6-9: -2.835 / -3.057 / -2.835 /
+-3.235. The only placement of this netlist inside the gate remains seed 5,
+and it hangs. Not extended. The functional cut fits now, per the lock.
