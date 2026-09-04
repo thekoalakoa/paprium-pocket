@@ -8522,3 +8522,49 @@ Archived as `busyrest-pad.CANDIDATE`; deployed, md5 confirmed on the card,
 snapshot region zeroed, progress intact. Test order: boots past the
 disclaimer (a hang here = busy-at-rest broke a reader, revert), then the
 shaft against the three pre-registered outcomes above.
+
+### A/B on c5a2c22e (busy-rest + pad): boots, shaft banded, lag - and the real #8
+
+Tester: boots past the splash (busy-at-rest broke no reader). Soft lag,
+mostly between screens and in sprite-heavy moments. Shaft: still wrong,
+but **banded** - a set band of foreground and background, not scattered -
+and it looks like sprite tiles drawn into the planes. Pre-registered read:
+not "owns #8", not a revert; content unchanged with a spatial change.
+
+**Lag:** the pulse follows EVERY command. `0xAD` fires ~7 times a frame
+(200,000 a run); each now stalls the 68000 an extra 40 us waiting for its
+response. ~300 us a frame, more with more sprites. The pulse only needs to
+follow the pointer-moving commands (`0xDB`, `0xDA`).
+
+**Why banded, from GPGX's state and log (the shaft, frames 28560-28562):**
+
+    every frame:  cartRAM 0x000B00 -> VRAM 0xF000  (SAT)
+                  cartRAM 0x002000 -> VRAM 0x0200  tiles 16-23
+                  cartRAM 0x002100 -> 0x0300       tiles 24-27
+                  ...  thirteen DMAs, 2,432 words, contiguous to tile 154
+
+The retail contract (GPGX: `draw_dst = 0x200` on `0xAE`, `vram += tileSize`
+per block): the cart streams the frame's whole tile list from its staging
+RAM into VRAM from tile 16 upward, **in list order, every frame.** And the
+game's plane name tables are authored against that layout: plane A's
+dominant tile in the shaft is **64 - block 3 of the stream, a texture, in
+895 on-screen cells** - plus 67, 96, 100, 101 (all inside the stream), and
+576-613 loaded once from ROM. Live sprites and plane tiles do not overlap
+in GPGX's SAT. The "sprite list" is really the game's tile stream, and the
+game depends on block k landing at tile 16+16k.
+
+mega-ppm replaces that with an LRU slot cache (`ppm_vram_load_block`):
+a block lands wherever a slot frees, and cached blocks are not re-DMA'd.
+So the cell that expects block 3 finds whatever sprite is cached in slot
+3, and cache slots 35-37 (tiles 576-623) overwrite the ROM-loaded art that
+plane B's 608-613 use. Sprite art under correct name tables, in slot-wide
+bands, growing with sprite load: the tester's description, exactly. The
+cell-room note "planes reference that range zero times" was true there
+and is false in the shaft. This is #8's remaining mechanism. Busy-rest
+fixed the rows; this is what was under them.
+
+**Fix direction (firmware only, dec2f09f's placement):** keep the SDRAM
+unpack cache, but assign VRAM tiles in list order (`16 + 16k` for the
+k-th block of the frame) and DMA every listed block from its SDRAM slot
+every frame, as the retail cart does. The game's `dma_budget` is sized for
+it (16 blocks; GPGX streams 9 in the shaft). Design for the reviewer.
