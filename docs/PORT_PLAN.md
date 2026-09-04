@@ -7306,3 +7306,54 @@ What is known:
 
 Settling it needs a runtime measurement, and every cheap one is RTL - which is the
 wall itself. Do not guess at it in either direction.
+
+## 2026-09-03, end of day - the stream-window path is CLEAN, and #8 is not in it
+
+Six mechanisms examined inside mega-ppm, all cleared. The picture that emerged is
+coherent and, as far as every measurement goes, correct behaviour.
+
+    0xDA with dst = 0     unpacks a payload at SDRAM offset 0. ppm_unpack writes
+                          as far as the stream expands - tens of KB
+    0xDB x947             reads 0x80..0x7F80, inside that payload
+    six loads, ~158       reads each: load a chunk, stream it out, load the next
+    sprite pad            starts at 0x9000 and NEVER overlaps 0x0000..0x7F80
+
+**The collision is dead arithmetically, not just statistically.** The background
+payload and the sprite scratch pad do not share a byte. The scattered stale hits
+(61 then 42, only 2 on any one address) were telling the truth both times.
+
+### What was ruled out, and how
+
+    SAT ordering                fixed in 0.1.0 - a different bug in the same level
+    sprite-slot eviction        peak 8/frame, steady 0.78, and slots never own
+                                tiles 800-863 where background art lives
+    0xAF clobbering a live 0xDA 0 clobbers; 0xDB 1109 vs 0xDA 49; 43-44 of the
+                                0xDAs already targeted 0x9000
+    same-frame pad collision    INVALID CHECK - ppm_block_unpack_addr resets every
+                                frame, so it could only see same-frame overwrites.
+                                Result discarded, not counted
+    cross-frame pad collision   42-61 of ~1100, scattered. Ordinary sprite traffic
+    the below-0x9000 region     legitimately written by 0xDA to dst 0
+
+### Two mistakes worth keeping
+
+**`dst = 0` was treated as an idle marker.** It was assumed for `0xDB` early on and
+carried into `0xDA` untested. Zero was the actual destination, and the assumption
+hid the answer for two captures.
+
+**The decoder suppressed an all-zero list** with `if any(six)`, when zero was the
+measurement. A suppressed zero is a hidden result; it now always prints.
+
+### Where #8 goes next
+
+Not into this path. Everything from the mailbox command to the stream window to
+the SDRAM layout checks out. The remaining candidates are downstream of what the
+MCU controls:
+
+- what the 68000 does with the streamed bytes - the VDP DMA destination
+- the decompression itself: wrong `src` in a `0xDA`, giving a correct-looking
+  payload of the wrong data
+- the plane's name table, which the cartridge never touches
+
+The first two are still firmware-observable. The third is not, and would need the
+kind of tap that does not fit - see `docs/attempts/`.

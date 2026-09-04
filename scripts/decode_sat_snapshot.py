@@ -396,12 +396,20 @@ def main():
     # there. Listed rather than guessed at.
     o = swapped(b[8 + 640 + 0x10:])
     six = struct.unpack('>6I', o[0:24])
-    if any(six):
+    # ALWAYS print, even all-zero. The first version suppressed the block when
+    # every slot read 0, and 0 turned out to BE the answer - six 0xDA calls with
+    # dst = 0, unpacking a payload at SDRAM offset 0 which the 0xDB feeder then
+    # reads at 0x80..0x7F80. A suppressed zero is a hidden measurement.
+    if da > dst9000:
         print()
-        print("0xDA DESTINATIONS THAT WERE NOT 0x9000")
+        print("0xDA DESTINATIONS THAT WERE NOT 0x9000  (%d of them)" % (da - dst9000))
         for i, d in enumerate(six):
-            if d:
-                print("  %d: 0x%X" % (i, d))
+            print("  %d: 0x%X" % (i, d))
+        if not any(six):
+            print("  -> all zero, and that is the finding: 0xDA unpacks to SDRAM")
+            print("     offset 0. The payload the 0xDB feeder reads at 0x80..0x7F80")
+            print("     lives there, so the region IS legitimately written.")
+            print("     The sprite pad starts at 0x9000 and never overlaps it.")
         print("  These are the only firmware writes below 0x9000. If the")
         print("  below-the-pad range spans a region, it was filled by one of")
         print("  these or by nothing at all.")
