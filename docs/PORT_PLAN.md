@@ -8645,3 +8645,24 @@ memcpy, never by the tape, so it goes at the **top of SDRAM: `0x1F8000`,
 32 KB** (53 x 0x200 = 27 KB used). The BGM unpacker gets a runtime guard:
 a module whose decoded length would cross `0x1F8000` is refused with a
 print rather than silently corrupting the cache.
+
+**`PPM_LIST_ORDER_VRAM` implemented, default 0, compiles both ways** (on:
+`mcu.txt 6255f498`; off: `2c522e9f`, the narrowed-pulse firmware in the
+fitter). Old cache path intact under `#else`. What it does, per frame:
+`ppm_vram_load_block` keeps its hit/miss/LRU logic; a miss unpacks into the
+SDRAM cache entry for its slot (`0x1F8000 + slot*0x200`) and no longer
+queues a DMA; hit or miss, the block is added to the frame list and the
+returned tile is `16 + 16k`. `ppm_vram_find_block` answers from the list.
+At frame end, before the SAT is closed, each listed block is memcpy'd from
+its cache entry to `0x9000 + 0x200k` and one DMA descriptor per block is
+queued to tile `16 + 16k` through the window, `0x110` each against
+`dma_remaining`, stopping at the budget. The BGM unpacker prints if a
+module would cross the cache base.
+
+Caveats on the record: the per-frame list is capped at 16 (`ppm_list_over`
+counts frames that exceed it; a block past the cap returns 0 and the render
+falls back as it does on a budget refusal today); staging is `0x9000 +
+0x200 x list`, the same region today's per-load unpack uses at frame end,
+so no new collision with the `0xDA` sprite-pad payloads; the per-block
+budget charge moved from load time to stream time. Not fitted. Rides on
+dec2f09f's placement as a ROM-only change, on the reviewer's go.
