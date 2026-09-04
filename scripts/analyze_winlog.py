@@ -32,7 +32,7 @@ import struct
 import sys
 from collections import Counter
 
-KIND = {0: 'word', 1: 'byte', 2: 'page', 3: 'DB', 4: 'DA', 5: 'AF', 6: 'dma', 7: 'dma+', 8: 'mbx', 9: 'stat', 10: 'PC', 11: 'AE'}
+KIND = {0: 'word', 1: 'byte', 2: 'page', 3: 'DB', 4: 'DA', 5: 'AF', 6: 'dma', 7: 'dma+', 8: 'mbx', 9: 'stat', 10: 'PC', 11: 'AE', 12: 'statPC'}
 
 
 def main():
