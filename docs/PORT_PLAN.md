@@ -8592,3 +8592,46 @@ Firmware only, dec2f09f's placement. Risk: the extra DMA per frame for
 cached blocks costs budget the cache was saving; if a scene's list exceeds
 the budget the game itself would also exceed it on the retail cart, so the
 budget refusals should not rise. The onset ring measures exactly that.
+
+### The list-order placement fix, fully specified (for the reviewer's go)
+
+What the retail cart does (GPGX, and the log): every frame, decode every
+block in the frame's tile list and stream them into VRAM from tile 16
+upward in list order - block k at tile `16 + 16k`. The game authors its
+plane name tables against that layout and puts plane texture blocks in the
+list on purpose (tile 64 in the shaft: block 3, a texture, 895 cells).
+
+What mega-ppm does: `ppm_vram_load_block` is a VRAM residency cache. A
+resident block is neither re-unpacked nor re-DMA'd and keeps its slot's
+tile; a new block is unpacked into the per-frame staging area at `0x9000`
+(`ppm_block_unpack_addr += 0x200` per block) and DMA'd once through the
+window - which is what the frame-end rewind to `0x9000` is for - to its
+slot's tile, encoded into the descriptor by `command = ((idx<<25)|(idx>>5))
+& 0x3fff0003 | 0x40000080`. The list-order layout never exists.
+
+The MCU cannot decode nine blocks a frame. It does not need to:
+
+  1. **Decoded-block cache in SDRAM**, keyed by block number, `0x200` per
+     entry, 53 entries (27 KB), placed above the init-time unpack end
+     (SMP/unk2/ANM data; measured, not assumed). `ppm_vram_load_block`
+     keeps its hit/miss/LRU logic but returns the cache ADDRESS; a miss
+     unpacks from flash into the cache entry, not into staging.
+  2. **Per-frame staging in list order**: in `ppm_obj_render`, the k-th
+     listed block is `memcpy`'d from its cache entry to `0x9000 + 0x200k`
+     (~5 KB a frame for nine blocks - trivial next to a decode), and its
+     SAT tile is `16 + 16k`.
+  3. **One DMA descriptor per listed block every frame**, source the
+     window as now (the tape streams staging in order from the `0xAF`
+     rewind), destination `16 + 16k` through the same `command` encoding,
+     `dma_remaining -= 0x110` per listed block. The game's `dma_budget`
+     allows 16; GPGX streams 9 in the shaft. A list longer than the budget
+     would overrun the retail cart too; the onset ring measures refusals.
+  4. Nothing else moves: `0xDA`/`0xDB` payloads, the twin cursor, the SAT
+     composition, `PPM_DA_PAD`, `PPM_BUSY_REST`.
+
+Firmware only, dec2f09f's placement. Behind `PPM_LIST_ORDER_VRAM`. The
+old cache path stays selectable for A/B. Risk: staging is `0x9000..0x9000
++ 0x200 x (list length)`; with 16 blocks that is `0xB000`, inside the pad
+and clear of the `0xDA` sprite-pad payloads only if those are not live at
+frame end - the CRC card saw `0x9000` payloads up to 23 KB (`0xEB00`), and
+`0xAF` rewinds over them today already, so no new collision.
