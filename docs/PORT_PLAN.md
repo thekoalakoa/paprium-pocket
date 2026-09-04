@@ -7977,3 +7977,4 @@ Card stays on `dec2f09f` throughout.
 **Cut 2 closed.** Five placements (-3.343, -2.989, -2.812, -4.609, -3.241),
 none within the gate. Not extended, per the lock. Fallback sweep started
 13:3x: original epoch RTL (`bace7b0`) at seeds 6-9, ring firmware 14844a95.
+    epoch-rtl seed 6   ALM 18,105   setup -2.835   hold +0.061   md5 074cfd28   FAIL
