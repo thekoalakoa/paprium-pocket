@@ -8061,3 +8061,12 @@ at once:** one more hook, in `vdp_ctrl.c`'s `vdp_dma_68k_ext` - source,
 VRAM destination, length per 68k-bus DMA. That is the "land/index"
 visibility the Pocket cannot afford at 98% ALM, for free, in the emulator.
 Proposed, not started.
+
+**Functional cut staged (14:55):** `apply_fpgio_slot5.py` (scratch) moves the
+slot-5 read inside `fpgio.sv` - two 16-bit inputs, the term in fpgio's own
+mux - and restores `paprium_cart`'s `mcu_dati` byte-for-byte to the ring
+build's; the latches feed `fpgio_inst`, so the counters keep a reader and
+need no `noprune`. Dry run against the working tree (which is `bace7b0`'s
+cart): every hunk matches. Fits the moment seed 9 releases the fitter, at
+seed 5 first (the placement that hangs with the term at the head of the
+mux), ring firmware `14844a95`.
