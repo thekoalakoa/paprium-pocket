@@ -229,37 +229,17 @@ def main():
 
     print()
     print("STREAM POINTER AUDIT")
-    print("  frames where it did not land where expected : %d" % mism)
-    if mism:
-        print("  last delta  : %+d bytes" % last)
-        print("  worst delta : %+d bytes" % worst)
-        print()
-        # A STEADY SMALL LAG IS NOT DESYNC. The 68000 can still be draining the
-        # window when 0xAF runs, so on a busy frame the pointer legitimately sits
-        # a few words short of where the MCU finished. That reads as a mismatch
-        # every frame with a small, unchanging delta. Desync that could explain #8
-        # is a delta that GROWS, or steps of 0x200, and only in the car.
-        if abs(worst) <= 16 and abs(worst) - abs(last) <= 4:
-            print("  -> steady lag of a few words, not growing. That is DMA still")
-            print("     in flight when 0xAF ran, which is expected on a busy frame.")
-            print("     NOT desync. Do not read this as the cause of anything.")
-        elif worst and abs(worst) % 0x200 == 0:
-            print("  -> worst is %+d = %+d whole block(s). A wrong block was queued,"
-                  % (worst, worst // 0x200))
-            print("     not a counting fault.")
-        elif abs(worst) > abs(last) * 2 and abs(worst) > 16:
-            print("  -> the delta GROWS. That is the signature that would explain")
-            print("     garbage accumulating through a level. Check it is confined")
-            print("     to the elevator before believing it.")
-        elif abs(worst) <= 8:
-            print("  -> %+d bytes, one or two words: a lost or double-counted read"
-                  % worst)
-            print("     acknowledgement.")
-    else:
-        print("  -> the pointer landed exactly where the MCU finished, every frame.")
-        print("     If garbage still grew in this run, desync is NOT the story:")
-        print("     look at which bytes were unpacked, or whether the background")
-        print("     path comes through this window at all.")
+    # DEAD INSTRUMENT. Nothing in mcu/mame.c writes t[17..22]: the writer belonged
+    # to the RTL stream-pointer read-back, which never fitted (docs/attempts/).
+    # These bytes are zeroed on every capture, so "0 frames where it did not land"
+    # was never a measurement. It was printed as one across three captures and
+    # quoted as ruling out pointer desync. It rules out nothing. The pointer is
+    # advanced by the RTL and the firmware has no way to read it back.
+    print("  NOT MEASURED - the firmware has no read-back of the RTL pointer.")
+    print("  t[17..22] are never written; the value below is zeroed bytes.")
+    print("  (raw mismatch field: %d - do not cite it)" % mism)
+    # The old if/else that narrated this value is gone with it; either branch
+    # was a sentence about zeroed bytes.
 
     # Eviction audit - the firmware-only question for the elevator corruption.
     e = swapped(b[8 + 640 + 1024 + 16 + 0x10:])
@@ -405,20 +385,32 @@ def main():
     mn, cap = struct.unpack('>HH', o[768:772])
     fence_crc, fence_len, tag, fence_age = struct.unpack('>4I', o[772:788])
     print()
-    print("0xDA PAYLOAD CRCs   (%d of %d recorded, tag 0x%08X)" % (mn, cap, tag))
-    print("    #        src         dst        len        crc32")
+    if tag != 0xC2C1C2C1:
+        # The arena is shared by every card that needs a kilobyte. Reading the
+        # CRC layout out of an onset-ring capture would print 48 rows of frame
+        # cells as if they were hashes - the exact aliasing this section itself
+        # was created to expose.
+        print("0xDA PAYLOAD CRCs   not in this capture (arena tag 0x%08X is another"
+              " card's; decode it with that card's script)" % tag)
+        rows = []
+        mn = 0
+    else:
+        print("0xDA PAYLOAD CRCs   (%d of %d recorded, tag 0x%08X)" % (mn, cap, tag))
+    if mn:
+        print("    #        src         dst        len        crc32")
     rows = []
     for i in range(min(mn, cap)):
         src, ln, crc, dst = struct.unpack('>4I', o[i*16:(i+1)*16])
         rows.append((src, ln, crc, dst))
         print("  %3d  0x%08X  0x%06X  %8d  0x%08X" % (i, src, dst, ln, crc))
-    print()
-    print("  fence crc  : 0x%08X over [0, 0x%X)" % (fence_crc, fence_len))
-    print("  fence age  : %d frames" % fence_age)
-    print("     (the fence is taken once per 60 in-game frames, plus a refresh")
-    print("      right after any 0xDA that expanded inside the region - a 32 KB")
-    print("      CRC every SAT frame would tax the MCU ~18% and corrupt the very")
-    print("      scene being measured)")
+    if mn:
+        print()
+        print("  fence crc  : 0x%08X over [0, 0x%X)" % (fence_crc, fence_len))
+        print("  fence age  : %d frames" % fence_age)
+        print("     (the fence is taken once per 60 in-game frames, plus a refresh")
+        print("      right after any 0xDA that expanded inside the region - a 32 KB")
+        print("      CRC every SAT frame would tax the MCU ~18% and corrupt the very")
+        print("      scene being measured)")
     if rows:
         crcs = [r[2] for r in rows]
         print("  distinct payload CRCs : %d of %d" % (len(set(crcs)), len(crcs)))
