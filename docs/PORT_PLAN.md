@@ -7668,3 +7668,63 @@ cmdlog build 1,217 ALMs and -3.141). This is the read-back that was refuted
 five times - but the refuted version read the *pointer* back live; a
 per-epoch word count latched on the MCU's own write is a smaller thing and
 has not been fitted. Gate stays: setup >= -2.60, boots, full playthrough.
+
+
+### The epoch-counter card, and its read criteria fixed IN ADVANCE
+
+The tester's answer to the one question only they could settle: the tiles in
+the seconds before the squares **looked shifted** - right art, wrong place.
+That is the tape prediction, made on the record before the answer. It does
+not prove the tape; it rules out the overwritten-slot reading of the same
+footage and makes the cursor the thing to measure.
+
+**What the card measures.** An *epoch* is the interval between two MCU writes
+of `sdram_ptr`. On each write the RTL (`paprium_cart.sv`, next to
+`stream_ptr`) latches two counts for the epoch that just ended:
+
+    ack   completed SDRAM reads - the events that advanced the pointer
+    oe    68000 read strobes inside the window, counted the way the real
+          cartridge counts them (mega-ppm sdram_io.sv: cpu_oe high for two
+          samples then low), so a glitch shorter than a sample is not a read
+
+The MCU reads the latched pair at FPGAIO+0x14 (`fpgio_wcnt`, map slot 5,
+read-only) immediately after each of its five pointer writes (`0xDA`, `0xDB`,
+`0xAF` rewind, `0xF2`, init) and records `{ack, oe, frame, ptr}` for epochs
+that carried any traffic. 99 epochs, 10 bytes each, in the arena; the onset
+ring and the CRC table are compiled out (`#error` if two claim the arena).
+
+**Why two counters and no "expected" from firmware.** The reviewer's
+criterion is "count vs expected words-per-epoch". The firmware cannot know
+what the game consumed - it only knows where it pointed. So the expected
+count is taken from the 68000 side of the same bus, in the same clock domain
+as the pointer, with no assumption about the game's read pattern at all.
+`ack - oe` per epoch *is* the drift.
+
+**Criteria, agreed while the fit was running and not renegotiable after:**
+
+- `ack > oe` in epochs clustered at the onset -> **desync owns the band.**
+  The fix is in `cartridge.sv`'s request-issue path (the rising edge of
+  `cart_oe & cart_cs` re-arming on a mid-word glitch), not in firmware.
+- `ack == oe` in every epoch through the band -> **look past the cursor.**
+  The tape kept step; the shift is happening after the bytes leave the
+  window - 68000->VDP destination or the name table.
+- `ack < oe` -> the toggle crossing dropped a flip (107.39 -> 53.69 MHz).
+  A different bug with the same consequence for the tiles; report it as what
+  it is, do not fold it into the double-issue story.
+
+The strong result is the **zero**. A run with the band on screen and every
+epoch at `+0` retires the whole tape theory in one capture.
+
+**What this card cannot decide.** An event landing on the exact cycle of the
+MCU's re-point write is dropped from both counters rather than counted - at
+most one per epoch, symmetric, so it cannot manufacture a difference, but it
+can hide a real `+1` in one epoch out of many. A single isolated `+1` is
+therefore weaker evidence than a cluster; the criteria above ask for a
+cluster. And the card counts *words*; it says nothing about which VRAM
+address the 68000 sent them to.
+
+**Deploy note.** The fit is the risk, not the logic: two 16-bit counters,
+two latches and a 3-bit shifter next to the stream pointer, in the module
+that already sits on the worst STA paths. Gate unchanged: setup >= -2.60,
+boots, full playthrough. The refuted read-back read the live pointer; this
+reads a latch on the MCU's own write, and has not been fitted before.

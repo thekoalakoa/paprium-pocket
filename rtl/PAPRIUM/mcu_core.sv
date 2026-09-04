@@ -40,6 +40,7 @@ module mcu_core(
 	assign mcu.map.fpgio_sptr	= mcu.map.fpgio & mcu.addr[5:2] == 2;
 	assign mcu.map.fpgio_vols	= mcu.map.fpgio & mcu.addr[5:2] == 3;
 	assign mcu.map.fpgio_volb	= mcu.map.fpgio & mcu.addr[5:2] == 4;
+	assign mcu.map.fpgio_wcnt	= mcu.map.fpgio & mcu.addr[5:2] == 5;
 	
 	assign mcu.map.mdp_ctrl		= mcu.map.mdp & mcu.addr[23]	== 0;
 	assign mcu.map.mdp_fifo		= mcu.map.mdp & mcu.addr[23]	== 1;
