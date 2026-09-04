@@ -8497,3 +8497,17 @@ at one `0xAF` per frame that is 0.24% of a frame of MCU time, and it delays
 the response - hence the game's next command - by the same 40 us. Firmware
 with pad + busy-rest on: `mcu.txt` (see build log); off: `8111bd8a` (the
 card). Ready to fit on the reviewer's go: ring RTL, seed 5, ROM-only.
+
+### PPM_BUSY_REST fit: GO (reviewer, 17:37), pre-registered
+
+Ring RTL (`a22aea4`), seed 5, firmware pad 1 + busy-rest 1 = `mcu.txt
+7e43f08f`. ROM-only on the ring RTL: expected placement `dec2f09f`'s
+(-2.549, boots). Flash only after gate; md5 on the card before the A/B.
+
+    shaft improves / matches the cart  -> busy-rest owns #8
+    shaft unchanged                    -> pulse width, busy bit, or a different race
+    new hang at the splash             -> busy-at-rest broke a reader; revert
+
+Tester: the train looks clean by eye on the Pocket. The pad is optional
+GPGX-parity for short-tail scenes, not a shipping gate. #8 priority stays
+the busy race.
