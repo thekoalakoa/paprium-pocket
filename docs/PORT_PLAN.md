@@ -8511,3 +8511,14 @@ Ring RTL (`a22aea4`), seed 5, firmware pad 1 + busy-rest 1 = `mcu.txt
 Tester: the train looks clean by eye on the Pocket. The pad is optional
 GPGX-parity for short-tail scenes, not a shipping gate. #8 priority stays
 the busy race.
+
+#### PPM_BUSY_REST + pad fitted: dec2f09f's placement, third time. On the card.
+
+    bitstream   c5a2c22e   ring RTL (a22aea4) + pad 1 + busy-rest 1 (mcu.txt 7e43f08f), seed 5
+    ALMs        18,194 / 18,480   M10K 294 / 308
+    setup       -2.549   hold +0.004        PASS - identical to dec2f09f and 6b61638f
+
+Archived as `busyrest-pad.CANDIDATE`; deployed, md5 confirmed on the card,
+snapshot region zeroed, progress intact. Test order: boots past the
+disclaimer (a hang here = busy-at-rest broke a reader, revert), then the
+shaft against the three pre-registered outcomes above.
