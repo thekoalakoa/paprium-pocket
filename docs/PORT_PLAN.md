@@ -8129,3 +8129,29 @@ mechanism is *systematic for any payload whose length is not a multiple of
 the fixed DMA size* - and the elevator's background payloads measured on
 the CRC card were exactly 16,384 and 32,768 bytes, page-aligned. Whether
 the shaft has short-tail pages at all is what the elevator log is for.
+
+**Elevator payload tails, from the CRC card's 48 records, against a fixed
+2,048-byte vblank DMA (the size measured in the subway):**
+
+    dst      len     tail   words past the payload if DMA'd in fixed pieces
+    0x9000    4352    256    896
+    0x9000    8992    800    624   (x2)
+    0x9000    9408   1216    416
+    0x9000   23232    704    672
+    0x9000   23296    768    640
+    0x9000   22496   2016     16
+    0x9000   23168    640    704
+    0x9000   23200    672    688
+    background (dst 0): 16384 / 32768 only - all page-aligned, no tail
+
+So under this mechanism the background payload itself never over-reads;
+the nine short-tailed ones are all sprite-pad (`0x9000`) chunks, DMA'd by
+the game through `0xDB` re-points (~23 per `0xDA` on the CRC card). If the
+game re-points before every piece the tape never drifts and only the LAST
+piece of each payload can over-read; if it re-points less often, more can.
+Where those over-read words land in VRAM is the game's DMA destination,
+which nothing on the Pocket records - the GPGX DMA hook does.
+
+Sprite BLOCK loads are a different path: the firmware charges 0x110 per
+block (`ppm_vram_load_block`, 0x100 words payload) and blocks are exactly
+16 tiles, so block DMAs are exact and cannot over-read.
