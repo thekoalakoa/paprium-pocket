@@ -7871,3 +7871,16 @@ Card is on `dec2f09f` for the boot A/B against card and game state.
 save. Card and game state cleared; the hang belongs to bitstream `53076197`
 - its RTL additions, its firmware, or its fit. The control (epoch RTL, ring
 firmware) is the cut between the first two.
+
+#### Control fitted: 80e68bc9 - same placement as the hanging build
+
+    bitstream   80e68bc9   epoch RTL + ring firmware 14844a95, seed 5
+    ALMs        18,074 / 18,480   M10K 294 / 308
+    setup       -2.404   hold +0.021        PASS
+
+Every metric is identical to 53076197. Expected: the firmware only changes
+the IMEM's ROM initialisation, and the same RTL at the same seed produces the
+same placement and the same timing. So the control differs from the hanging
+build in **nothing but the ROM contents** - placement is held constant.
+Boots -> firmware, with no placement caveat. Hangs -> the RTL logic, or a
+glitch both placements share. Deployed, region zeroed, progress intact.
