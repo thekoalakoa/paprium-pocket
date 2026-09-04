@@ -7961,3 +7961,14 @@ Reading, once a seed passes and is booted:
     cut-2 seed 7   ALM 18,199   setup -2.812   hold +0.044   md5 7d160710   FAIL
     (seed 8, 9 in progress)
     cut-2 seed 8   ALM 18,026   setup -4.609   hold +0.039   md5 6bbcb0bd   FAIL
+
+**Locked with the reviewer (13:09):** cut 2 is not extended past seed 9 -
+five unread `noprune` registers on the bus is an odd shape for the fitter,
+and four placements spanning -4.609..-2.812 read as a worse netlist, not bad
+luck. If seed 9 misses, the fallback is the ORIGINAL epoch RTL (`bace7b0`) at
+seeds 6-9, ring firmware, first placement >= -2.60 wins. Read, fixed now:
+
+    boots  -> seed-5's placement was the glitch
+    hangs  -> functional -> the slot-5 read moves inside fpgio.sv's own mux
+
+Card stays on `dec2f09f` throughout.
