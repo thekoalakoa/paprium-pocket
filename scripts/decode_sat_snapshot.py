@@ -391,23 +391,24 @@ def main():
         print("                sprite the game drew and the VDP will not - compare")
         print("                against what you saw on screen before calling it.")
 
-    print()
-    print("OBJECT TABLE - what the 68000 asked the cartridge to draw")
-    print("   n   anim   objID    attrs    posX  posY  pri  pal")
-    shown = 0
-    for i in range(64):
-        o = b[0x298 + i * 16: 0x298 + i * 16 + 16]
-        if len(o) < 16:
-            break
-        anim, nxt, objid, f6, attrs, ctr, px, py = struct.unpack('>8H', o)
-        if objid == 0 and attrs == 0 and px == 0 and py == 0:
-            continue
-        shown += 1
-        if shown <= 24:
-            print("  %3d  %5d  0x%04X  0x%04X  %5d %5d   %d    %d"
-                  % (i, anim, objid, attrs, px - 128, py - 128,
-                     (attrs >> 15) & 1, (attrs >> 13) & 3))
-    print("  -> %d objects present" % shown)
+    # THE SIX. 0xDA is the only firmware writer below 0x9000, and 43 of 49 went
+    # to 0x9000 - so these are the only candidates for having filled anything down
+    # there. Listed rather than guessed at.
+    o = swapped(b[8 + 640 + 0x10:])
+    six = struct.unpack('>6I', o[0:24])
+    if any(six):
+        print()
+        print("0xDA DESTINATIONS THAT WERE NOT 0x9000")
+        for i, d in enumerate(six):
+            if d:
+                print("  %d: 0x%X" % (i, d))
+        print("  These are the only firmware writes below 0x9000. If the")
+        print("  below-the-pad range spans a region, it was filled by one of")
+        print("  these or by nothing at all.")
+
+    # The object-table dump was reclaimed as counter space - it had not informed a
+    # conclusion since the SAT ownership map was deleted, while every new counter
+    # fought for scraps. Nothing reads it any more.
 
 
 if __name__ == '__main__':
