@@ -8308,3 +8308,25 @@ delivered it (VRAM `0x6600-0xBCA0`, 22,176 bytes, P 0x800, T 1,696),
 reproduces the 512 bytes GPGX's mirror actually served to the over-reading
 DMAs (`0xBCA0-0xBEA0`) **byte for byte**. The firmware is right before it is
 flashed. Pad fit launched at seed 5 on the ring RTL (`be39b32`).
+
+### PPM_DA_PAD fitted: the ring build's placement, exactly. On the card.
+
+    bitstream   6b61638f   ring RTL (a22aea4) + PPM_DA_PAD 1 (mcu.txt 8111bd8a), seed 5
+    ALMs        18,194 / 18,480   M10K 294 / 308
+    setup       -2.549   hold +0.004        PASS - identical to dec2f09f
+
+A ROM-only change on the ring RTL at the ring build's seed landed on the
+ring build's placement to the picosecond, as the control predicted. By the
+same logic it boots. Archived as `pad-fix.CANDIDATE`; deployed with the
+snapshot region zeroed and progress intact.
+
+**Test, by eye, in this order:**
+1. Boots past the disclaimer (it should - same placement as a build that
+   does; if not, that is news).
+2. **Inside the train car:** the ceiling strip / strap rail. On `dec2f09f`
+   the tape serves sprite scratch into those 54 cells; on this build it
+   serves the same bytes GPGX does. Compare against the reference sent.
+3. **The elevator:** slide and squares, or not.
+
+Any of the three moving is a result; the padding is the only thing that
+changed. `dec2f09f` is one command away if a comparison is wanted.
