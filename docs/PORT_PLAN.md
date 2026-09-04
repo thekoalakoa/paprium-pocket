@@ -7260,12 +7260,19 @@ pitch**.
     have    the wave bank, 52 decompressed modules, and the header
     need    the sequence body, the program table, and 26-voice RTL
 
-The RTL half is the part to cost before starting: 26 voices on a device already at
-98% ALM is not a probe, it is a feature, and the FX68K headroom experiment below
-may be a prerequisite rather than an optional extra.
+**Start offline; nothing here is gated on silicon.** The sequence body, the program
+table and a host renderer (`tools/gpgx-render` path) need **zero ALMs**. That work
+is useful whether or not headroom ever lands, and it is the part that has to exist
+before any RTL question is even well-posed.
 
-Nothing here blocks or is blocked by #8, which is why it waits - two open
-investigations in the same tree would make every capture ambiguous.
+FX68K is a prerequisite only for **26 voices running on the Pocket** - the last
+step, not the first. Cost the RTL before scheduling a ship, not before starting.
+
+**Serialisation against #8 applies to firmware instruments and card captures, not
+to offline work.** No second MCU probe until the CRC card closes, because two
+instruments in one capture make both ambiguous - that is how the elevator depth
+bug and Pezz #8 stayed conflated for weeks. Script-side module work shares nothing
+with the card and can run in parallel.
 
 ### Experiment: swap nuked-md's 68000 for FX68K
 
