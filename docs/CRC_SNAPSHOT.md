@@ -60,6 +60,17 @@ payload hashed, and `fence_age` says when it does not.
 Per-record CRCs are not throttled: there are ~51 `0xDA` calls in a run, so the cost
 is occasional and bounded.
 
+## The fence is not a second opinion on big payloads
+
+Payloads land at `dst = 0` and the largest measured expands to exactly `0x8000`,
+which is the whole fenced region. **For a full-size chunk the fence and that
+record's CRC hash the same bytes**, so they will agree trivially - that is one
+measurement reported twice, not two that corroborate each other.
+
+The fence earns its keep on **smaller** payloads, where it covers the region beyond
+what the last unpack wrote and can therefore catch something else having changed
+it. Read it that way, and treat the per-record CRC against GPGX as the real fork.
+
 ## The GPGX twin
 
 Same algorithm over `decoder_ram[dst .. dst+len)` and a fence over
