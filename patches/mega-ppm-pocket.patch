@@ -1506,7 +1506,7 @@ index b568843..ba6fbcb 100644
      ppm_block_unpack_addr += 0x200;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..d075761 100644
+index 06ccf59..e1ec9fe 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
 @@ -152,9 +152,94 @@ typedef struct { //byteswapped (endianess fix)
@@ -1576,7 +1576,7 @@ index 06ccf59..d075761 100644
 +// non-0xDB reader of 0x1FE4 is identified (a boot-time wait for busy CLEAR
 +// would hang on this).
 +#define PPM_BUSY_REST           0
-+#define PPM_BUSY_PULSE_LOOPS    300   // ~20 us at 53.69 MHz; the 68000 poll loop is ~4 us/iteration
++#define PPM_BUSY_PULSE_LOOPS    600   // ~40 us at 53.69 MHz; the game poll iteration is ~68 cycles = ~9 us
 +void snap_epoch_note(u32 ptr_prev);
 +extern u32 ppm_sptr_shadow;         // last sdram_ptr the MCU wrote; the RTL register is write-only
 +

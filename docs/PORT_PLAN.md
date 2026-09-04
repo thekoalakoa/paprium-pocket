@@ -8488,3 +8488,12 @@ the behaviour all four loops expect; nothing waits for busy SET. Judged safe
 to enable. `PPM_BUSY_REST` is implemented in `paprium.c` (the previous commit
 said so and was wrong - only the switch existed; the dispatcher edit had
 failed its shape check).
+
+**Pulse width:** the game's poll iteration is `cmpi.l #imm,d1 (14) / bhi (8)
+/ addq.l (8) / nop (4) / move.w d(An),d0 (12) / btst.b #n,d0 (10) / bne
+taken (10)` = ~66 cycles = ~8.6 us at 7.67 MHz. `PPM_BUSY_PULSE_LOOPS` is
+600 (~40 us): four to five iterations see the low. Cost: 40 us per command;
+at one `0xAF` per frame that is 0.24% of a frame of MCU time, and it delays
+the response - hence the game's next command - by the same 40 us. Firmware
+with pad + busy-rest on: `mcu.txt` (see build log); off: `8111bd8a` (the
+card). Ready to fit on the reviewer's go: ring RTL, seed 5, ROM-only.
