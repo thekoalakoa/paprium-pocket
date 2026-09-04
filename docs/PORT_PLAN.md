@@ -7439,3 +7439,97 @@ So the remaining firmware-observable candidate is not the pointers, not the
 destinations, and not the sources - it is whether the BYTES those sources produce
 are correct. That is the CRC-vs-GPGX card: decompress the same source in both and
 compare. Not VDP or the name table until that is done.
+
+## 2026-09-04 - the unpack is byte-correct. #8 leaves the stream path.
+
+The CRC card (`4b80ff01`) ran an elevator descent to the first band. It
+recorded 48 `0xDA` unpacks - source, expanded length, and a CRC32 of the
+expanded bytes. Every one of them matches the reference decoder.
+
+### How the comparison was made, and why it needed no gameplay
+
+The plan of record was a live GPGX twin: play the same scene in the emulator,
+hash `decoder_ram` the same way, compare. That was more work than the problem
+needs. The unpack is a **pure function of the compressed bytes at `src`** - it
+does not depend on scene, frame, or anything else about the run. So the twin
+does not have to reproduce anything.
+
+`tools/da-twin/da_twin.c` lifts `paprium_decoder_lz_rle` and
+`paprium_decoder_lzo` verbatim out of GPGX `cart_hw/paprium.h`, makes them
+return the produced size, and hashes the result with the same CRC32 as
+`snap_crc32()` in `mcu/mame.c`. Feed it the source addresses the hardware
+recorded and the answers must agree byte for byte.
+
+Validity condition, worth stating because it is the thing that could have made
+this comparison meaningless: both implementations apply a `^1` endian swizzle
+to source **and** destination, but GPGX swizzles relative to
+`decoder_ram + offset` while the firmware swizzles the absolute SDRAM address.
+Those agree only while the destination is even. Every destination ever recorded
+(`0x0000` and `0x9000`) is even. If that stops being true the comparison is
+invalid.
+
+ROM byte order was not assumed either. The twin runs both ways and the result
+picks itself: **0 of 45 sources decoded as-is, 45 of 45 byteswapped.** A wrong
+convention does not produce subtly wrong output - it walks off the end of the
+image or hits an unknown type byte, and the harness bounds-checks for exactly
+that.
+
+### The result
+
+```
+  match 48   mismatch 0   no-decode 0   of 48
+```
+
+Both the length and the CRC agree on every record. Forty-eight independent
+32-bit hashes do not coincide by accident.
+
+**The MCU unpack is byte-correct.** #8 is not a decompression fault. Combined
+with the pointer choreography already shown coherent on 2026-09-03, the whole
+firmware stream path is now measured correct end to end: the right bytes are
+produced, at the right length, and the pointer lands where the MCU finished
+every frame. What remains is **where those bytes go afterwards** - 68000->VDP
+DMA and the name table.
+
+### A lead that closed on the way
+
+The decoder had been narrating that `0xDB` re-points below `0x9000` aimed at a
+region "the firmware never unpacks anything" into, and offering an unknown
+writer as the explanation. That is false, and this capture proves it: six
+payloads landed at `dst 0` at 16384-32768 bytes each, and a 32768-byte payload
+covers `0x0000..0x8000`, which contains **every** read base observed
+(`0x80..0x7F80`). Those are ordinary reads of bytes the firmware wrote. The
+narration is corrected in the script.
+
+### Two instrument faults found in the same pass
+
+- The "0xDA destinations that were not 0x9000" section shared an offset with
+  the new CRC arena and was printing record 0's `src`/`len`/`crc` as if they
+  were destinations - which is where the nonsense value `0x6261E9B8` in that
+  list came from. It is record 0's CRC. Section removed; the `dst` column of
+  the CRC table carries the same information per record and is measured.
+  This is the **third** time a reused offset has manufactured a finding.
+
+- The fence agrees with record #42 exactly - and that is trivial, not
+  corroboration. The fence refreshes immediately after any `0xDA` that expands
+  inside the region, #42 is the last such payload, and it is full-size, so the
+  two hash the same bytes. One measurement reported twice. The caveat was
+  already written down in `CRC_SNAPSHOT.md` before the run; the script now
+  prints it rather than relying on someone remembering.
+
+To make the fence say something it would have to be taken a known number of
+frames **after** the last full-region unpack. It is not currently stamped, so
+its 40-frame age cannot be separated from the refresh. That is cheap to fix if
+the fence ever becomes the interesting instrument.
+
+### Hardware observation the same day, not yet measured
+
+Before the squares appear, a few background tiles look **misplaced** - roughly
+half a second of wrong position, then the band fills in. Two phases, and the
+order matters: wrong *placement* first, wrong *pattern* second.
+
+That is consistent with what the CRC result says. If the bytes are correct but
+tiles appear in the wrong place, the fault is in **where art lands or which
+tile the name table points at**, not in what was decompressed. The two
+independent lines agree, which is the first time anything about #8 has had
+that. It is still one observer's recollection of two runs and has not been
+captured - it is a lead, not a measurement.
