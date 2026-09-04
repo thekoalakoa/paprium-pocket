@@ -8330,3 +8330,45 @@ snapshot region zeroed and progress intact.
 
 Any of the three moving is a result; the padding is the only thing that
 changed. `dec2f09f` is one command away if a comparison is wanted.
+
+### Elevator log (13 MB, the whole run, 29,556 frames): the shaft is not the train
+
+**The elevator never over-reads.** All five tail over-reads in the run are in
+earlier levels (frames 824-23924, 64-512 words), landing at the top of the
+tile region - two of them into plane A's name table at `0xC000`, which the
+game rewrites every frame. None is referenced on screen in state 11. The
+`PPM_DA_PAD` build on the card (`6b61638f`) addresses tail over-reads; **it
+will not change the shaft.** It may fix the train's rail.
+
+**What the shaft does instead, every frame of a 128-frame burst
+(28522-28649) and a 10-frame one just before the quit:**
+
+    DB (size 0x40)  ->  page turn of 64 bytes  ->  sixteen longword reads
+    through the FIXED address 0xC000/0xC002, all on scanlines 5-6  ->  AF
+
+Zero window-sourced DMAs in the whole elevator stretch. The game re-points
+with a 64-byte size and copies 64 bytes through one address: a tape loop,
+one name-table row per frame, matching the firmware's observed `0xDB`
+targets at `0x80..0x7F80` inside the 32 KB `dst 0` payload. Six 4-frame
+bursts of the same shape follow each earlier stream.
+
+**GPGX cannot serve it.** After the first read `decoder_size` is 0, so the
+page model returns the *same first longword sixteen times*: every row
+becomes sixteen copies of one cell pair. **The tester, who knows the retail
+cart, says GPGX's shaft background is wrong** - state 10 (car starting) is
+right, state 11 (descended) is the uniform repeated wall. "GPGX plays clean"
+was never true for this scene; it plays tidy. The tape is the correct model
+for the shaft, and the firmware's `0xDB` (pointer from the two mailbox
+words, 21 bits kept, size discarded) points it correctly.
+
+**So why does the Pocket corrupt?** Hypothesis, marked as one: the 68000
+issues `0xDB` and reads on the same scanline. GPGX services the command
+synchronously; the Pocket's MCU has to poll the mailbox, dispatch, and write
+`sdram_ptr`. Reads that land before that write come from wherever the tape
+was - `0x9000`, the sprite pad, after the frame-end rewind. More MCU load,
+more late reads per row, more garbage per row: a band that grows as enemies
+arrive, invisible to the epoch counter (ack == oe), and never in GPGX.
+
+Decides it: does the game poll `0x1FEA` for the MCU's ack between the `0xDB`
+write and its first window read? If yes the race cannot happen and this
+hypothesis dies. Logging reads of `0x1FEA` in GPGX answers that.
