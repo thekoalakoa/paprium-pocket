@@ -7533,3 +7533,42 @@ tile the name table points at**, not in what was decompressed. The two
 independent lines agree, which is the first time anything about #8 has had
 that. It is still one observer's recollection of two runs and has not been
 captured - it is a lead, not a measurement.
+
+### The onset-ring card, and its read criteria fixed IN ADVANCE
+
+Written before the capture exists, deliberately. Every wrong turn in this
+investigation has been a number read after the fact and fitted to the theory
+that was already in hand - the `masks[8]` overflow, the mask-group cap of 5,
+the "predecessor rewired past a run". The criteria below are the reviewer's,
+agreed while the fit was still running, and they are not to be renegotiated
+once the numbers are on the table.
+
+**Budget dips - or a refusal spike - in the last ~0.5-2 s against the sticky
+baseline** -> starvation owns the band. `ppm_vram_load_block` returns 0, the
+block never loads, the plane renders stale tiles.
+
+**Flat through the half-second of misplaced tiles** -> not `dma_budget`. The
+block cache was behaving normally while the band formed, no further slot or
+budget knob will move it, and the next suspect is land/index: 68000->VDP
+destination and the name table.
+
+Between those two - the decoder prints 1.5x to 3x as inconclusive and says so
+rather than picking a side. If that is the result, the question is whether the
+elevated frames are **contiguous** (an onset) or **scattered** (ordinary
+scrolling load pressure), and the timeline answers it directly.
+
+#### Why byte 1 is the signal and the refusal nibble is not
+
+`dma_remaining / 0x110` is the refusal test's own input. The refusal count is
+downstream of it and depends on a load having been **attempted** - a frame can
+be fully starved and record zero refusals simply because nothing asked that
+frame. Where the two disagree, byte 1 is right. This is the same class of
+mistake as the same-frame collision check that returned zero by construction.
+
+#### What this card cannot decide
+
+The ring counts pressure. It cannot tell **wrong place** from **wrong picture
+in the right place**, and those are different bugs pointing at different
+suspects - name table or scroll for the first, an overwritten VRAM slot for
+the second. That separation needs the phone-cam of the half-second before the
+squares, and no firmware counter substitutes for it.
