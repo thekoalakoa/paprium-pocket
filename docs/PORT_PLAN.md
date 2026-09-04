@@ -8666,3 +8666,18 @@ falls back as it does on a budget refusal today); staging is `0x9000 +
 so no new collision with the `0xDA` sprite-pad payloads; the per-block
 budget charge moved from load time to stream time. Not fitted. Rides on
 dec2f09f's placement as a ROM-only change, on the reviewer's go.
+
+### PPM_LIST_ORDER_VRAM fit: GO (reviewer, 19:1x), pre-registered
+
+Ring RTL, seed 5, firmware pad 1 + busy-rest 1 (pulse `0xDB`/`0xDA` only)
++ list-order 1 = `mcu.txt 6255f498`. Queued behind the narrowed-pulse fit.
+Flash only after gate; md5 on the card before the A/B.
+
+    shaft matches the cart            -> the list-order contract owns the remaining #8
+    shaft unchanged                   -> list length / budget refusals / ppm_list_over - measured
+    new corruption elsewhere          -> cache 0x1F8000 or staging collides; revert
+    lag should ease vs c5a2c22e       -> the pulse no longer follows every 0xAD
+
+Caveats accepted for this shot: list cap 16; a mid-list budget stop leaves
+the rest of the list's tiles undelivered that frame; the overflow counter
+is not exposed. Note if scenes look short on sprites.
