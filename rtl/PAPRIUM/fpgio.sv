@@ -3,6 +3,8 @@
 module fpgio(
 	
 	input  McuBus mcu,
+	input  [15:0] wcnt_ack,   // epoch counter latches (paprium_cart), read-only slot 5
+	input  [15:0] wcnt_oe,
 	input  md_srst,
 	
 	output [31:0]mcu_dati,
@@ -18,6 +20,7 @@ module fpgio(
 	assign mcu_dati		= 
 	mcu.map.fpgio_ctrl  	? ctrl :
 	mcu.map.fpgio_time 	? time_st :
+	mcu.map.fpgio_wcnt 	? {wcnt_ack, wcnt_oe} :
 	32'hffffffff;
 //************************************************************************************* regs
 
