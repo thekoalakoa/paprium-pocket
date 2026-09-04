@@ -16,5 +16,16 @@ NAME="${2:-md_ntsc.rbf_r}"
 RBF_R="$PROJECT_DIR/build_output/$NAME"
 
 mkdir -p "$PROJECT_DIR/build_output"
-python3 "$SCRIPT_DIR/reverse_bitstream.py" "$RBF" "$RBF_R"
+# Git for Windows has no `python3`; the Windows launcher stub that answers to
+# that name prints a Microsoft Store advert and exits 9009. Because the stub
+# "succeeds" as far as a bare call is concerned, the reverse step was skipped
+# silently and build_output/ kept the PREVIOUS bitstream - a fit that appears
+# to have landed while the card still holds the old one. Pick an interpreter
+# that actually runs, and fail loudly if none does.
+PY=""
+for cand in python3 python py; do
+  if "$cand" -c "import sys" >/dev/null 2>&1; then PY="$cand"; break; fi
+done
+[ -n "$PY" ] || { echo "no working python found (tried python3, python, py)" >&2; exit 1; }
+"$PY" "$SCRIPT_DIR/reverse_bitstream.py" "$RBF" "$RBF_R"
 "$SCRIPT_DIR/install_binaries.sh" "$NAME"
