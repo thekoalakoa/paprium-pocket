@@ -129,6 +129,7 @@ def main():
     print()
     print("TIMELINE  oldest -> newest, one column per frame")
     print("  refusals  . = 0  1-9 = count  + = 10 or more")
+    print("  loads     . = 0  1-9 = count  + = 10 or more   (successful block loads)")
     print("  afford    # = 0 blocks payable   : = 1-2   . = 3 or more")
 
     def band(vals, f):
@@ -149,6 +150,7 @@ def main():
         print("  frame %+d .. %+d  (relative to the last frame before quit)"
               % (lo, min(start + W, ring_frames) - ring_frames - 1))
         print("  ref  " + band(refuse[chunk], rf))
+        print("  ld   " + band(loads[chunk], rf))
         print("  aff  " + band(afford[chunk], af))
         start += W
 
@@ -180,6 +182,11 @@ def main():
             print("  elevated frames are contiguous in the timeline above (an onset)")
             print("  or scattered (ordinary scrolling load pressure).")
 
+    busy = [(i - ring_frames, loads[i], afford[i]) for i in range(ring_frames) if loads[i]]
+    if busy:
+        print()
+        print("  frames with any load, (frame, loads, blocks left after):")
+        print("    " + "  ".join("(%d, %d, %d)" % f for f in busy))
     starve_frames = sum(1 for v in afford if v == 0)
     print()
     print("  frames ending with ZERO blocks affordable : %d of %d (%.1f%%)"

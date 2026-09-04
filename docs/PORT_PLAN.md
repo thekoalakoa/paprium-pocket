@@ -7572,3 +7572,99 @@ in the right place**, and those are different bugs pointing at different
 suspects - name table or scroll for the first, an overwritten VRAM slot for
 the second. That separation needs the phone-cam of the half-second before the
 squares, and no firmware counter substitutes for it.
+
+
+### Onset ring, run 1: FLAT. Starvation is not the mechanism.
+
+Read against the criteria fixed above before the capture existed.
+
+    ring          480 frames, 26830 committed (1:1 with frame_start - not stalled)
+    dma_budget    2816 -> 10 blocks/frame from full
+    whole run     683 refusals / 26830 frames = 0.0255 per frame, worst frame 22
+    last 480      0 refusals, 32 loads, 0 frames ending with zero blocks payable
+
+    frame  -126 -120 -114 -108   -72  -66      (relative to quit)
+    loads     5    6    6    5     5    5
+    left      3    2    1    2     3    2      blocks of budget after
+
+Six load bursts of 5-6 blocks each, in two pairs six frames apart - the two
+enemy drops - and every one paid for with budget to spare. Then 66 frames of
+nothing. The block cache handled every request in the window. Byte 1 - the
+refusal test's own input - never hit zero. Not `dma_budget`, not slots, and
+no further knob on the block cache will move the band.
+
+Run-to-run the sticky counters are reproducible to a few percent against the
+CRC card's run (683 vs 737 refusals, 0.81 vs 0.79 loads/frame, 50 `0xDA`,
+1173 `0xDB`), so the window is not a fluke of one playthrough.
+
+#### Correction: the stream-pointer audit has never measured anything
+
+`decode_sat_snapshot.py` printed **"frames where it did not land where
+expected: 0 -> the pointer landed exactly where the MCU finished, every
+frame"** on the CRC capture and again on this one. Nothing in `mcu/mame.c`
+writes `t[17..22]`. The reader was added by `385115d` (2026-09-03), the
+commit that *parked* the RTL read-back after five failed fits - the writer
+lived in that read-back and was never fitted, never committed. The bytes are
+zeroed on every capture. The line is retired in the decoder and marked NOT
+MEASURED; it is not cited anywhere in docs/, only in chat, where it was used
+to rule out pointer desync. **Pointer desync is not ruled out. It has never
+been observed either way, because the firmware cannot read the pointer.**
+
+#### Where that leaves #8: the pointer, and a real asymmetry with GPGX
+
+With the block cache cleared and the payload bytes verified (CRC card, 48/48),
+the stream path has one remaining moving part the firmware cannot see: the
+RTL's read cursor.
+
+**Two different models of the window.** GPGX (`paprium.h:2579`) serves
+`0xC000-0xFFFF` as a *page*: on a read at exactly `0xC000` with data pending
+it copies the next `0x4000` bytes (mode 2; `0x800` in mode 7) into the
+mirror, bumps `decoder_ptr` by the page size, and the 68000 then reads inside
+the page with no per-read advance. The Pocket RTL (`paprium_cart.sv:98`) is a
+*tape*: every delivered word advances two bytes, whatever address was read.
+The real cartridge is a tape too (`mega-ppm/fpga/sdram_io.sv:50` advances on
+each `cpu_oe` falling edge), so the tape is the original and GPGX the
+approximation - the game must read sequentially or GPGX would break. The
+models agree only while the count of delivered words is exact.
+
+**How the count can be wrong on the Pocket, from the RTL's own comments.**
+`cartridge.sv:225` has `sdram_rd = cart_oe`, and the SDRAM request issues on
+a rising edge of `cart_oe & cart_cs` (`cartridge.sv:248`). The comment at
+`cartridge.sv:530` states that the cycle-accurate VDP *glitches* `cart_cs` /
+`cart_oe` within a single DMA word, and that counting the combinational
+`stream_cs` edge double-counted those glitches - with the symptom recorded as
+"per-pixel tile noise on backgrounds while resident font/UI stayed clean".
+The fix moved the count to the SDRAM ack. But the ack is produced by the same
+rising-edge detector: a mid-word glitch that re-arms it issues a *second*
+SDRAM read for the same 68000 word, which completes, acks, and advances the
+pointer twice. The fix removed the bus-strobe double count, not the
+request-issue double count. Whether the residual rate is zero is exactly
+what nobody has measured.
+
+Clock domains: `cartridge.clk` = 53.69 MHz (`clk_sys_53_69`), `clk_ram` =
+107.39 MHz (`clk_md_107_39`), 2:1; the 68000 bus originates in the 107.39
+domain (`md_board.v`, everything on `MCLK2`). The ack crosses 107.39 -> 53.69
+as a toggle, which loses a flip if two acks land in one 53.69 period - but an
+SDRAM read spans many 107.39 cycles, so that path is unlikely. The
+double-issue path is the credible one.
+
+**Why this fits the symptom.** A drift of one word shifts every subsequent
+tile fetched through the window by two bytes until the next `0xDB` re-points
+the cursor - a small displacement first (the "misplaced tiles" the tester sees
+seconds before the squares), growing with each further miscount until the
+plane is fetching garbage (the squares), then reset by the next re-point.
+Two-phase, timed, and `0xDB` fires ~23x per `0xDA`. It also predicts the
+phone-cam answer: **right picture in the wrong place, shifted** - not a wrong
+picture in the right slot. That prediction is on the record before the
+footage.
+
+**The next card is a 68000-side counter, not another MCU instrument.** Count
+delivered stream words (`paprium_stream_read_ack`) since the last MCU write
+to `fpgio_sptr`, latch it into a register the MCU can read through the
+existing FPGAIO path, and have the firmware record on each `0xDB` how many
+words the RTL delivered against how many the game should have consumed. A
+counter and a latch, not a second `data_unloader` (that is what cost the
+cmdlog build 1,217 ALMs and -3.141). This is the read-back that was refuted
+five times - but the refuted version read the *pointer* back live; a
+per-epoch word count latched on the MCU's own write is a smaller thing and
+has not been fitted. Gate stays: setup >= -2.60, boots, full playthrough.
