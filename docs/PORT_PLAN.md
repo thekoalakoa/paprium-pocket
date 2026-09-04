@@ -7248,6 +7248,25 @@ failing path. **Read the path report first next time.**
 The three worst are VDP clock-prescaler flops into **Z80 transparent latches**.
 The first 68000-internal path is fourth, 0.2 ns better than the worst.
 
+### Experiment: reverse-engineer the MWMM synth
+
+**On its own branch, after #8.** This is the cartridge's music hardware - the part
+that has never been dumped and the reason the port substitutes the released
+soundtrack. Reproducing it would remove that substitution entirely.
+
+Targets named so far: the **sax layer**, the **crisis cue `0xD6`**, and **hit
+pitch**.
+
+    have    the wave bank, 52 decompressed modules, and the header
+    need    the sequence body, the program table, and 26-voice RTL
+
+The RTL half is the part to cost before starting: 26 voices on a device already at
+98% ALM is not a probe, it is a feature, and the FX68K headroom experiment below
+may be a prerequisite rather than an optional extra.
+
+Nothing here blocks or is blocked by #8, which is why it waits - two open
+investigations in the same tree would make every capture ambiguous.
+
 ### Experiment: swap nuked-md's 68000 for FX68K
 
 **Status: queued, and the measurement above says it will NOT fix timing.** Even a
