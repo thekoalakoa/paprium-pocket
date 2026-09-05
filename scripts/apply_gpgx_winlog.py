@@ -21,6 +21,7 @@ Record, 8 bytes, little-endian:
                   5 0xAF frame end
                   8 word read of 0x1FEA (mailbox command word)
                   9 word/byte read of 0x1FE4..0x1FEB (status words)   address = address
+                    ... and of 0x1F10..0x1F1F (dma_total/budget/remaining/count, sat_count) since 2026-09-05
                  10 PC of the 68000 at a 0xDB write   pad = PC bits 23..16, address = bits 15..0
                  11 0xAE frame start
                  12 PC of the 68000 at a read of 0x1FE4/0x1FE6   pad = PC 23..16, address = PC 15..0
@@ -116,6 +117,7 @@ def main():
                                 TAB + TAB + "data = *(uint16 *)(paprium_s.ram + address);",
                                 "#if PAPRIUM_WINLOG",
                                 TAB + TAB + "if (address >= 0xC000) winlog(0, (unsigned short) address);",
+        TAB + TAB + "else if (address >= 0x1F10 && address <= 0x1F1F) winlog_status((unsigned short) address);",
                                 "#endif",
                                 TAB + TAB + "break;",
                                 TAB + "}"]))
@@ -136,6 +138,7 @@ def main():
                                 "#if PAPRIUM_WINLOG",
                                 TAB + "if (address >= 0xC000) winlog(1, (unsigned short) address);",
                                 TAB + "else if (address >= 0x1FE4 && address <= 0x1FEB) winlog_status((unsigned short) address);",
+        TAB + "else if (address >= 0x1F10 && address <= 0x1F1F) winlog_status((unsigned short) address);",
                                 "#endif"]))
 
     # 5. the commands: paprium_cmd(int data) derives cmd = data >> 8 first
