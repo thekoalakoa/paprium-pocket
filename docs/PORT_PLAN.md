@@ -9702,3 +9702,10 @@ ring RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement; deploys
 on gate. Pre-reg: title after wait-through; stream background garbage / flicker
 vs the prior stream cards (70c9a726 / a9bdd55a); shaft still clean; cell dark
 yes/no; note lag. Dark -> menu exit -> sd in.
+
+**Fit result (build-scratch2.log, 17:14-17:41):** dec2f09f's placement:
+
+    scratch2-stream.CANDIDATE   37245cf2   mcu.txt f12887c9   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264   PASS
+
+Deployed per the standing order: card `cc639d69 -> 37245cf2`, md5 confirmed.
+Records clear at boot. On a dark screen: menu exit, sd in, decode_heartbeat.py.
