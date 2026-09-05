@@ -15,6 +15,7 @@ PHASES = {0: 'idle (last command returned)', 1: 'inside a command handler', 2: '
           3: 'stream DMA queued', 5: 'BGM module unpack', 6: 'frame end', 7: 'walk done (before the SAT pass)',
           8: 'SAT pass (sprite index in byte 11)', 9: 'render returned', 10: 'handler tail (busy pulse / response pending)'}
 TRAP = 0x910 + 1696 + 32
+IDLE = 0x910 + 1752   # loop-idle mailbox snapshot (heartbeat 3), 24 bytes to the window end
 CAUSES = {0: 'instruction misaligned', 1: 'instruction access fault', 2: 'illegal instruction', 3: 'breakpoint',
           4: 'load misaligned', 5: 'load access fault (bus timeout/error)', 6: 'store misaligned',
           7: 'store access fault (bus timeout/error)', 8: 'environment call'}
@@ -58,6 +59,19 @@ def main():
               % (t[2], CAUSES.get(t[2], '?'), pc, bad, tsp, tframe, t[3], PHASES.get(t[3], '?')))
         print('  last      : cause %d = %s   hb phase %d' % (t[20], CAUSES.get(t[20], '?'), t[21]))
         if t[2] in (5, 7): print('  -> bus access fault: an SDRAM/mailbox access not acknowledged within 127 cycles (2.4 us) - starvation candidate')
+    q = swapped(d[0x900:0x1000])[IDLE - 0x900:IDLE - 0x900 + 24]
+    if not any(q):
+        print('idle snap   : none (not a heartbeat-3 build, or the loop never idled)')
+    else:
+        rc, s1, s2, dcc, dtot, drem, a0, tick = struct.unpack('>8H', q[0:16])
+        sptr, = struct.unpack('>I', q[16:20]); ovw, ex = struct.unpack('>2H', q[20:24])
+        print('idle snap   : loop tick %d (x64 iterations)   reg_cmd 0x%04X (%s)   status_1 0x%04X (busy bit2=%d)   status_2 0x%04X (busy bit14=%d)'
+              % (tick, rc, 'acked/empty' if rc < 0x8000 else 'POSTED, unprocessed', s1, (s1 >> 2) & 1, s2, (s2 >> 14) & 1))
+        print('              dma_cmd_count %d   dma_total %d   dma_remaining %d   cmd_args[0] 0x%04X   tape ptr 0x%06X' % (dcc, dtot, drem, a0, sptr))
+        print('              post overwrites %d   loop-exit marker %s' % (ovw, ('0x%04X = exited on md_rst_status at phase %d' % (ex, ex & 0xFF)) if ex else 'none'))
+        if dcc: print('  -> the 68000 never reset dma_cmd_count: it did not finish running the vblank DMA list (frozen in a bus cycle?)')
+        elif rc >= 0x8000: print('  -> a command sits posted and the MCU never took it: the MCU loop stopped')
+        else: print('  -> list consumed, nothing posted: the 68000 stopped talking after its last frame start')
 
 if __name__ == '__main__':
     main()
