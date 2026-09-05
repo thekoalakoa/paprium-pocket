@@ -9685,3 +9685,20 @@ Deployed per the standing order: card `d6182af4 -> cc639d69`, md5 confirmed.
 Records clear at boot; no save wipe needed. Decode after the shaft rides with
 decode_heartbeat.py (residual + BGM-over counters) and decode_sat_snapshot.py
 if a capture is taken (snap_db_stale, re-keyed to the scratch base).
+
+### 2026-09-05: card 1 cc639d69 - #8 SHAFT CLEAN (prediction held)
+
+User: title OK after wait-through; cell room fine; **#8 shaft clean**; mild
+lag / dropped frames (may be the shipping baseline's); ~1 s extra pause after
+"presented by" before the WM logo rolls into the start menu (new, note it);
+no dark/glitch on this run. The storage-aliasing root cause is confirmed for
+#8 on hardware: the only change from the baseline is the MCU scratch leaving
+0x9000, and the bands are gone. Open on this card: the ~1 s boot pause
+(candidates: cmd_F2's unpack now at 0x1E0000, the BGM guard, heartbeat 4's
+bram writes at boot - decode the counters when the card comes back).
+
+**GO card 2 (2026-09-05):** `f12887c9` = stream + heartbeat 4 + PPM_SCRATCH_HIGH,
+ring RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement; deploys
+on gate. Pre-reg: title after wait-through; stream background garbage / flicker
+vs the prior stream cards (70c9a726 / a9bdd55a); shaft still clean; cell dark
+yes/no; note lag. Dark -> menu exit -> sd in.
