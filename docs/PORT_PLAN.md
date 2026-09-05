@@ -9182,3 +9182,61 @@ dump fails or is skipped; (b) the menu exit on OS 2.7 does not write the save
 in this flow regardless of the hang. Control requested: same card, boot to the
 start screen, exit via the menu with NO hang, decode - `PBOT`+`PHBT` present
 proves (a), absent proves (b).
+
+**CORRECTION - the dump DID land.** The core's platform id is `paprium`, so its
+nonvolatile slot resolves to `/Saves/paprium/common/Paprium.sav`; the file read
+first was a stale browser-instance copy under `/Saves/genesis/...`. The real
+save carries `PBOT` (boot counter 4), `PSAT`, and a full heartbeat. Copy:
+`vdp-capture/saves/paprium-cellhang-2dbae90a.sav` (630f1313). Note the region
+is 16-bit byte-swapped in the file - raw `grep PBOT` finds nothing.
+
+**The record (cell hang, 2dbae90a):**
+
+    frame 4548 (75.8 s)   last cmd 0xAD   phase 3 = stream DMA queued
+    object slot 3, sprite 4 of count 5, spr_info 0x0733B4
+    cursor tile 44, stage 0x9380, dma_cmd_count 7, dma_remaining 1552 (no wrap)
+    sat_count 31   BGM last unpack 0x09001E + 11,500 -> 0x092D0A (far from the cache)
+    sp 0x8003FFAC (80 bytes below the top, at command entry)   flags: none
+
+None of the three pre-registered hazards fired (count 5, list 7, BGM clear).
+The 0xAD handler never reached its exit write: the stop is in the window after
+the object's last sprite is queued - SAT pass, render return, handler tail.
+That window has no loops and the firmware has no interrupt handlers.
+
+**Mechanism analysis (offline):**
+- crt0's default trap handler SKIPS the faulting instruction and returns
+  (mepc += 2/4), so an exception cannot freeze the MCU at one point; a skipped
+  instruction mid-sequence corrupts control flow and ends in some loop with no
+  heartbeat writes - which is what the record looks like.
+- The CPU bus unit times out an unacknowledged data access after
+  `bus_timeout_c = 127` cycles (2.4 us at 53.69 MHz) and raises a bus error.
+- `sdram.sv`: strict fixed priority refresh > port0 (68000) > port1 (VDP /
+  stream window) > port2 (MCU), with an anti-starvation boost after
+  `STARVE2_LIMIT = 24` clk_ram cycles - added upstream for issue #10
+  ("animations skip, worse with more enemies") and re-tested here at 8 and 96
+  (elevator indifferent; 96 dropped frames). The MCU adapter needs two SDRAM
+  rounds per 32-bit access. Arithmetic: 24 + an in-flight access + a refresh,
+  twice, is ~1 us - inside 2.4 us. So starvation alone does not obviously reach
+  the timeout; a lost req/ack under contention would. Plausible, not
+  established.
+- The phase-3 point is the start of a frame, when the previous list is being
+  read through the tape at full vblank speed - the heaviest port1 load. Under
+  the LRU baseline that burst is a few blocks; under the stream it is the
+  whole vblank.
+
+**Heartbeat 2 (`1560378`, decoder `8708b27`):** RTE installed at setup with a
+recorder on every exception id 0..8 - first trap's cause, faulting PC (from
+mscratch, where the RTE core parks it), mtval, sp, heartbeat frame and phase,
+plus a running count and the last cause/phase - at bram 0xFD0 (SPARE + 32,
+static-asserted against t[]). The RTE still skips, as crt0 did. Phases added:
+7 walk done, 8 SAT pass (sprite index), 9 render returned (after all three
+call sites), 10 handler tail. Firmware: stream on `a36d6a75`, stream off
+`08f05568`, heartbeat off `c642dfe3` (byte-identical to the previous card).
+Proposed card: `a36d6a75` on ring RTL @ seed 5. Pre-reg: reproduce the cell
+hang -> exit via the menu -> decode. Trap record with cause 5/7 and an SDRAM
+mtval at a walk/SAT-pass PC -> bus timeout under stream traffic, fix in RTL
+(`bus_timeout_c`, or port2 priority) or by keeping the walk off SDRAM while
+the 68k's list is still being consumed (poll `dma_cmd_count` back to 0 at
+frame start). No trap and a phase 7-10 stop -> a loop in that window, read the
+code at that phase. No trap and phase 3 again -> the stop is inside
+`ppm_stream_dma`'s descriptor writes or the walk's own tail.
