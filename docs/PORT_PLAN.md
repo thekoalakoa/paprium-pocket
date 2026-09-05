@@ -8726,3 +8726,12 @@ from the SDRAM decoded-block cache (sprites reference blocks; a block's
 tiles are copied at the sprite's stride); one DMA per sprite of
 `tileSize` bytes. Budget charged per sprite as the game's own DMA list
 would. The SDRAM cache and `PPM_BUSY_REST` stay as they are.
+
+**Visibility settled (state 11, per-pixel composite with priorities):**
+plane A paints 33.8% of the screen and 908 of its tile-64 cells win
+pixels. Tile 64 is the shaft's wall texture, and the game streams it every
+frame as an entry of its tile list (the `0x2460 -> tiles 51-66` DMA in
+every frame of the log). The "tidy repeated wall" in GPGX is that one
+texture tiled uniformly by the row bug. So the contract the Pocket must
+honour is the whole per-frame stream in the game's order, not a few
+slots; the corrected per-sprite walk is the right size of fix.
