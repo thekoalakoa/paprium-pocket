@@ -9147,3 +9147,13 @@ ring, 19-20 sprites/frame). The title gate is judged there, after the intro,
 and a wait-through means letting the start screen sit (it persists ~8 s in GPGX
 before attract begins). Where earlier runs put the start screen at 22-28 s,
 RetroArch's boot timing varied between runs; the scene order did not.
+
+**GO received (2026-09-05):** heartbeat card - firmware `70c5265c` (= c642dfe3
++ `PPM_HEARTBEAT`, stream on), ring RTL `a22aea4` @ seed 5, ROM-only -> expect
+dec2f09f's placement. Fit `quartus_sh -t generate.tcl paprium 5`, log
+`build-heartbeat.log`, started 09:53. Title gate (corrected): wait through the
+intro to the ~45 s start screen (19 sprites, cursor 203); judge ordered train vs
+chaos only then; early flicker expected. Pre-reg: reproduce the cell hang ->
+exit the core from the Pocket menu -> `decode_heartbeat.py`; the bram-dump-
+after-hang assumption stays open; hardening held until the record speaks.
+Card stays d6182af4 until the flash is ready.
