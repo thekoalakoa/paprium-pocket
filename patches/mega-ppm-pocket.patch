@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..b1c7347 100644
+index b568843..cd9b8c0 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -500,7 +500,7 @@ index b568843..b1c7347 100644
              }
              break;
  
-@@ -260,12 +650,451 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +650,458 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -855,6 +855,13 @@ index b568843..b1c7347 100644
 +    u32 rem = ppmio.ramdp->dma_remaining;
 +    u32 afford = rem / 0x110;           // whole blocks still payable for
 +    if (afford > 255) afford = 255;
++#if PPM_LIST_ORDER_VRAM
++    // Under the stream, budget affordability is meaningless (charged per sprite,
++    // never refused, u16 underflow). Record instead the highest VRAM tile the
++    // stream's cursor reached this frame - GPGX's title stays at tiles 16-80,
++    // the shaft at 16-154. A cursor past the scene's plane art is the corruption.
++    afford = ppm_stream_vram >> 5; if (afford > 255) afford = 255;
++#endif
 +    u8 *c = &snap_ring[snap_ring_idx * 2];
 +    c[0] = (u8) (((snap_f_refuse > 15 ? 15 : snap_f_refuse) << 4)
 +                 | (snap_f_load > 15 ? 15 : snap_f_load));
@@ -952,7 +959,7 @@ index b568843..b1c7347 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +1104,466 @@ void ppm_obj_frame_start() {
+@@ -275,18 +1111,466 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -1420,7 +1427,7 @@ index b568843..b1c7347 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,7 +1576,22 @@ void ppm_obj_frame_end() {
+@@ -299,7 +1583,22 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1444,7 +1451,7 @@ index b568843..b1c7347 100644
  }
  
  void ppm_close_sprite_table() {
-@@ -340,6 +1632,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1639,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1458,7 +1465,7 @@ index b568843..b1c7347 100644
          return;
      }
  
-@@ -410,6 +1709,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1716,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1470,7 +1477,7 @@ index b568843..b1c7347 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,6 +1725,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,6 +1732,7 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1478,7 +1485,7 @@ index b568843..b1c7347 100644
  
      if (!blocks_available) {
  
-@@ -437,6 +1742,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -437,6 +1749,11 @@ void ppm_obj_render(uint16_t obj_slot) {
          }
      }
  
@@ -1490,7 +1497,7 @@ index b568843..b1c7347 100644
      spr_data = &spr_info->sprites[0];
  
  
-@@ -461,7 +1771,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1778,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1535,7 +1542,7 @@ index b568843..b1c7347 100644
          satEntry++;
      }
  
-@@ -482,12 +1829,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +1836,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1562,7 +1569,7 @@ index b568843..b1c7347 100644
          return 0;
      }
  
-@@ -505,15 +1866,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1873,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1617,7 +1624,7 @@ index b568843..b1c7347 100644
      ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
      ppm_block_unpack_addr += 0x200;
  
-@@ -536,6 +1936,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +1943,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1625,7 +1632,7 @@ index b568843..b1c7347 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +1950,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +1957,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
