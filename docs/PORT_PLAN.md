@@ -9450,3 +9450,37 @@ Option B parked (crackle, no visual change). Card reverted to d6182af4.
 GPGX experiment in flight: inject a stale window word every N reads
 (`PAPRIUM_STALE_N`) and look for the Pocket's signature - commands stop while
 DMAs continue - at a transition.
+
+**GPGX stale-word injection (core 052d2560, env `PAPRIUM_STALE_N`, boot ->
+attract, 3,000 frames each):**
+
+    N=0  : 0 injections     AE 2,587 (last frame 2,999)  AF 2,588 (last 2,999)
+    N=64 : 660 injections   AE 2,587 (last 2,999)        AF 2,588 (last 2,999)
+    N=16 : 2,640 injections AE 2,587 (last 2,999)        AF 2,588 (last 2,999)
+
+No death: the game kept posting frame commands to the last frame with a
+stale window word every 16 reads, transitions included. Caveats: attract
+issues very few 0xDB packets (the runs barely exercised packet reads), and a
+real pointer desync shifts every following word, not one. The three save
+states (`cellroom`, `capture-slot0/1`) all spin on mailbox/status reads under
+GPGX with no frame commands - GPGX does not restore the cart emulation on
+state load, so the game waits for an MCU response that never comes. No GPGX
+gameplay run is available from a state.
+
+**Two candidates remain, both "stale word on the VDP's fixed acknowledge":**
+(i) During the walk the MCU floods SDRAM port2 (memcpy + unpack per sprite);
+    the port2 anti-starvation boost takes rounds from port1; the 68000's own
+    ROM instruction/data fetches come back stale -> a garbage opcode mid-frame
+    at an arbitrary point -> the header's `rte` stub -> fault loop. Explains
+    the differing stop points (#3 after 0xAF, #4 mid-frame), why option B did
+    nothing (it paused only SFX reads, only during the runner), and why GPGX
+    cannot reproduce it. Testable WITHOUT stream code.
+(ii) Tape desync corrupting 0xDB payloads at transitions -> bad pointer ->
+    fault. Not supported by the injection runs (weak coverage).
+
+**Prepared, default off - `PPM_PORT2_LOAD` (`5cd8751`):** on the LRU baseline,
+a 4 KB scratch memcpy (SDRAM 0x1E0000 -> 0x1F0000) per 0xAD - the walk's port2
+traffic with none of its data. Prediction under (i): the baseline starts
+flickering / going dark like the stream cards; under (ii): unchanged.
+Firmware: LRU + heartbeat 4 + load `b4cc86d8`; LRU + heartbeat 4, no load
+`bd0b6499` (the control); stream + heartbeat 4 `20d392de`.
