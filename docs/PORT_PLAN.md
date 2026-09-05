@@ -8840,3 +8840,13 @@ loader never refuses for budget when the stream is on; a sprite whose block
 cannot be cached (no slot) or that does not fit staging/the DMA list still
 advances the cursor by its size (its own VRAM left stale, everything after
 it in place); no re-walk on fallback. Not fitted.
+
+**Two notes for the fixed stream.** `dma_remaining` is `vu16`: with the
+stream charging per sprite and never stopping, it underflows on a heavy
+frame - harmless (the refusal check is off under the switch and
+`ppm_dma_refresh` recomputes it each frame) but the onset ring's "blocks
+left" byte reads 255 then; read the refusal column, not that one. And
+GPGX's sprite stream sources from its cart-RAM staging at `0x2000+`, not
+from the window - the window carries only the `0xDA`/`0xDB` page loads. The
+Pocket streams the same layout from SDRAM through the window; the transport
+differs, the VRAM contract does not.
