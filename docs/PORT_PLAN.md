@@ -8991,3 +8991,11 @@ Pre-registration proposal: 1. title = ordered train menu (chaos -> revert);
 2. title ring `--stream`: cursor 203-242, byte 0 = 19-20 sprites/frame;
 3. shaft vs cart; 4. attract mode (up to 54 sprites / cursor 482) clean;
 5. lag vs d6182af4.
+
+**GO received (2026-09-04):** fit firmware `c642dfe3` (`PPM_LIST_ORDER_VRAM 1`
++ DMA destination from the byte address) + pad + narrow busy-rest, ring RTL
+`a22aea4` @ seed 5, `quartus_sh -t generate.tcl paprium 5`, log
+`build-stream3.log`, started 22:01. ROM-only -> expect dec2f09f's placement
+(ALM 18,194 / setup -2.549 / hold +0.004). Flash only after gate; md5 before A/B.
+Pre-reg as proposed (title ordered / title ring cursor 203-242 + byte 0 19-20 /
+shaft / attract / lag).
