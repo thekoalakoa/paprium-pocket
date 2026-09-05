@@ -8850,3 +8850,15 @@ GPGX's sprite stream sources from its cart-RAM staging at `0x2000+`, not
 from the window - the window carries only the `0xDA`/`0xDB` page loads. The
 Pocket streams the same layout from SDRAM through the window; the transport
 differs, the VRAM contract does not.
+
+**Title stream shape (GPGX boot log, cart-RAM-sourced DMAs):** 174 of 900
+boot/title frames stream sprites; 4-7 sprites a frame, at most 2,048 bytes,
+VRAM `0x0200-0x0A00` = **tiles 16-80**. The title's plane art therefore
+lives above tile 80, and a correct walk on the Pocket must stay under it.
+
+**Instrument for the next card (under the switch):** the onset ring's
+second byte records the highest tile the stream's cursor reached each frame
+(saturating at 255) instead of budget affordability, which is meaningless
+under the stream. Prediction: title <= 80 every frame; shaft ~154. A
+cursor past the scene's plane art is the corruption, frame by frame.
+Firmware with the instrument on: see build log; off: 2c522e9f.

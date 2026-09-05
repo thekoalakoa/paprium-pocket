@@ -131,6 +131,7 @@ def main():
     print("  refusals  . = 0  1-9 = count  + = 10 or more")
     print("  loads     . = 0  1-9 = count  + = 10 or more   (successful block loads)")
     print("  afford    # = 0 blocks payable   : = 1-2   . = 3 or more")
+    print("            (on a PPM_LIST_ORDER_VRAM build this byte is instead the highest tile the stream reached, /1, saturating at 255)")
 
     def band(vals, f):
         return ''.join(f(v) for v in vals)
