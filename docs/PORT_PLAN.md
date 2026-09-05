@@ -8862,3 +8862,17 @@ second byte records the highest tile the stream's cursor reached each frame
 under the stream. Prediction: title <= 80 every frame; shaft ~154. A
 cursor past the scene's plane art is the corruption, frame by frame.
 Firmware with the instrument on: see build log; off: 2c522e9f.
+
+### Fixed-stream fit: GO (reviewer, 21:0x), pre-registered
+
+Ring RTL, seed 5, firmware pad 1 + busy-rest 1 (narrow pulse) + stream 1
+(no budget refusal during the stream, cursor always advances, no fallback
+re-walk, cursor instrument) = `mcu.txt 2e793f66`. ROM-only; expected
+placement dec2f09f's. Flash only after gate; md5 before the A/B.
+
+    1. title intact                                  fail -> revert d6182af4
+    2. title ring: cursor max <= 80 every frame       broken title with cursor <= 80 -> the walk is not the fault; dig elsewhere
+    3. shaft: cart / unchanged (measure) / new elsewhere -> revert
+    4. lag vs d6182af4; heavy-frame sprites
+
+dma_remaining's u16 underflow: cosmetic, not blocking.
