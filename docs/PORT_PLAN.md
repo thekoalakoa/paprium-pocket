@@ -9484,3 +9484,11 @@ traffic with none of its data. Prediction under (i): the baseline starts
 flickering / going dark like the stream cards; under (ii): unchanged.
 Firmware: LRU + heartbeat 4 + load `b4cc86d8`; LRU + heartbeat 4, no load
 `bd0b6499` (the control); stream + heartbeat 4 `20d392de`.
+
+**GO received (2026-09-05, 14:17):** port2-load card - firmware `b4cc86d8` (LRU
+baseline + heartbeat 4 + `PPM_PORT2_LOAD` 4 KB scratch memcpy per 0xAD; stream
+off, option B off), ring RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's
+placement. Log `build-port2load.log`. Deploys on gate per the standing order.
+Control is `bd0b6499` (same without the load) if needed. Pre-reg: the baseline
+goes dark / glitches like the stream cards => (i) arbitration / acknowledge
+timing; unchanged => the stream's data path is back in play. Option B parked.
