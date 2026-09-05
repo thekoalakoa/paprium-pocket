@@ -9709,3 +9709,38 @@ yes/no; note lag. Dark -> menu exit -> sd in.
 
 Deployed per the standing order: card `cc639d69 -> 37245cf2`, md5 confirmed.
 Records clear at boot. On a dark screen: menu exit, sd in, decode_heartbeat.py.
+
+### 2026-09-05: card 2 37245cf2 (stream + scratch-high) - stream still glitches; card 1 is the best card
+
+User: start menu glitching, cell glitching, stopped at the cell. And on card 1:
+"fixed nearly everything, only issue was lag and slow startup". Save
+`vdp-capture/saves/paprium-cell-37245cf2.sav` (56177d55), boot 13:
+
+    frame 3737 (62.3 s)   last cmd 0xAF   phase 10   traps none
+    residual: 62 pointer writes (0xDA/0xDB) while dma_cmd_count != 0
+    idle: reg_cmd acked   dma_cmd_count 17 (16 MCU + 1)   dma_total 608   tape 0x1E0000 (re-armed at 0xAF)   BGM-over 0
+    68k vectors (effective, from the mailbox copy): bus/address/illegal -> 0x010106 = rte ; VBLANK -> 0x01010E (the real V-int routine)
+
+Readings:
+- The effective vectors are the game's own (installed register-indirectly,
+  invisible to F's absolute-write search) but still a bare `rte` for group-0
+  faults -> a fault would HALT; the changing picture says no fault. F stands.
+- The stream's corruption is its own: with the scratch moved, the LRU build
+  (card 1) is clean where the stream build (card 2) still glitches. The
+  residual counter says the game moves the tape pointer (0xDA/0xDB) 62 times
+  a minute while the MCU's list is pending - far above GPGX's order. On the
+  LRU that is harmless (the runner reads almost nothing from the tape); under
+  the stream the runner reads 6-15 KB from wherever the pointer sits -> tiles
+  from a payload (the flicker) and payload reads offset by the consumed
+  words (the cell). The counter does not yet split after-0xAF from mid-frame.
+  Fix routes if the stream is ever revived: the two-pointer RTL (window bit
+  13 selects the MCU's own tape; placement re-roll), or re-arm discipline in
+  firmware. The stream was built to cure #8, which the scratch move cured on
+  the LRU - so the stream is PARKED.
+- Card 1 (cc639d69 = LRU + heartbeat 4 + PPM_SCRATCH_HIGH) is the new
+  playable baseline. Open on it: mild lag / dropped frames (present on the
+  shipping-era baseline too) and a ~1 s extra pause after "presented by"
+  before the WM logo. Candidates for the pause: cmd_F2 (moved with the
+  scratch on the strength of "never in any log" - the logger never hooked
+  0xF2, so that was vacuous), the both-build BGM guard, heartbeat/RTE setup.
+  Measuring F2's presence at boot in GPGX first.
