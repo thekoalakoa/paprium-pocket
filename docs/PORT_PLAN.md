@@ -9676,3 +9676,12 @@ heartbeat 4 + PPM_SCRATCH_HIGH; stream, option B and the load off), ring RTL
 `build-scratch1.log`. Deploys on gate per the standing order. Pre-reg as
 recorded above (shaft two rides vs d6182af4: #8 bands -> 0, snap_db_stale
 -> 0; flicker and the cell dark screen predicted unchanged).
+
+**Fit result (build-scratch1.log, 16:18-16:45):** dec2f09f's placement:
+
+    scratch1-lru.CANDIDATE   cc639d69   mcu.txt 801da897   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264   PASS
+
+Deployed per the standing order: card `d6182af4 -> cc639d69`, md5 confirmed.
+Records clear at boot; no save wipe needed. Decode after the shaft rides with
+decode_heartbeat.py (residual + BGM-over counters) and decode_sat_snapshot.py
+if a capture is taken (snap_db_stale, re-keyed to the scratch base).
