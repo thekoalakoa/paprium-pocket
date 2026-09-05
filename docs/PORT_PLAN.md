@@ -9321,3 +9321,57 @@ recorded above (dma_cmd_count at idle decides where the 68000 stopped).
 
 Deployed per the standing order: card `6bcc8524 -> 70c9a726`, md5 confirmed. Records are
 cleared at boot; no save wipe needed.
+
+### 2026-09-05: heartbeat-3 record (70c9a726) - the 68000 froze INSIDE the vblank DMA list
+
+Save `vdp-capture/saves/paprium-cellhang-70c9a726.sav` (f88056d4), boot 7:
+
+    frame 5625 (93.8 s)   last cmd 0xAF (frame end)   phase 10   traps: none
+    idle snapshot (3.57 M loop iterations later - the MCU was alive and idle):
+      reg_cmd 0x0000 (acked)   status_1 0x0004 (busy at rest)   status_2 0x0007
+      dma_cmd_count 25   dma_total 640   dma_remaining wrapped   tape ptr 0x9000 (re-armed at 0xAF)
+      post overwrites 0   loop-exit marker none
+
+`dma_cmd_count` / `dma_total` are 68000-owned and zeroed by the game only at
+the end of its vblank list runner. 25 = the MCU's 24 stream descriptors + the
+game's own SAT descriptor (640 words). They were never zeroed: the 68000
+stopped inside the runner.
+
+**The runner, extracted from `vdp-capture/states/cellroom.state` (RAM code at
+0xFF5E00, called `jsr $ff5e00` at 0x0328C6 after a vblank-flag wait and the
+MCU-ack wait):**
+
+    move.w $1f16.w,d0 ; beq done ; subq #1,d0 ; lea $1400.w,a0 ; lea $c00004.l,a1
+    loop: move.l (a0)+,(a1) x3 ; move.w (a0)+,(a1) ; move.w (a0)+,$ff5886 ; move.w $ff5886,(a1) ; dbra
+    move.w #$8f02,(a1) ; done: clr dma_total ; clr dma_cmd_count ; rts
+
+No waits of any kind: each descriptor's eight words go to the VDP control port
+back-to-back and the 68000 is halted by the VDP for the duration of each
+68k->VRAM DMA. A count still held = halted inside one of the 25 DMAs, 24 of
+them sourced from the stream window.
+
+**Acknowledge path (Nuked-MD, `md_board.v:778`):** `DTACK <= ~ym_DTACK_pull &
+~ext_dtack`. The VDP asserts the acknowledge for cart space on its own fixed
+timing; the cart's `ext_dtack` (`cartridge.sv:214`, `svp_cs | dtack_ext`, and
+`dtack_ext` only for `cart_cs_ext` = ROM above 4 MB) can only add an early one.
+So a bank-0 window read always terminates - with STALE data when port1 was
+late (refresh, port0, or the MCU's port2 anti-starvation boost winning a round
+while the MCU hits SDRAM during vblank). That is the flicker: a shifted word
+in the tape for that frame, and the stream multiplies the exposure.
+It is NOT a hang. The freeze is the VDP's DMA engine never finishing - a
+halted bus master. Unidentified. One cart-side injection exists: after a late
+ext-ROM read completes with `sdram_rd` already low, `dtack_ext` is set for one
+clk_ram cycle before the `~sdram_rd` clear takes it down - a stray early
+acknowledge between bus cycles that a gate-level VDP could sample. Hypothesis
+with a signature, not a measurement.
+
+Instruments / experiments on the table:
+(A) RTL: make `stream_ptr` readable (fpgio read mux) so the idle snapshot
+    records how many tape words the VDP consumed before the freeze - which
+    descriptor and whether it stopped at a boundary or mid-transfer. Tiny
+    change, but any RTL change re-rolls placement (~2 passes in 12).
+(B) Firmware: keep the MCU off SDRAM while the game runs the list
+    (`dma_cmd_count != 0` after 0xAF): pause the SFX player's sample reads.
+    Tests the flicker mechanism directly; may also change the freeze rate.
+(C) Firmware: cap the stream's per-frame descriptors/bytes (e.g. 8 KB) -
+    tests whether the freeze scales with list length.
