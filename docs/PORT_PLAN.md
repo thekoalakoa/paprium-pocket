@@ -9167,3 +9167,18 @@ snapshot region blank (0xFF from 0x900). Test: wait through to the ~45 s start
 screen and judge; play to the prison cell; on the hang, exit the core from the
 Pocket menu (not power-off) so bram is dumped; then `decode_heartbeat.py` on
 the save before anything is wiped.
+
+### 2026-09-05: heartbeat card 2dbae90a - cell hang reproduced, exit via menu, NOTHING dumped
+
+User: cell hang reproduced on 2dbae90a, exited the core from the Pocket menu.
+Save on the card: 0xFF from 0x900 to the end - no `PBOT` boot marker, no
+`PHBT` heartbeat, file mtime 2021 (untouched). Copy kept at
+`vdp-capture/saves/paprium-cellhang-2dbae90a.sav`. Since `PBOT` is written
+unconditionally at setup, this is not the heartbeat failing: the Pocket did
+not write the save at all on this exit. Two explanations, not yet separated:
+(a) the hang wedges whatever the APF bridge needs to read battery RAM (a
+stalled MCU<->SDRAM/Wishbone transaction holding a shared path), so the OS's
+dump fails or is skipped; (b) the menu exit on OS 2.7 does not write the save
+in this flow regardless of the hang. Control requested: same card, boot to the
+start screen, exit via the menu with NO hang, decode - `PBOT`+`PHBT` present
+proves (a), absent proves (b).
