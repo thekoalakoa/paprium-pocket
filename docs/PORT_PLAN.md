@@ -8885,3 +8885,23 @@ Deployed by the armed chain after its numeric gate; md5 confirmed on the
 card; snapshot region zeroed; progress intact. Decode the title's ring
 with `decode_onset_ring.py --stream` for the cursor measurable. Test
 against 5010d95, title first.
+
+### d017785d: title gate FAIL -> reverted. The cursor measurable answered.
+
+Tester: title broken again. Card reverted to d6182af4 (md5 confirmed,
+region zeroed); stream switch back to 0; on-disk firmware 2c522e9f.
+d017785d archived. Decoded before the wipe, with `--stream`:
+
+    refusals 0 of 170 loads (the no-refusal fix held)
+    cursor highest tile per frame: min 203, max 242, no saturation - 480 of 480 frames past 80
+
+GPGX's title stream stays at tiles 16-80 (4-7 sprites, <= 2 KB). The
+Pocket's walk streams ~7.5 KB a frame there: about 3.8x. The stride formula
+is identical and the cursor resets every frame, so the surplus is
+**membership** - the Pocket streams sprites GPGX does not. Pre-registered
+reading: the walk/placement model still overreaches; the title is not a
+placement-independent fault. Leading candidate, from GPGX's own source (a
+`tiledupe` term in the commented guard at paprium_sprite line ~244): a
+duplicate-tile suppression - repeated pieces streamed once per frame in
+GPGX and once per sprite on the Pocket. Being read now; the logger will
+record every streamed and every suppressed sprite on the title.
