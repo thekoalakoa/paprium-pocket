@@ -9240,3 +9240,10 @@ the 68k's list is still being consumed (poll `dma_cmd_count` back to 0 at
 frame start). No trap and a phase 7-10 stop -> a loop in that window, read the
 code at that phase. No trap and phase 3 again -> the stop is inside
 `ppm_stream_dma`'s descriptor writes or the walk's own tail.
+
+**GO received (2026-09-05, 10:50):** heartbeat 2 - firmware `a36d6a75`, ring
+RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+`build-heartbeat2.log`. Standing order from the user from here on: after a
+GO'd fit passes the gate, deploy to the SD without asking, and always list ALM
+/ setup / hold after a fit. Pre-reg unchanged: reproduce the cell hang -> menu
+exit -> `decode_heartbeat.py` (trap record + phases 7-10).
