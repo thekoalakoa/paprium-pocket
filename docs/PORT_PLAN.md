@@ -9012,3 +9012,50 @@ snapshot region blank (0xFF from 0x900). Working tree left with
 test. Pre-reg stands: 1. title ordered train menu (chaos -> revert d6182af4);
 2. title ring `--stream`: cursor 203-242, byte 0 = 19-20 sprites/frame (capture
 while the title is up); 3. shaft vs cart; 4. attract clean; 5. lag vs d6182af4.
+
+### 2026-09-05: 3f0ee17d A/B (OS 2.7) - title soft pass, flicker, hang; reverted
+
+User read: title = soft pass (playable, ordered train, residual flicker - not
+chaos; far better than every prior stream card). Past start OK. In-game:
+noticeable sprite flicker throughout. **Hang after the prison-cell screen went
+dark** (early cell beat, before shaft or attract). Ring not captured (a hang
+leaves nothing). Card reverted `3f0ee17d -> d6182af4`, md5 confirmed.
+
+Reading: the DMA-destination fix owns the title chaos (pre-reg 1 met on the
+corrected criteria). Flicker and hang are new and live inside
+`PPM_LIST_ORDER_VRAM` - the only switch that differs from d6182af4.
+
+Measured offline so far (GPGX `winlog-boot-stream3.bin`, attract/gameplay
+frames 1400-2399):
+
+    stream bytes/frame : median 5,984   p90 12,160   max 14,912
+    sprites/frame      : median 19      p90 43       max 54
+    68k-bus DMAs/frame : median 20      p90 44       max 71   (all sources)
+    vblank 68k->VRAM capacity ~14,760 bytes (H40, ~36 lines x 205 words)
+    frames over half of it: 270 of 925; over all of it: 1
+
+The retail contract as GPGX models it re-streams every sprite every frame,
+which an emulator with free DMA can afford. On hardware the list shares the
+vblank with the game's own SAT/palette/name-table DMAs; a list that does not
+finish in vblank runs into active display or is cut by the next frame's
+rebuild - flicker throughout. GPGX resets its staging source (`draw_src =
+0x2000`) every frame with no double buffer. Retail firmware remains
+unmeasured; a layout-preserving diff (skip the DMA when a sprite's block,
+offset, size and cursor all match last frame) would keep the contract and
+remove most of the bandwidth on static scenes (title: 19 identical sprites).
+
+Hang candidates, measured where possible:
+- `stream_tiles[64]` on the MCU stack, loops to the object's full `count`:
+  max list length in the logged scenes is 12, no object >64 - not overrun
+  there. Still a hazard for a bogus list (an object GPGX skips for no frame
+  / empty list reads a garbage count in mega-ppm's changed-anim path).
+- `dma_cmd[121]` vs the walk's cap 120 - fine.
+- BGM module tail overlapping the block cache at 0x1F8000: the guard is a
+  printf only; largest module unpacks to 26,072 bytes; the unpack base is
+  printed at boot on a UART the Pocket lacks - unmeasured.
+- `dma_remaining` (0x1F14) wraps below zero under the walk; GPGX's 68k-read
+  list names 0x1F10/0x1F12/0x1F16/0x1F18 but not 0x1F14 - cosmetic to the 68k
+  as noted. `dma_total` (0x1F10) is 68000-owned; the walk and the loader both
+  only decrement dma_remaining - same accounting.
+Mailbox: 0x1F10 dma_total, 0x1F12 dma_budget, 0x1F14 dma_remaining,
+0x1F16 dma_cmd_count, 0x1F18 sat_count.
