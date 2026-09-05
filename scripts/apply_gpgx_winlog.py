@@ -25,6 +25,11 @@ Record, 8 bytes, little-endian:
                  11 0xAE frame start
                  12 PC of the 68000 at a read of 0x1FE4/0x1FE6   pad = PC 23..16, address = PC 15..0
                     (follows the kind-9 record it belongs to)
+                 13 sprite streamed (paprium_sprite)   pad = (size_x-1)<<2 | (size_y-1), address = VRAM tile the sprite lands on
+                 14 paprium_sprite outcome             pad = 1 no frame (framePtr 0/-1), 2 empty list (spritePtr 0),
+                    3 walked (address = index | count<<8), 4 sprite skipped tile==0, 5 skipped spriteCount>=94
+                    (for 1,2,4,5 address = object index)
+                 15 sprite streamed: address = block number (tile field), pad = tile offset within it >> 1
     u8   pad      see above
     u16  address
     u32  stamp    frame counter (high 16) | v_counter (low 16)
@@ -155,6 +160,56 @@ def main():
     old = NL.join(["void paprium_audio(int cycles)", "{"])
     assert old in s, "paprium_audio"
     s = s.replace(old, old + NL + NL.join(["#if PAPRIUM_WINLOG", TAB + "winlog_frames++;", "#endif"]), 1)
+
+    # 7. paprium_sprite: per-object outcome (kind 14) and per streamed sprite (kind 13)
+    def stamp(): return '(winlog_frames << 16) | (v_counter & 0xFFFF)'
+    old = NL.join([TAB + 'if( (framePtr == 0) || (framePtr == -1) ) {',
+                   TAB + TAB + '*(uint16*) (paprium_s.ram + 0xF80 + index*16) = 0;',
+                   TAB + TAB + 'return;'])
+    assert s.count(old) == 1, ('sprite: no-frame return', s.count(old))
+    s = s.replace(old, NL.join([TAB + 'if( (framePtr == 0) || (framePtr == -1) ) {',
+                                TAB + TAB + '*(uint16*) (paprium_s.ram + 0xF80 + index*16) = 0;',
+                                '#if PAPRIUM_WINLOG',
+                                TAB + TAB + 'winlog_raw(14, 1, (unsigned short) index, ' + stamp() + ');',
+                                '#endif',
+                                TAB + TAB + 'return;']))
+    old = TAB + 'if( spritePtr == 0 ) return;'
+    assert s.count(old) == 1, ('sprite: empty-list return', s.count(old))
+    s = s.replace(old, NL.join([TAB + 'if( spritePtr == 0 ) {',
+                                '#if PAPRIUM_WINLOG',
+                                TAB + TAB + 'winlog_raw(14, 2, (unsigned short) index, ' + stamp() + ');',
+                                '#endif',
+                                TAB + TAB + 'return;',
+                                TAB + '}']))
+    old = TAB + TAB + 'if( tile == 0 ) continue;'
+    assert s.count(old) == 1, ('sprite: tile 0', s.count(old))
+    s = s.replace(old, NL.join([TAB + TAB + 'if( tile == 0 ) {',
+                                '#if PAPRIUM_WINLOG',
+                                TAB + TAB + TAB + 'winlog_raw(14, 4, (unsigned short) index, ' + stamp() + ');',
+                                '#endif',
+                                TAB + TAB + TAB + 'continue;',
+                                TAB + TAB + '}']))
+    old = TAB + TAB + 'if( spriteCount >= 94 ) continue;'
+    assert s.count(old) == 1, ('sprite: 94', s.count(old))
+    s = s.replace(old, NL.join([TAB + TAB + 'if( spriteCount >= 94 ) {',
+                                '#if PAPRIUM_WINLOG',
+                                TAB + TAB + TAB + 'winlog_raw(14, 5, (unsigned short) index, ' + stamp() + ');',
+                                '#endif',
+                                TAB + TAB + TAB + 'continue;',
+                                TAB + TAB + '}']))
+    old = NL.join([TAB + TAB + 'src += tileSize;', TAB + TAB + 'dmaSize += tileSize;', TAB + TAB + 'vram += tileSize;'])
+    assert s.count(old) == 1, ('sprite: cursor advance', s.count(old))
+    s = s.replace(old, NL.join(['#if PAPRIUM_WINLOG',
+                                TAB + TAB + 'winlog_raw(13, (unsigned char)(((size_x-1) << 2) | (size_y-1)), (unsigned short)(vram >> 5), ' + stamp() + ');',
+                                TAB + TAB + 'winlog_raw(15, (unsigned char)(ofs >> 1), (unsigned short) tile, ' + stamp() + ');',
+                                '#endif',
+                                old]))
+    old = TAB + 'paprium_s.draw_dst = vram;'
+    assert s.count(old) == 1, ('sprite: draw_dst', s.count(old))
+    s = s.replace(old, NL.join([old,
+                                '#if PAPRIUM_WINLOG',
+                                TAB + 'winlog_raw(14, 3, (unsigned short)(index | (count << 8)), ' + stamp() + ');',
+                                '#endif']))
 
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
     print("applied to", p)

@@ -39,7 +39,7 @@ python "$HERE/scripts/apply_gpgx_winlog.py" core/cart_hw/paprium.h
 for tok in "PAPRIUM_WINLOG 1" "winlog(2," "winlog(0," ; do
   grep -q "$tok" core/cart_hw/paprium.h || { echo "hook '$tok' missing from the applied header - applier is broken"; exit 1; }
 done
-for tok in "rec\[0\] = 11" "m68k\.pc" "winlog(9,"; do
+for tok in "rec\[0\] = 11" "m68k\.pc" "winlog(9," "winlog_raw(13," "winlog_raw(14, 3,"; do
   if grep -q "$tok" "$HERE/scripts/apply_gpgx_winlog.py"; then
     grep -q "$tok" core/cart_hw/paprium.h || { echo "applier has '$tok' but the applied header does not - apply failed"; exit 1; }
   fi
