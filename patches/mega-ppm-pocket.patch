@@ -1767,10 +1767,10 @@ index b568843..a3ca413 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..3b529df 100644
+index 06ccf59..5d815a4 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,209 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,219 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1906,8 +1906,15 @@ index 06ccf59..3b529df 100644
 +#endif
 +#define PPM_SCRATCH_END         (PPM_SCRATCH_BASE + 0x6A00u)   // was the fixed 0xFA00 cap
 +#if PPM_SCRATCH_HIGH
-+_Static_assert(PPM_SCRATCH_BASE >= 0x10000u, "scratch must sit above the game's 64 KB payload space");
-+_Static_assert(PPM_SCRATCH_END <= PPM_BLOCK_CACHE_BASE, "scratch overlaps the decoded-block cache");
++// bounds: above the game's 64 KB payload space, below the decoded-block cache at
++// 0x1F8000 (PPM_BLOCK_CACHE_BASE is defined further down; the literal is asserted
++// against it there too)
++#if (PPM_SCRATCH_BASE < 0x10000u)
++#error PPM_SCRATCH_BASE must sit above the game's 64 KB payload space
++#endif
++#if (PPM_SCRATCH_BASE + 0x6A00u > 0x1F8000u)
++#error PPM_SCRATCH_END overlaps the decoded-block cache
++#endif
 +#endif
 +#if PPM_PORT2_LOAD && PPM_SCRATCH_HIGH
 +#error PPM_PORT2_LOAD's scratch memcpy (0x1E0000..0x1F1000) overlaps PPM_SCRATCH_BASE - never both
@@ -1952,6 +1959,9 @@ index 06ccf59..3b529df 100644
 +#define ppm_hb_overwrite(a, b) ((void) 0)
 +#endif
 +#define PPM_BLOCK_CACHE_BASE    0x1F8000
++#if PPM_SCRATCH_HIGH && (PPM_SCRATCH_BASE + 0x6A00u > PPM_BLOCK_CACHE_BASE)
++#error scratch overlaps the decoded-block cache
++#endif
 +#define PPM_LIST_MAX            16
 +void snap_epoch_note(u32 ptr_prev);
 +extern u32 ppm_sptr_shadow;         // last sdram_ptr the MCU wrote; the RTL register is write-only
