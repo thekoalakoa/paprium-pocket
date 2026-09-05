@@ -8876,3 +8876,12 @@ placement dec2f09f's. Flash only after gate; md5 before the A/B.
     4. lag vs d6182af4; heavy-frame sprites
 
 dma_remaining's u16 underflow: cosmetic, not blocking.
+
+#### Fixed-stream build d017785d: dec2f09f's placement (seventh). On the card.
+
+    stream2-busyrest-pad.CANDIDATE   d017785d   mcu.txt 2e793f66   ALM 18,194  setup -2.549  hold +0.004   PASS
+
+Deployed by the armed chain after its numeric gate; md5 confirmed on the
+card; snapshot region zeroed; progress intact. Decode the title's ring
+with `decode_onset_ring.py --stream` for the cursor measurable. Test
+against 5010d95, title first.
