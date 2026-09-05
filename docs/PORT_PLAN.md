@@ -9059,3 +9059,50 @@ Hang candidates, measured where possible:
   only decrement dma_remaining - same accounting.
 Mailbox: 0x1F10 dma_total, 0x1F12 dma_budget, 0x1F14 dma_remaining,
 0x1F16 dma_cmd_count, 0x1F18 sat_count.
+
+**Budget words, measured (GPGX logger now hooks 68k reads of 0x1F10-0x1F1F
+with PC; `winlog-boot-dmawords.bin`, 2,400 frames):**
+
+    0x1F10 dma_total      x5,973  in 2,123 frames   PC 09D45E / 081408 / 09902A   (vcount ~248)
+    0x1F12 dma_budget     x5      boot only         PC 0B3E60
+    0x1F14 dma_remaining  never                     -> the vu16 wrap is cosmetic, confirmed
+    0x1F16 dma_cmd_count  x10,398 in 2,137 frames   PC 09D46A / FF5E04 (RAM code) / 09D082
+    0x1F18 sat_count      x26,049                   PC 08C452 / 08C45C
+
+An earlier "zero reads" figure was withdrawn: the applier's anchors were
+single-quoted against double-quoted source, nothing was inserted, and the
+build guard did not cover the new token (it does now).
+
+**The DMA list is shared.** Disassembly at 0x09D430-0x09D476: the 68000 appends
+its OWN descriptors to the same list - writes the command longword at $c(a2),
+`lea $10(a2),a2`, `dma_total += 0x10 + words`, `dma_cmd_count += 1`, up to
+four per call. mega-ppm's array is `dma_cmd[121]`; GPGX's own annotation puts
+the list at 0x1400-0x1800 (64 entries) with a "DAC list" right after. The
+stream walk caps its descriptors at 120 and reserves nothing for the game's.
+Headroom on the attract-reaching log (frames >= 1400 with streaming, 924):
+
+    descriptors executed/frame : median 20  p90 44  max 71   (2 frames over 64)
+    game's own                 : median 1   p90 1   max 34   (a transition frame)
+    streamed sprites           : median 19  p90 43  max 54
+    projection at the 94-sprite cap + the game's peak: 128 > 121
+
+A scene change is where both peak at once; a descriptor written past the
+array lands in `audio_data`, and a garbage descriptor executed from there
+(random length, a register write that blanks the display) matches "screen
+went dark, then hang". Candidate, not yet measured on the Pocket.
+
+**PPM_HEARTBEAT (`e33f5ff`, decoder `12a3bf7`):** a 40-byte crash-context
+record at bram 0xF70 (the free gap between the ring meta and the dispatch
+block, static-asserted), rewritten at command entry/exit, per object (slot,
+count, spr_info), per walked sprite, per stream DMA (cursor, stage,
+dma_cmd_count, dma_remaining), at BGM unpack (address, length) and at frame
+end (frame counter, sat_count), plus the MCU stack pointer. No behaviour
+change. On a hang the user exits the core from the Pocket menu; the OS dumps
+bram to the .sav (the PBOT boot marker already proved that path) and
+`decode_heartbeat.py` prints where the firmware stopped and flags the three
+hazards (count > 64, dma_cmd_count > 120, BGM over the cache). Fixture-tested.
+Firmware: stream on `70c5265c` (= c642dfe3 + heartbeat), stream off `2caf451a`.
+Proposed card: `70c5265c` on ring RTL @ seed 5 (ROM-only) - reproduce the
+cell hang, exit via the menu, decode. Hardening held back until the record
+speaks: reserve ~40 descriptors for the game in the walk's cap; clamp the walk
+to 64 entries.
