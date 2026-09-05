@@ -9157,3 +9157,13 @@ chaos only then; early flicker expected. Pre-reg: reproduce the cell hang ->
 exit the core from the Pocket menu -> `decode_heartbeat.py`; the bram-dump-
 after-hang assumption stays open; hardening held until the record speaks.
 Card stays d6182af4 until the flash is ready.
+
+**Fit result (build-heartbeat.log, 09:53-10:18):** dec2f09f's placement again:
+
+    heartbeat-stream.CANDIDATE   2dbae90a   mcu.txt 70c5265c   ALM 18,194  setup -2.549  hold +0.004   PASS
+
+Gate PASS -> deployed: card `d6182af4 -> 2dbae90a`, md5 confirmed; save's
+snapshot region blank (0xFF from 0x900). Test: wait through to the ~45 s start
+screen and judge; play to the prison cell; on the hang, exit the core from the
+Pocket menu (not power-off) so bram is dumped; then `decode_heartbeat.py` on
+the save before anything is wiped.
