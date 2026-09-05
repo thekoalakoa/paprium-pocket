@@ -9317,7 +9317,7 @@ recorded above (dma_cmd_count at idle decides where the 68000 stopped).
 
 **Fit result (build-heartbeat3.log, 12:03-12:30):** dec2f09f's placement:
 
-    heartbeat3-stream.CANDIDATE   see md5 below   mcu.txt 26bbdd60   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264   PASS
+    heartbeat3-stream.CANDIDATE   70c9a726   mcu.txt 26bbdd60   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264   PASS
 
-Deployed per the standing order (card md5 in the session log). Records are
+Deployed per the standing order: card `6bcc8524 -> 70c9a726`, md5 confirmed. Records are
 cleared at boot; no save wipe needed.
