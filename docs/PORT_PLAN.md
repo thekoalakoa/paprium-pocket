@@ -9492,3 +9492,10 @@ placement. Log `build-port2load.log`. Deploys on gate per the standing order.
 Control is `bd0b6499` (same without the load) if needed. Pre-reg: the baseline
 goes dark / glitches like the stream cards => (i) arbitration / acknowledge
 timing; unchanged => the stream's data path is back in play. Option B parked.
+
+**Fit result (build-port2load.log, 14:17-14:44):** dec2f09f's placement:
+
+    port2load-lru.CANDIDATE   64f1a57f   mcu.txt b4cc86d8   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264   PASS
+
+Deployed per the standing order: card `d6182af4 -> 64f1a57f`, md5 confirmed.
+LRU baseline rendering + heartbeat 4 + a 4 KB scratch memcpy per 0xAD.
