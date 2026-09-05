@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..b726907 100644
+index b568843..a3ca413 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -317,6 +317,15 @@ index b568843..b726907 100644
  uint8_t ppm_drawList[PPM_OBJECTS_COUNT]; // contains slot #
  uint8_t *ppm_drawListPtr;
  uint16_t ppm_vram_max_slot;
+@@ -37,7 +338,7 @@ uint32_t *ppm_gfx_blocks_offsets;
+ uint32_t ppm_gfx_blocks_base_addr;
+ uint32_t ppm_max_gfx_block;
+ 
+-uint16_t ppm_block_unpack_addr;
++uint32_t ppm_block_unpack_addr;   // widened 2026-09-05: PPM_SCRATCH_BASE 0x1E0000 does not fit in 16 bits
+ ppm_obj ppm_object_handles[PPM_OBJECTS_COUNT]; // matching intf objs
+ uint8_t ppm_scale_stamp[64][32];
+ 
 @@ -66,6 +367,24 @@ void ppm_obj_reset() {
  }
  
@@ -509,7 +518,7 @@ index b568843..b726907 100644
              }
              break;
  
-@@ -260,12 +659,467 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +659,469 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -593,7 +602,7 @@ index b568843..b726907 100644
 +u32 snap_da_count = 0, snap_db_count = 0, snap_af_clobber = 0;
 +u32 snap_da_last_dest = 0, snap_da_dest_9000 = 0;
 +static u8 snap_da_pending = 0;
-+u32 snap_loader_high_since_da = 0x9000;   // furthest the loader has written since 0xDA
++u32 snap_loader_high_since_da = PPM_SCRATCH_BASE;   // furthest the loader has written since 0xDA
 +static u32 snap_frames      = 0;          // in-game frames, for a per-frame rate
 +u32 snap_da_other[6];                     // the non-0x9000 0xDA destinations
 +static u8 snap_da_other_n = 0;
@@ -697,7 +706,7 @@ index b568843..b726907 100644
 +// paprium.c sets and clears this; it stays static here so nothing else can poke it.
 +void snap_da_pending_set(void)   { snap_da_pending = 1; }
 +void snap_da_pending_clear(void) { snap_da_pending = 0; }
-+void snap_da_reset_high(void)    { snap_loader_high_since_da = 0x9000; }
++void snap_da_reset_high(void)    { snap_loader_high_since_da = PPM_SCRATCH_BASE; }
 +void snap_da_note_other(u32 dst) {
 +    if (snap_da_other_n < 6) {
 +        snap_da_other[snap_da_other_n++] = dst;
@@ -744,6 +753,8 @@ index b568843..b726907 100644
 +// GPGX has no equivalent exposure: its 0xDA decompresses into decoder_ram, a
 +// private buffer, so nothing else writes there. mega-ppm shares the pad.
 +u32 snap_db_stale = 0;                 // aimed where the loader has since written
++u32 snap_ptr_while_list_pending = 0;   // DA/DB pointer write while dma_cmd_count != 0 (list built at 0xAF, runner not yet run)
++u32 snap_bgm_over = 0;
 +u32 snap_db_zero = 0;                  // aimed at 0 exactly: an idle/reset value
 +u32 snap_db_min = 0xFFFFFFFF;          // smallest NON-ZERO destination seen
 +u32 snap_db_ring[2];                   // two real samples, newest last
@@ -765,7 +776,7 @@ index b568843..b726907 100644
 +    if (dst > snap_db_max) {
 +        snap_db_max = dst;
 +    }
-+    if (dst >= 0x9000 && dst < snap_loader_high_since_da) {
++    if (dst >= PPM_SCRATCH_BASE && dst < snap_loader_high_since_da) {
 +        snap_db_stale++;               // the payload here has been overwritten
 +        if (!snap_db_stale_first) {
 +            snap_db_stale_first = dst;
@@ -977,7 +988,7 @@ index b568843..b726907 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +1129,533 @@ void ppm_obj_frame_start() {
+@@ -275,18 +1131,534 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -1055,7 +1066,8 @@ index b568843..b726907 100644
 +    if ((++ppm_idle_tick & 63) != 0) return;
 +    ppm_idle_w16(0, ppmio.ramdp->reg_cmd); ppm_idle_w16(2, ppmio.ramdp->reg_status_1); ppm_idle_w16(4, ppmio.ramdp->reg_status_2.word);
 +    ppm_idle_w16(6, ppmio.ramdp->dma_cmd_count); ppm_idle_w16(8, ppmio.ramdp->dma_total); ppm_idle_w16(10, ppmio.ramdp->dma_remaining);
-+    ppm_idle_w16(12, ppmio.ramdp->cmd_args[0]); ppm_idle_w16(14, ppm_idle_tick);
++    ppm_idle_w16(12, (u16)(snap_bgm_over > 0xFFFF ? 0xFFFF : snap_bgm_over)); ppm_idle_w16(14, ppm_idle_tick);
++    ppm_trap[22] = (u8)(snap_ptr_while_list_pending >> 8); ppm_trap[23] = (u8) snap_ptr_while_list_pending;
 +    { const vu16 *v = ppmio.ramdp->vectors;   // 68000 vectors, big-endian words as the 68000 sees them (byte-swapped in ramdp)
 +      ppm_vec_put(0, v[2*2], v[2*2+1]); ppm_vec_put(4, v[3*2], v[3*2+1]); ppm_vec_put(8, v[4*2], v[4*2+1]); ppm_vec_put(12, v[28*2], v[28*2+1]); }
 +    ppm_idle[16] = (u8)(ppm_sptr_shadow >> 24); ppm_idle[17] = (u8)(ppm_sptr_shadow >> 16); ppm_idle[18] = (u8)(ppm_sptr_shadow >> 8); ppm_idle[19] = (u8) ppm_sptr_shadow;
@@ -1513,7 +1525,7 @@ index b568843..b726907 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,7 +1668,22 @@ void ppm_obj_frame_end() {
+@@ -299,7 +1671,22 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1537,7 +1549,7 @@ index b568843..b726907 100644
  }
  
  void ppm_close_sprite_table() {
-@@ -340,6 +1724,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1727,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1551,7 +1563,7 @@ index b568843..b726907 100644
          return;
      }
  
-@@ -382,6 +1773,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -382,6 +1776,7 @@ void ppm_obj_render(uint16_t obj_slot) {
                  intf_obj->anim = intf_obj->nextAnim;
                  intf_obj->nextAnim = 0xffff; // unverified
                  ppm_obj_render(obj_slot);
@@ -1559,7 +1571,7 @@ index b568843..b726907 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -402,6 +1794,10 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -402,6 +1797,10 @@ void ppm_obj_render(uint16_t obj_slot) {
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
@@ -1570,7 +1582,7 @@ index b568843..b726907 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1806,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1809,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1582,7 +1594,7 @@ index b568843..b726907 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,7 +1822,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,7 +1825,9 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1592,7 +1604,7 @@ index b568843..b726907 100644
      if (!blocks_available) {
  
          if (previous_offset) {
-@@ -437,10 +1840,16 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -437,10 +1843,16 @@ void ppm_obj_render(uint16_t obj_slot) {
          }
      }
  
@@ -1609,7 +1621,7 @@ index b568843..b726907 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +1870,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1873,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1654,7 +1666,7 @@ index b568843..b726907 100644
          satEntry++;
      }
  
-@@ -482,12 +1928,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +1931,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1681,7 +1693,7 @@ index b568843..b726907 100644
          return 0;
      }
  
-@@ -505,15 +1965,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1968,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1736,7 +1748,7 @@ index b568843..b726907 100644
      ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
      ppm_block_unpack_addr += 0x200;
  
-@@ -536,6 +2035,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2038,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1744,7 +1756,7 @@ index b568843..b726907 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2049,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2052,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1755,10 +1767,10 @@ index b568843..b726907 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..a634d11 100644
+index 06ccf59..3b529df 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,199 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,209 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1883,8 +1895,9 @@ index 06ccf59..a634d11 100644
 +// sprite art in slot-wide bands (#8), per-frame staging = every row garbage.
 +// With this 1 the MCU scratch (loader unpack base, stream staging, the 0xAF
 +// tape re-arm) moves to PPM_SCRATCH_BASE, outside the game's 64 KB payload
-+// space; the tape pointer is 21 bits so 0x1E0000 is reachable. cmd_F2's 0x9000
-+// unpack is for the game and stays. Default OFF until GO.
++// space; the tape pointer is 21 bits so 0x1E0000 is reachable. cmd_F2's unpack
++// and re-arm move with the scratch (its data must stay where the 0xAF re-arm
++// points, as today). Default OFF until GO.
 +#define PPM_SCRATCH_HIGH        0
 +#if PPM_SCRATCH_HIGH
 +#define PPM_SCRATCH_BASE        0x1E0000u
@@ -1892,6 +1905,15 @@ index 06ccf59..a634d11 100644
 +#define PPM_SCRATCH_BASE        0x9000u
 +#endif
 +#define PPM_SCRATCH_END         (PPM_SCRATCH_BASE + 0x6A00u)   // was the fixed 0xFA00 cap
++#if PPM_SCRATCH_HIGH
++_Static_assert(PPM_SCRATCH_BASE >= 0x10000u, "scratch must sit above the game's 64 KB payload space");
++_Static_assert(PPM_SCRATCH_END <= PPM_BLOCK_CACHE_BASE, "scratch overlaps the decoded-block cache");
++#endif
++#if PPM_PORT2_LOAD && PPM_SCRATCH_HIGH
++#error PPM_PORT2_LOAD's scratch memcpy (0x1E0000..0x1F1000) overlaps PPM_SCRATCH_BASE - never both
++#endif
++extern u32 snap_ptr_while_list_pending;   // 0xDA/0xDB pointer writes while the 0xAF list was still unconsumed (residual I7)
++extern u32 snap_bgm_over;                 // BGM modules whose unpack reached the MCU scratch
 +#define PPM_PORT2_LOAD_BYTES    0x1000   // ~ the walk's per-object traffic (12 objects x 4 KB ~ 48 KB/frame)
 +#if PPM_SFX_QUIET_DMA
 +extern volatile u8 ppm_list_pending;   // 1 between 0xAF and the runner's completion
@@ -1994,7 +2016,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..4df6dca 100644
+index 1a1de1d..fe305c3 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -2172,7 +2194,7 @@ index 1a1de1d..4df6dca 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -290,13 +356,74 @@ void cmd_DA_unpack() {
+@@ -290,13 +356,76 @@ void cmd_DA_unpack() {
      u32 src = (ppmio.ramdp->cmd_args[1] << 16) + ppmio.ramdp->cmd_args[2];
      u32 dst = ppmio.ramdp->cmd_args[0];
  
@@ -2219,6 +2241,7 @@ index 1a1de1d..4df6dca 100644
 +#endif
 +    {
 +        u32 prev_ptr = ppm_sptr_shadow;
++        if (ppmio.ramdp->dma_cmd_count != 0) snap_ptr_while_list_pending++;
 +        u32 new_ptr = ppmio.ramdp->cmd_args[0]; // optional ? - but load-bearing
 +        FPGAIO->sdram_ptr = new_ptr;
 +        ppm_sptr_shadow = new_ptr;
@@ -2240,6 +2263,7 @@ index 1a1de1d..4df6dca 100644
 +#endif
 +    {
 +        u32 prev_ptr = ppm_sptr_shadow;
++        if (ppmio.ramdp->dma_cmd_count != 0) snap_ptr_while_list_pending++;
 +        u32 new_ptr = swapshorts(ppmio.ramdp->cmd_args_long[0]);
 +        FPGAIO->sdram_ptr = new_ptr;
 +        ppm_sptr_shadow = new_ptr;
@@ -2250,14 +2274,20 @@ index 1a1de1d..4df6dca 100644
  }
  
  void cmd_DF_eep_rd() {
-@@ -378,7 +505,15 @@ void cmd_F2_unpack() {
-     ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9000);
-     ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9200);
-     //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
+@@ -375,10 +504,18 @@ void cmd_F2_unpack() {
+     // todF2o: check block range
+     //used in sprites test menu
+ 
+-    ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9000);
+-    ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), 0x9200);
+-    //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
 -    FPGAIO->sdram_ptr = 0x9000;
++    ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), PPM_SCRATCH_BASE);
++    ppm_unpack(ppm_block_addr(ppmio.ramdp->cmd_args[0]), (PPM_SCRATCH_BASE + 0x200));
++    //ppm_sdram_pointer = &ppm_sdram[PPM_SCRATCH_BASE / 2];
 +    {
 +        u32 prev_ptr = ppm_sptr_shadow;
-+        u32 new_ptr = 0x9000;
++        u32 new_ptr = PPM_SCRATCH_BASE;
 +        FPGAIO->sdram_ptr = new_ptr;
 +        ppm_sptr_shadow = new_ptr;
 +#if PPM_EPOCH_RING
@@ -2267,7 +2297,7 @@ index 1a1de1d..4df6dca 100644
  }
  
  void cmd_F4_unpack_scal() {
-@@ -390,16 +525,97 @@ void cmd_F5_stamp_rescale() {
+@@ -390,16 +527,91 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -2341,18 +2371,12 @@ index 1a1de1d..4df6dca 100644
      // bgm play, check & 0x80
      u8 arg = ppmio.ramdp->reg_cmd;
 -    ppm_unpack(ppm_bgm_addr(arg & 0x7f), ppm_bgm_unpack_addr);
-+#if PPM_LIST_ORDER_VRAM
 +    {
 +        hb_w8(9, 5); hb_w32(28, ppm_bgm_unpack_addr);
 +        u32 bl = ppm_unpack(ppm_bgm_addr(arg & 0x7f), ppm_bgm_unpack_addr);
 +        hb_w32(32, bl);
-+        if (ppm_bgm_unpack_addr + bl > PPM_BLOCK_CACHE_BASE)
-+            printf("BGM module %d overruns the block cache: %x + %x\n", arg & 0x7f, ppm_bgm_unpack_addr, bl);
++        if (ppm_bgm_unpack_addr + bl > PPM_SCRATCH_BASE) snap_bgm_over++;   // module reached the MCU scratch (counted, no UART on the Pocket)
 +    }
-+#else
-+    hb_w8(9, 5); hb_w32(28, ppm_bgm_unpack_addr);
-+    hb_w32(32, ppm_unpack(ppm_bgm_addr(arg & 0x7f), ppm_bgm_unpack_addr));
-+#endif
  
      if ((arg & 0x80)) {
          mdp_play(arg & 0x7f);
