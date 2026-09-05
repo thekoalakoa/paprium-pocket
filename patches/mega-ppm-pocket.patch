@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..bdd53e5 100644
+index b568843..9a2875c 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -434,11 +434,7 @@ index b568843..bdd53e5 100644
 +                    lz = c >> 2;
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 1;
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +                else if (c & 0x10) {                 // code_10
 +                    len = c & 0x07;
 +                    if (len == 0) {
@@ -504,7 +500,11 @@ index b568843..bdd53e5 100644
 +                        raw_n--;
 +                    }
 +                    else break;
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +            }
              }
              break;
@@ -973,7 +973,7 @@ index b568843..bdd53e5 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +1125,484 @@ void ppm_obj_frame_start() {
+@@ -275,18 +1125,507 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -1021,10 +1021,33 @@ index b568843..bdd53e5 100644
 +_Static_assert(SNAP_OFF_HB + 40 <= 8 + 640 + 1024, "heartbeat overlaps the dispatch block");
 +volatile u8 *ppm_hb;
 +u32 ppm_hb_frame;
++#define SNAP_OFF_TRAP (SNAP_OFF_SPARE_C + 32)
++#define SNAP_OFF_SPARE_C (8 + 640 + 1024 + 16 + 8)   // == SNAP_OFF_SPARE, file-scope copy
++_Static_assert(SNAP_OFF_TRAP + 24 <= 8 + 640 + 1024 + 80, "trap record overruns SPARE into t[]");
++static volatile u8 *ppm_trap;
++static void ppm_trap_put32(u8 off, u32 v) { ppm_trap[off] = (u8)(v >> 24); ppm_trap[off+1] = (u8)(v >> 16); ppm_trap[off+2] = (u8)(v >> 8); ppm_trap[off+3] = (u8) v; }
++static void ppm_trap_rec(void) {
++    u32 cause = neorv32_cpu_csr_read(CSR_MCAUSE);
++    u32 pc    = neorv32_cpu_csr_read(CSR_MSCRATCH);   // the RTE core parks the faulting mepc here
++    u32 bad   = neorv32_cpu_csr_read(CSR_MTVAL);
++    u32 sp; __asm__ volatile ("mv %0, sp" : "=r"(sp));
++    u16 n = (u16)((ppm_trap[0] << 8) | ppm_trap[1]);
++    if (n == 0) {
++        ppm_trap[2] = (u8) cause; ppm_trap[3] = ppm_hb[9];
++        ppm_trap_put32(4, pc); ppm_trap_put32(8, bad); ppm_trap_put32(12, sp); ppm_trap_put32(16, ppm_hb_frame);
++    }
++    if (n != 0xFFFF) n++;
++    ppm_trap[0] = (u8)(n >> 8); ppm_trap[1] = (u8) n;
++    ppm_trap[20] = (u8) cause; ppm_trap[21] = ppm_hb[9];
++}
 +void ppm_hb_init(void) {
 +    ppm_hb = &ppmio.bram[SNAP_BASE + SNAP_OFF_HB];
 +    for (u8 i = 0; i < 40; i++) ppm_hb[i] = 0;
 +    ppm_hb[0] = 'P'; ppm_hb[1] = 'H'; ppm_hb[2] = 'B'; ppm_hb[3] = 'T';
++    ppm_trap = &ppmio.bram[SNAP_BASE + SNAP_OFF_TRAP];
++    for (u8 i = 0; i < 24; i++) ppm_trap[i] = 0;
++    neorv32_rte_setup();
++    for (u8 id = 0; id <= 8; id++) neorv32_rte_exception_install(id, ppm_trap_rec);
 +}
 +#endif
 +
@@ -1403,10 +1426,11 @@ index b568843..bdd53e5 100644
 +#if PPM_HEARTBEAT
 +    ppm_hb_frame++; hb_w32(4, ppm_hb_frame); hb_w8(9, 6); hb_w16(22, ppmio.ramdp->sat_count); hb_w16(18, ppmio.ramdp->dma_cmd_count);
 +#endif
-+
  
++
 +#if !PPM_INLINE_COMPOSE
-+    ppm_block_unpack_addr = 0x9000;
+     ppm_block_unpack_addr = 0x9000;
+-    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
 +#endif
 +
 +    // The frame's DMA budget is refreshed in ppm_dma_refresh(), which moved to
@@ -1426,8 +1450,7 @@ index b568843..bdd53e5 100644
 +    // 0xAE is dispatched reliably - measured at 30,585 against 30,584 for 0xAF -
 +    // so this has never actually bitten. Resetting here as well is idempotent and
 +    // removes the dependency on one command firing for the pair to stay matched.
-     ppm_block_unpack_addr = 0x9000;
--    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
++    ppm_block_unpack_addr = 0x9000;
 +
  
      //printf("dma: %i\n", ppmio.ramdp->dma_remaining);
@@ -1459,7 +1482,7 @@ index b568843..bdd53e5 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,7 +1615,22 @@ void ppm_obj_frame_end() {
+@@ -299,7 +1638,22 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1483,7 +1506,7 @@ index b568843..bdd53e5 100644
  }
  
  void ppm_close_sprite_table() {
-@@ -340,6 +1671,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1694,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1497,7 +1520,7 @@ index b568843..bdd53e5 100644
          return;
      }
  
-@@ -402,6 +1740,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -402,6 +1763,7 @@ void ppm_obj_render(uint16_t obj_slot) {
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
@@ -1505,7 +1528,7 @@ index b568843..bdd53e5 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1749,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1772,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1517,15 +1540,17 @@ index b568843..bdd53e5 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,6 +1765,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,7 +1788,9 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
 +#endif
  
++    hb_w8(9, 7);
      if (!blocks_available) {
  
-@@ -437,6 +1782,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+         if (previous_offset) {
+@@ -437,10 +1806,16 @@ void ppm_obj_render(uint16_t obj_slot) {
          }
      }
  
@@ -1537,7 +1562,12 @@ index b568843..bdd53e5 100644
      spr_data = &spr_info->sprites[0];
  
  
-@@ -461,7 +1811,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+     for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
++        hb_w8(9, 8); hb_w8(11, (u8) x);
+ 
+         posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
+         posY += spr_data->posY;
+@@ -461,7 +1836,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1582,7 +1612,7 @@ index b568843..bdd53e5 100644
          satEntry++;
      }
  
-@@ -482,12 +1869,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +1894,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1609,7 +1639,7 @@ index b568843..bdd53e5 100644
          return 0;
      }
  
-@@ -505,15 +1906,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1931,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1664,7 +1694,7 @@ index b568843..bdd53e5 100644
      ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
      ppm_block_unpack_addr += 0x200;
  
-@@ -536,6 +1976,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2001,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1672,7 +1702,7 @@ index b568843..bdd53e5 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +1990,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2015,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1683,10 +1713,10 @@ index b568843..bdd53e5 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..b97c45d 100644
+index 06ccf59..d605762 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,137 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,145 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1777,6 +1807,14 @@ index 06ccf59..b97c45d 100644
 +//  10 obj u8  11 sprite u8  12 count u16  14 cursor tile u16  16 stage u16
 +//  18 dma_cmd_count u16  20 dma_remaining u16  22 sat_count u16  24 spr_info u32
 +//  28 bgm unpack addr u32  32 bgm len u32  36 sp u32
++//  phases added 2026-09-05: 7 walk done  8 SAT pass (sprite idx in byte 11)  9 render returned
++//  10 handler tail (busy pulse / reg_cmd write pending)
++// Trap record at bram 0xFD0..0xFE7 (SNAP_OFF_SPARE + 32; capture-time h[] uses the
++// first bytes of SPARE, a capture zeroes it): the RTE is installed and every
++// exception id 0..8 records - 0 count u16  2 first cause u8  3 hb phase at first u8
++//  4 first mepc u32  8 first mtval u32  12 sp u32  16 hb frame u32  20 last cause u8
++//  21 last phase u8  22 pad. The RTE still skips the faulting instruction, as the
++//  crt0 dummy handler did - no behaviour change beyond the record.
 +#define PPM_HEARTBEAT           1
 +#if PPM_HEARTBEAT
 +extern volatile u8 *ppm_hb;
