@@ -8905,3 +8905,44 @@ placement-independent fault. Leading candidate, from GPGX's own source (a
 duplicate-tile suppression - repeated pieces streamed once per frame in
 GPGX and once per sprite on the Pocket. Being read now; the logger will
 record every streamed and every suppressed sprite on the title.
+
+### 2026-09-04 late: the title cursor threshold was calibrated on the wrong scene
+
+GPGX per-object / per-sprite logger (`apply_gpgx_winlog.py` kinds 13, 14, 15;
+`analyze_stream.py`), boot 1,800 frames, core `7a8b8b7d`:
+
+    frames 725-1040 (disclaimer / logo): 1-2 objects, 3-7 sprites, cursor 46-80
+    frames 1711-1799 (title):            2 objects, 19 sprites (20 listed, one
+                                         tile==0 skip), 5,984 bytes, cursor 203
+                                         - identical every frame
+
+The pre-registered "cursor max <= 80 on the title" came from the boot900 log,
+which ends at frame 900 - before the title exists. `d017785d` measured 203-242
+on the title; GPGX measures 203 on the same screen. So under the reviewer's own
+branch ("cursor <= 80 with broken title -> walk/placement not the fault", and
+its converse): **the stream's placement on the title matched the reference.**
+No early return fires on the title (no-frame 0, empty-list 0, cap-94 0).
+
+Block model confirmed on the pre-title frames: tile offsets within a block max
+12-14 (< 16), blocks used in short consecutive runs (9911-9914 etc.). The
+original loader DMAs every block as 0x100 words = 0x200 bytes = 16 tiles,
+sourced through the window (`srcM 0x9660 / srcL 0x9500` = 0xC000): the tape
+delivers each unpacked block in DMA order, armed to 0x9000 in
+`ppm_obj_frame_end()` (mame.c:1604) at 0xAF, i.e. right before the 68k runs
+the list at vblank (GPGX order: AF@235 -> DMA x19 @225 next frame -> AE@240).
+The stream build uses the same source and arm. The RTL maps the MCU's full 2 MB
+(`mcu.addr[20:2]`, paprium_mcu_mem.sv:37), so `PPM_BLOCK_CACHE_BASE 0x1F8000`
+is real, and `ppm_unpack_scal` writes through a 32-bit destination - no
+truncation.
+
+**Title criteria corrected by the user (2026-09-04):** the start menu is
+supposed to show train sprites. A title-gate fail is chaotic / wrong-layout
+train art (sprites forming a broken start-screen shape), not train tiles being
+present. Prior "title fail" calls may have been over-read. `d017785d`
+redeployed to the card for a retest under the corrected criteria (md5
+`d6182af4 -> d017785d` confirmed; save's snapshot region blank, 0xFF from
+0x900). Order: title -> shaft -> elsewhere -> lag.
+
+Also added (not on any card yet): under `PPM_LIST_ORDER_VRAM`, ring byte 0 =
+sprites streamed last frame (`ppm_stream_walked_shadow`); switch-on firmware
+`4b2ad450`, switch-off unchanged `2c522e9f`.
