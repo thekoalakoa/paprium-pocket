@@ -9573,3 +9573,49 @@ semantics and F fault path still running):**
   delivery (E) and the fault path (F). Note: GPGX's own shaft background is
   also wrong per the user - whatever both reimplementations share (decoder,
   window model) is in scope too.
+
+**Review verdicts E and F:**
+- F REFUTES the fault chain: no mode-2 payload is consumed as code or pointers
+  (DMA source data, name-table rows, the Z80 program); no runtime vector writes
+  by absolute addressing exist; an `rte` after a group-0 fault double-faults
+  into HALT (static picture, no ISR), which the user's "still glitching" read
+  excludes - only an illegal-instruction loop keeps interrupts live. The
+  decoder's "68k vectors" line on the a9bdd55a save was not a measurement
+  (heartbeat-3 firmware). BUT F found the consumer of 0x9000: **shaft-type
+  levels park a mode-3 0xDA payload at 0x9000 (ROM 0x07F956) and read its rows
+  back later via 0xDB06 at 0x9000+index (ROM 0x07F448, size 0x40) as the
+  elevator scrolls** - the cross-epoch late reads (702 in the elevator log;
+  their addresses are not in the GPGX record, the earlier "all < 0x9000"
+  reading used the wrong field and is withdrawn). Between those reads the
+  baseline's loader unpacks blocks at 0x9000 + 0x200*n and the stream stages
+  every frame's tiles at 0x9000+: the rows read back whatever the MCU wrote
+  since. 0x200-byte blocks = 16 tiles = "sprite art under correct name tables
+  in slot-wide bands" = #8; per-frame staging = every row garbage. A garbage
+  row fed to the game's descriptor builders (0x039A00 etc.) makes a garbage
+  DMA, and a 68000 halted inside a huge DMA while VRAM keeps changing matches
+  the death records (count held, picture still moving).
+- E supports the tape model exactly (stream_ptr 21 bits, +2 per completed
+  read at any 0xC000-0xFFFF address, address = 0x400000 + ptr/2) and finds two
+  Pocket-only desync sources: (a) an acknowledge landing in the same clk cycle
+  as an MCU sdram_ptr write is DROPPED (paprium_cart.sv:107-110, MCU write has
+  priority, stream_ack_d updated unconditionally) - one lost increment = one
+  word delivered twice = every later tile shifted; (b) the acknowledge toggle
+  crosses clk_ram 107.39 MHz -> clk 53.69 MHz through a single flop with no
+  synchronizer. Neither has been instrumented (PPM_EPOCH_RING off). E also
+  measures: every window DMA's last arming is a 0xDA (75/75); no frame holds
+  both a window DMA and a tile DMA; the last DMA of every mode-7 run is sized
+  to the tail, so PPM_DA_PAD's copies are unneeded.
+
+**Prepared, default OFF - `PPM_SCRATCH_HIGH` (`35352aa`):** the MCU scratch
+(loader unpack base, stream staging base and cap, the 0xAF tape re-arm) moves
+from 0x9000 to 0x1E0000, outside the game's 64 KB payload space; cmd_F2's
+0x9000 unpack (game data) stays. Firmware: LRU + heartbeat 4 + scratch high
+`e113130a`; stream + heartbeat 4 + scratch high `336a849f`; off = unchanged
+(`bd0b6499` / `20d392de`). Not to be combined with PPM_PORT2_LOAD (its scratch
+memcpy targets 0x1E0000-0x1F1000). Predictions: on the LRU baseline the shaft
+banding (#8) disappears; on the stream the background/row garbage disappears;
+the dark-screen death goes if it was a garbage row -> garbage DMA. The
+per-frame tile flicker is the CDC/dropped-ack family and stays until an RTL
+synchronizer (re-fit risk) - measurable first by a stream card with
+PPM_EPOCH_RING-style ack-vs-OE counters, or simply by whether the flicker
+persists after the relocation.
