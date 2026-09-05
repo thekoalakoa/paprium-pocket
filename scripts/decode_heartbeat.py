@@ -15,7 +15,8 @@ PHASES = {0: 'idle (last command returned)', 1: 'inside a command handler', 2: '
           3: 'stream DMA queued', 5: 'BGM module unpack', 6: 'frame end', 7: 'walk done (before the SAT pass)',
           8: 'SAT pass (sprite index in byte 11)', 9: 'render returned', 10: 'handler tail (busy pulse / response pending)'}
 TRAP = 0x910 + 1696 + 32
-IDLE = 0x910 + 1752   # loop-idle mailbox snapshot (heartbeat 3), 24 bytes to the window end
+IDLE = 0x910 + 1752
+VEC = 0x910 + 1696   # heartbeat 4: effective 68000 vectors 2,3,4,28 at loop idle   # loop-idle mailbox snapshot (heartbeat 3), 24 bytes to the window end
 CAUSES = {0: 'instruction misaligned', 1: 'instruction access fault', 2: 'illegal instruction', 3: 'breakpoint',
           4: 'load misaligned', 5: 'load access fault (bus timeout/error)', 6: 'store misaligned',
           7: 'store access fault (bus timeout/error)', 8: 'environment call'}
@@ -72,6 +73,12 @@ def main():
         if dcc: print('  -> the 68000 never reset dma_cmd_count: it did not finish running the vblank DMA list (frozen in a bus cycle?)')
         elif rc >= 0x8000: print('  -> a command sits posted and the MCU never took it: the MCU loop stopped')
         else: print('  -> list consumed, nothing posted: the 68000 stopped talking after its last frame start')
+    v = swapped(d[0x900:0x1000])[VEC - 0x900:VEC - 0x900 + 16]
+    if any(v):
+        be, ae, il, vb = struct.unpack('>4I', v)
+        note = lambda x: 'rte (header stub - a group-0 fault becomes a fault loop)' if x == 0x206 else ('rte stub' if x == 0x20e else '')
+        print('68k vectors : bus error 0x%06X %s | address error 0x%06X %s | illegal 0x%06X %s | VBLANK 0x%06X %s'
+              % (be, note(be), ae, note(ae), il, note(il), vb, note(vb)))
 
 if __name__ == '__main__':
     main()

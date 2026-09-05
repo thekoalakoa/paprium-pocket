@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..35654a5 100644
+index b568843..862585f 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -977,7 +977,7 @@ index b568843..35654a5 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +1129,528 @@ void ppm_obj_frame_start() {
+@@ -275,18 +1129,533 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -1048,11 +1048,16 @@ index b568843..35654a5 100644
 +_Static_assert(SNAP_OFF_IDLE + 24 <= 1776, "idle snapshot overruns the save window");
 +static volatile u8 *ppm_idle; static u16 ppm_idle_tick, ppm_idle_ovw;
 +static void ppm_idle_w16(u8 off, u16 v) { ppm_idle[off] = (u8)(v >> 8); ppm_idle[off + 1] = (u8) v; }
++#define SNAP_OFF_VEC (8 + 640 + 1024 + 16 + 8)   // == SNAP_OFF_SPARE
++static volatile u8 *ppm_vec;
++static void ppm_vec_put(u8 off, u16 hi, u16 lo) { ppm_vec[off] = (u8)(hi >> 8); ppm_vec[off+1] = (u8) hi; ppm_vec[off+2] = (u8)(lo >> 8); ppm_vec[off+3] = (u8) lo; }
 +void ppm_hb_idle(void) {
 +    if ((++ppm_idle_tick & 63) != 0) return;
 +    ppm_idle_w16(0, ppmio.ramdp->reg_cmd); ppm_idle_w16(2, ppmio.ramdp->reg_status_1); ppm_idle_w16(4, ppmio.ramdp->reg_status_2.word);
 +    ppm_idle_w16(6, ppmio.ramdp->dma_cmd_count); ppm_idle_w16(8, ppmio.ramdp->dma_total); ppm_idle_w16(10, ppmio.ramdp->dma_remaining);
 +    ppm_idle_w16(12, ppmio.ramdp->cmd_args[0]); ppm_idle_w16(14, ppm_idle_tick);
++    { const vu16 *v = ppmio.ramdp->vectors;   // 68000 vectors, big-endian words as the 68000 sees them (byte-swapped in ramdp)
++      ppm_vec_put(0, v[2*2], v[2*2+1]); ppm_vec_put(4, v[3*2], v[3*2+1]); ppm_vec_put(8, v[4*2], v[4*2+1]); ppm_vec_put(12, v[28*2], v[28*2+1]); }
 +    ppm_idle[16] = (u8)(ppm_sptr_shadow >> 24); ppm_idle[17] = (u8)(ppm_sptr_shadow >> 16); ppm_idle[18] = (u8)(ppm_sptr_shadow >> 8); ppm_idle[19] = (u8) ppm_sptr_shadow;
 +}
 +void ppm_hb_exit(void) { ppm_idle_w16(22, (u16)(0xEE00 | ppm_hb[9])); }
@@ -1065,7 +1070,7 @@ index b568843..35654a5 100644
 +    for (u8 i = 0; i < 24; i++) ppm_trap[i] = 0;
 +    neorv32_rte_setup();
 +    for (u8 id = 0; id <= 8; id++) neorv32_rte_exception_install(id, ppm_trap_rec);
-+    ppm_idle = &ppmio.bram[SNAP_BASE + SNAP_OFF_IDLE]; for (u8 i = 0; i < 24; i++) ppm_idle[i] = 0; ppm_idle_tick = 0; ppm_idle_ovw = 0;
++    ppm_idle = &ppmio.bram[SNAP_BASE + SNAP_OFF_IDLE]; ppm_vec = &ppmio.bram[SNAP_BASE + SNAP_OFF_VEC]; for (u8 i = 0; i < 16; i++) ppm_vec[i] = 0; for (u8 i = 0; i < 24; i++) ppm_idle[i] = 0; ppm_idle_tick = 0; ppm_idle_ovw = 0;
 +}
 +#endif
 +
@@ -1507,7 +1512,7 @@ index b568843..35654a5 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,7 +1663,22 @@ void ppm_obj_frame_end() {
+@@ -299,7 +1668,22 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1531,7 +1536,7 @@ index b568843..35654a5 100644
  }
  
  void ppm_close_sprite_table() {
-@@ -340,6 +1719,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,6 +1724,13 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1545,7 +1550,7 @@ index b568843..35654a5 100644
          return;
      }
  
-@@ -382,6 +1768,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -382,6 +1773,7 @@ void ppm_obj_render(uint16_t obj_slot) {
                  intf_obj->anim = intf_obj->nextAnim;
                  intf_obj->nextAnim = 0xffff; // unverified
                  ppm_obj_render(obj_slot);
@@ -1553,7 +1558,7 @@ index b568843..35654a5 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -402,6 +1789,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -402,6 +1794,7 @@ void ppm_obj_render(uint16_t obj_slot) {
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
@@ -1561,7 +1566,7 @@ index b568843..35654a5 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1798,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1803,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1573,7 +1578,7 @@ index b568843..35654a5 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,7 +1814,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,7 +1819,9 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1583,7 +1588,7 @@ index b568843..35654a5 100644
      if (!blocks_available) {
  
          if (previous_offset) {
-@@ -437,10 +1832,16 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -437,10 +1837,16 @@ void ppm_obj_render(uint16_t obj_slot) {
          }
      }
  
@@ -1600,7 +1605,7 @@ index b568843..35654a5 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +1862,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1867,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1645,7 +1650,7 @@ index b568843..35654a5 100644
          satEntry++;
      }
  
-@@ -482,12 +1920,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +1925,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1672,7 +1677,7 @@ index b568843..35654a5 100644
          return 0;
      }
  
-@@ -505,15 +1957,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1962,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1727,7 +1732,7 @@ index b568843..35654a5 100644
      ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
      ppm_block_unpack_addr += 0x200;
  
-@@ -536,6 +2027,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2032,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1735,7 +1740,7 @@ index b568843..35654a5 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2041,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2046,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1746,10 +1751,10 @@ index b568843..35654a5 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..46b6ff8 100644
+index 06ccf59..85fae4d 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,169 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,173 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1873,6 +1878,10 @@ index 06ccf59..46b6ff8 100644
 +// block, capture-time only otherwise): 0 reg_cmd 2 reg_status_1 4 reg_status_2
 +// 6 dma_cmd_count 8 dma_total 10 dma_remaining 12 cmd_args[0] 14 loop tick
 +// 16 tape pointer shadow u32 20 post-overwrite count u16 22 loop-exit marker u16
++// Heartbeat 4: the cart overlays the 68000 vector table with the mailbox RAM
++// (ramdp->vectors[]), so the EFFECTIVE handlers are readable. At loop idle the
++// bus-error (vec 2), address-error (3), illegal-instruction (4) and VBLANK (28)
++// vectors are copied to bram 0xFB0..0xFBF (SPARE + 0, capture-time h[] only).
 +// (0xEE00 | last phase). dma_cmd_count/dma_total are 68000-owned: still holding
 +// the list's count at a freeze means the game never finished running the list.
 +void ppm_hb_idle(void);
