@@ -8801,3 +8801,10 @@ before the A/B.
 
 Caveat accepted: the budget is charged but the stream never stops
 mid-walk; watch dma_remaining and overruns on heavy frames.
+
+**Baseline on d6182af4 (tester):** lag slightly better than c5a2c22e - a
+residual start-screen pause and mild lag in large groups; the narrow pulse
+helped, not to zero. Shaft still bad, banded (busy-rest only, expected).
+Title clean: the revert is clean. This is the playable baseline; the
+corrected-stream fit stays GO with title-intact first. Capture archived as
+narrowpulse-run1.sav; counters above.
