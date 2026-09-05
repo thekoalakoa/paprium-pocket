@@ -8954,3 +8954,40 @@ boot timing varies between RetroArch runs): title = 12 distinct blocks for the
 build's staging (0x9000-0xFA00 = 848 tiles) and the 120-descriptor list cap,
 but the heaviest load yet measured; if the retest passes the title, attract
 mode is the next scene to watch for cursor/budget.
+
+### 2026-09-04 late: d017785d retest under corrected title criteria - FAIL, and the cause
+
+Retest (user): d017785d title = chaos, not an ordered train menu. Card reverted
+`d017785d -> d6182af4` (md5 confirmed). No capture in the save (0xFF from 0x900,
+no PBOT/PSAT/ring tags) - nothing to decode. Reviewer: park stream fits until a
+design explains title chaos with an aligned cursor; no GO on 4b2ad450.
+
+**The explanation, offline, measured.** `ppm_stream_dma` built its VDP control
+words with the slot loader's formula
+
+    command = (((idx << 25) | (idx >> 5)) & 0x3fff0003) | 0x40000080
+
+which takes `idx` in 0x200-byte SLOT units (low five bits -> A9..A13), but fed
+it `idx = vram_addr >> 5`, a TILE index. Every streamed sprite therefore landed
+16x further along VRAM (mod 64 KB) while the SAT pointed at the cursor tile:
+right shape, wrong content - and the streamed art overwrote the plane name
+tables and background tiles. Proof on GPGX's title frame 1338 (19 sprites):
+
+    SAT tile  16 -> DMA dest tile  256      SAT 129 -> 16 (wrapped)
+    SAT tile  81 -> 1296                    SAT 195 -> 1072
+    misplaced: 19 of 19
+
+The cursor matched the reference (203) because the SAT side was right; the
+DMA side was not. This is why an aligned cursor did not equal a visual pass,
+and why every stream card (95dcfe40, d017785d) failed the title identically.
+
+**Fix (`08f1879`, firmware switch-on `c642dfe3`, switch-off unchanged
+`2c522e9f`):** build the control words from the byte address as GPGX does,
+`(0x4000 | A13..A0) << 16 | (0x80 | A15..A14)`. Checked equal to the original
+slot formula on every slot-aligned address (slots 0, 1, 0x30, 0x31, 124, 127),
+so the LRU path is untouched. Not fitted - awaiting GO. Same recipe as before:
+ring RTL a22aea4 @ seed 5 + pad + narrow busy-rest, `PPM_LIST_ORDER_VRAM 1`.
+Pre-registration proposal: 1. title = ordered train menu (chaos -> revert);
+2. title ring `--stream`: cursor 203-242, byte 0 = 19-20 sprites/frame;
+3. shaft vs cart; 4. attract mode (up to 54 sprites / cursor 482) clean;
+5. lag vs d6182af4.
