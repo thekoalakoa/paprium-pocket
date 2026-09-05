@@ -9619,3 +9619,53 @@ per-frame tile flicker is the CDC/dropped-ack family and stays until an RTL
 synchronizer (re-fit risk) - measurable first by a stream card with
 PPM_EPOCH_RING-style ack-vs-OE counters, or simply by whether the flicker
 persists after the relocation.
+
+**Review synthesis (9 agents, 226 tool uses): root cause LIKELY - storage
+aliasing over long-lived payloads, not the timing story.** Refuted legs: no
+MCU writer runs inside any DA epoch (mode-7 chains 16/16, CPU-read epochs
+1,127/1,127); the game's window DMAs are alone in their vblank 147/147; no
+payload is consumed as code/pointers, and a group-0 `rte` would HALT, not
+loop. Surviving mechanism: the shaft-type levels park a mode-3 payload at
+0x9000 (ROM 0x07F956) and read rows back through 0xDB06 at 0x9000+index
+(0x07F448) up to ~6,300 frames later, while the MCU's scratch writers
+(loader blocks at 0x9000 + 0x200n on the LRU build, per-frame staging on the
+stream build) overwrite it. Firmware counters already recorded 42-61 stale
+re-points per elevator run on the CRC card. Predicted UNAFFECTED by the fix:
+the in-gameplay sprite flicker and the cell-transition dark screen (separate
+mechanisms; the tape's single-flop clk_ram->clk ack toggle and the dropped
+same-cycle ack are the flicker family, RTL).
+
+**Fix applied (design 1 / synthesis steps 1-6, 9-10; `d8b399b`, `e9bc85f`,
+decoder `925acc4`):** `ppm_block_unpack_addr` widened to 32 bits (0x1E0000
+truncated to 0 in u16 - the loader would have unpacked over the dst-0
+backgrounds); preprocessor bounds (scratch >= 0x10000, scratch end <=
+0x1F8000; PPM_PORT2_LOAD and PPM_SCRATCH_HIGH refuse to coexist); cmd_F2's
+unpack and re-arm move with the scratch; the BGM guard compiles in both builds
+against the scratch base and counts (`snap_bgm_over`, idle block bytes
+12-13); the stale-re-point diagnostics re-keyed to the scratch base; the
+residual counter `snap_ptr_while_list_pending` (0xDA/0xDB pointer writes while
+the 0xAF list is still unconsumed; trap record bytes 22-23; GPGX predicts
+~1 per 400 packets in the elevator, 0 on the train). Step 7 (LRU descriptor
+cap) not taken. Firmware:
+
+    CARD 1  LRU + heartbeat 4 + PPM_SCRATCH_HIGH   801da897
+    CARD 2  stream + heartbeat 4 + PPM_SCRATCH_HIGH f12887c9
+    (switch off: LRU c5b49237, stream 541cdb28 - changed by the new counters,
+     the widened cursor and the both-build guard; the A/B reference for card 1
+     stays the card d6182af4)
+
+**Pre-registration (from the synthesis):** fit gate = dec2f09f's placement
+exactly (ALM 18,194 / setup -2.549 / hold +0.264), anything else = accidental
+RTL change, do not flash. Title after wait-through unchanged. CARD 1 vs
+d6182af4 on the shaft: #8's slot-wide bands -> 0 over two full rides;
+snap_db_stale == 0 (was 42-61). CARD 2 vs 70c9a726/a9bdd55a: per-DA
+background/row garbage GONE; sprite flicker UNCHANGED; dark screen at the
+cell UNCHANGED (if either disappears, log it as a surprise against F / the
+port2-load refutation, not as confirmation). SFX/BGM unchanged, BGM-over
+count 0, no lag. Residual counter ~1 per 400 packets in the elevator; if far
+higher, the Pocket's command order differs from GPGX and the two-pointer RTL
+(option a) moves up. Negative control (never run deliberately): the 16-bit
+cursor defect would corrupt the train's dst-0 rows within seconds.
+Still unmeasured: the actual 0xDA destination per mode on hardware, the late
+DBs' addresses (logger defect), the Pocket's command order vs GPGX, the
+flicker and dark-screen mechanisms, register-indirect vector writes.
