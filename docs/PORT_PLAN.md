@@ -9309,3 +9309,8 @@ froze in the vblank list (bus cycle) -> RTL window-read path. Count 0 and
 nothing posted -> the game stopped after its frame start on its own logic.
 reg_cmd >= 0x8000 at idle -> a post the MCU never took -> the MCU loop stopped
 (tick frozen).
+
+**GO received (2026-09-05, 12:03):** heartbeat 3 - firmware `26bbdd60`, ring RTL
+`a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+`build-heartbeat3.log`. Deploys on gate per the standing order. Pre-reg as
+recorded above (dma_cmd_count at idle decides where the 68000 stopped).
