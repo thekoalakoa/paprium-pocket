@@ -61,8 +61,6 @@ def main():
         print('  first     : cause %d = %s   at PC 0x%08X   mtval 0x%08X   sp 0x%08X   hb frame %d   hb phase %d = %s'
               % (t[2], CAUSES.get(t[2], '?'), pc, bad, tsp, tframe, t[3], PHASES.get(t[3], '?')))
         print('  last      : cause %d = %s   hb phase %d' % (t[20], CAUSES.get(t[20], '?'), t[21]))
-    resid = (t[22] << 8) | t[23]
-    print('residual    : %d pointer writes (0xDA/0xDB) while the 0xAF list was still unconsumed (GPGX predicts ~1 per 400 packets in the elevator, 0 on the train)' % resid)
         if t[2] in (5, 7): print('  -> bus access fault: an SDRAM/mailbox access not acknowledged within 127 cycles (2.4 us) - starvation candidate')
     q = swapped(d[0x900:0x1000])[IDLE - 0x900:IDLE - 0x900 + 24]
     if not any(q):
