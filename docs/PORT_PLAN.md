@@ -9398,3 +9398,9 @@ mechanism directly and removes the MCU's contention from the freeze picture,
 with the heartbeat still recording); A (readable `stream_ptr`) if the freeze
 persists, as the decisive instrument for WHERE the VDP stopped; C as the
 volume experiment.
+
+**GO B received (2026-09-05, 13:00):** `PPM_SFX_QUIET_DMA 1` - firmware
+`95e55ebe` (stream on + heartbeat 3 + option B), ring RTL `a22aea4` @ seed 5,
+ROM-only -> expect dec2f09f's placement. Log `build-sfxquiet.log`. Deploys on
+gate per the standing order. Pre-reg: greyscale/sprites freeze and flicker vs
+70c9a726 and the baseline; possible SFX crackle during the pause is expected.
