@@ -9404,3 +9404,10 @@ volume experiment.
 ROM-only -> expect dec2f09f's placement. Log `build-sfxquiet.log`. Deploys on
 gate per the standing order. Pre-reg: greyscale/sprites freeze and flicker vs
 70c9a726 and the baseline; possible SFX crackle during the pause is expected.
+
+**Fit result (build-sfxquiet.log, 13:00-13:27):** dec2f09f's placement:
+
+    sfxquiet-stream.CANDIDATE   a9bdd55a   mcu.txt 95e55ebe   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264   PASS
+
+Deployed per the standing order: card `d6182af4 -> a9bdd55a`, md5 confirmed.
+Records clear at boot; no save wipe needed.
