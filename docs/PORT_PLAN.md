@@ -9115,3 +9115,17 @@ load completes, then judge ordered train menu vs chaos / wrong layout. On
 pass with a flicker defect. Still standing: in-game sprite flicker after that
 point, and the hang after the prison-cell screen goes dark. Card remains
 d6182af4. **Heartbeat card 70c5265c: HOLD - no GO, questions open, no fit.**
+
+Measured for the corrected title gate (GPGX `winlog-boot-stream3.bin`): after
+the title appears (frame 1338) there are NO window reads, page turns, 0xDA or
+0xDB until frame 1895 (+9.3 s), and that burst (1895-1918) is the attract-mode
+transition, not the title's load. The "main Paprium reading" whose flicker is
+expected is retail-cart behaviour GPGX does not model in time; on the Pocket
+the equivalent unpacking runs at setup. No GPGX-derived wait duration exists -
+use a generous fixed wait (30 s+) before judging the title.
+
+Heartbeat cost (for the neutrality question): byte stores to on-chip bram only;
+at 54 sprites / 12 objects / 3 commands per frame about 650 stores, i.e. under
+15 us of a 16.7 ms frame even at one store per cycle. The one assumption to
+state: the Pocket OS dumping bram after an MCU hang is inferred from the boot
+marker's normal-path evidence, not yet observed on a hang.
