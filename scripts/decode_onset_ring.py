@@ -110,6 +110,14 @@ def main():
     else:
         cells = cells[:seen]
 
+    if stream:
+        # PPM_LIST_ORDER_VRAM build (firmware c642dfe3 on): byte 0 is the number of
+        # sprites streamed last frame (saturating at 255), not refusals/loads.
+        walked = [c[0] for c in cells]
+        sw = sorted(walked)
+        print('SPRITES STREAMED PER FRAME (last %d frames): min %d  median %d  max %d   frames at 19-20: %d'
+              % (len(walked), sw[0], sw[len(sw) // 2], sw[-1], sum(1 for w in walked if 19 <= w <= 20)))
+        print('  (GPGX title reference: 19 every frame; disclaimer/logo 3-7; attract up to 54)')
     refuse = [c[0] >> 4 for c in cells]
     loads = [c[0] & 0xF for c in cells]
     afford = [c[1] for c in cells]
@@ -151,6 +159,9 @@ def main():
         print()
         print("  frame %+d .. %+d  (relative to the last frame before quit)"
               % (lo, min(start + W, ring_frames) - ring_frames - 1))
+        if stream:
+            print("  spr  " + band(walked[chunk], rf))
+            continue
         print("  ref  " + band(refuse[chunk], rf))
         print("  ld   " + band(loads[chunk], rf))
         print("  aff  " + band(afford[chunk], af))
