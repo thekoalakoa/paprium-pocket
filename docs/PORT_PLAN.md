@@ -9783,3 +9783,11 @@ DA, 12 page turns, 14,448 window words of mode-2 CPU copies). Nothing in the
 boot path touches the relocated scratch except the loader once sprites start.
 Card 3 (heartbeat off, `059e7d13`) remains the bisection; if the pause
 survives it, the next split is the relocation itself.
+
+**GO received (2026-09-05, 19:13): card 3** - firmware `059e7d13` (= card 1
+without the heartbeat: LRU + PPM_SCRATCH_HIGH, PPM_HEARTBEAT 0), ring RTL
+`a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+`build-scratch3.log`. Deploys on gate per the standing order. Pre-reg: by
+stopwatch, "presented by" -> WM logo on d6182af4 vs cc639d69 vs card 3, and
+the between-screens drops; #8 must stay clean. Pause/drops gone => the
+heartbeat (ship without it); unchanged => the relocation, card 4 splits it.
