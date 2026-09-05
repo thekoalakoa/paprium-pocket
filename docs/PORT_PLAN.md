@@ -9314,3 +9314,10 @@ reg_cmd >= 0x8000 at idle -> a post the MCU never took -> the MCU loop stopped
 `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 `build-heartbeat3.log`. Deploys on gate per the standing order. Pre-reg as
 recorded above (dma_cmd_count at idle decides where the 68000 stopped).
+
+**Fit result (build-heartbeat3.log, 12:03-12:30):** dec2f09f's placement:
+
+    heartbeat3-stream.CANDIDATE   see md5 below   mcu.txt 26bbdd60   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264   PASS
+
+Deployed per the standing order (card md5 in the session log). Records are
+cleared at boot; no save wipe needed.
