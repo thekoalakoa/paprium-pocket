@@ -12,7 +12,12 @@ import struct, sys
 
 HB = 0x910 + 1632
 PHASES = {0: 'idle (last command returned)', 1: 'inside a command handler', 2: 'object render (list resolved)',
-          3: 'stream DMA queued', 5: 'BGM module unpack', 6: 'frame end'}
+          3: 'stream DMA queued', 5: 'BGM module unpack', 6: 'frame end', 7: 'walk done (before the SAT pass)',
+          8: 'SAT pass (sprite index in byte 11)', 9: 'render returned', 10: 'handler tail (busy pulse / response pending)'}
+TRAP = 0x910 + 1696 + 32
+CAUSES = {0: 'instruction misaligned', 1: 'instruction access fault', 2: 'illegal instruction', 3: 'breakpoint',
+          4: 'load misaligned', 5: 'load access fault (bus timeout/error)', 6: 'store misaligned',
+          7: 'store access fault (bus timeout/error)', 8: 'environment call'}
 
 def swapped(b):
     return bytes(b[i ^ 1] for i in range(len(b)))
@@ -42,6 +47,17 @@ def main():
     if dmac > 120: flags.append("dma_cmd_count %d > 120: descriptor array (121) overrun" % dmac)
     if bgm_addr + bgm_len > 0x1F8000 and bgm_len: flags.append("BGM module overlaps the block cache")
     print("flags       : " + ('; '.join(flags) if flags else 'none'))
+    t = swapped(d[0x900:0x1000])[TRAP - 0x900:TRAP - 0x900 + 24]
+    n = (t[0] << 8) | t[1]
+    if n == 0:
+        print('traps       : none recorded (RTE installed, no exception since boot)')
+    else:
+        pc, bad, tsp, tframe = struct.unpack('>4I', t[4:20])
+        print('traps       : %d since boot' % n)
+        print('  first     : cause %d = %s   at PC 0x%08X   mtval 0x%08X   sp 0x%08X   hb frame %d   hb phase %d = %s'
+              % (t[2], CAUSES.get(t[2], '?'), pc, bad, tsp, tframe, t[3], PHASES.get(t[3], '?')))
+        print('  last      : cause %d = %s   hb phase %d' % (t[20], CAUSES.get(t[20], '?'), t[21]))
+        if t[2] in (5, 7): print('  -> bus access fault: an SDRAM/mailbox access not acknowledged within 127 cycles (2.4 us) - starvation candidate')
 
 if __name__ == '__main__':
     main()
