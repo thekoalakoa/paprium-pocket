@@ -9540,3 +9540,36 @@ of the claim and of a firmware-only fix (relocate the MCU scratch out of the
 payload space; keep the tape contiguous with the list order by copying the
 pending payload next to the staged tiles at 0xAF when the game's window
 descriptor is present) launched as a workflow before any fit is proposed.
+
+**Review workflow, first four verdicts (2026-09-05, six skeptics; E tape
+semantics and F fault path still running):**
+- WITHDRAWN: "all 0xDB/0xDA in the 0xAF->0xAE window (train 76/76, elevator
+  1,167/1,169)". Those two logs carry no 0xAE records (older hook; elevator's
+  0xAF is stamped at vc 67-76), so the window never closed. Not measured.
+- C supported, corrected: a mode-7 payload is transferred by a CHAIN of 5-12
+  per-frame 1,024-word window DMAs (last one shorter: 400-752 words), frame +3
+  onward, each alone in its vblank at vc 225; 16/16 chains contain no
+  0xAD/0xAE/0xAF/0xDB - the game issues no sprite frame during the load.
+  Mode-2 DAs are followed by CPU word reads, never window DMAs.
+- B REFUTED: no MCU writer runs between a mode-7 0xDA and its transfer; my
+  "3 of 8 gaps with staging" was a same-frame miscount (the DMAs preceded the
+  DA). The big mode-2 backgrounds go to dst 0 and are read at 0x80..0x7F80,
+  below the scratch. The d1==2 0xDA02 path copies its payload synchronously.
+- A supported, corrected: ALL mode-7 requests target 0x9000 (ROM 0xB415A);
+  "16 KB" is the mode-2 page size, not a payload size; 0xDA carries no size;
+  the mode-7 DMA length is caller-supplied.
+- D supported, corrected: descriptor order is scene-dependent (title path:
+  game's appender runs AFTER all 0xAD; gameplay path: several writers before
+  and after); the game's own descriptors are 32-byte uploads from work RAM,
+  not from the window; mega-ppm appends the SAT descriptor LAST at 0xAF while
+  GPGX puts it at index 0; the 68000 WRITES 0x1F14 each gameplay frame
+  (dma_remaining = budget - total) - never reads it; the game's loop at
+  0x098F3C appends bursts of 68-82 descriptors (overflow risk with a full
+  stream frame, but the death records show counts 25 and 4, not an overflow).
+- Late-read check (elevator log): all 1,119 0xDB re-points target < 0x9000;
+  none read the scratch region late. The 0x9000-collision family has no
+  measured instance in the game's timeline. The port2-load card already showed
+  the scratch's traffic is harmless; what is left is Pocket-specific tape
+  delivery (E) and the fault path (F). Note: GPGX's own shaft background is
+  also wrong per the user - whatever both reimplementations share (decoder,
+  window model) is in scope too.
