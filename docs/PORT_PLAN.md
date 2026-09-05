@@ -9669,3 +9669,10 @@ cursor defect would corrupt the train's dst-0 rows within seconds.
 Still unmeasured: the actual 0xDA destination per mode on hardware, the late
 DBs' addresses (logger defect), the Pocket's command order vs GPGX, the
 flicker and dark-screen mechanisms, register-indirect vector writes.
+
+**GO received (2026-09-05, 16:18): card 1 first** - firmware `801da897` (LRU +
+heartbeat 4 + PPM_SCRATCH_HIGH; stream, option B and the load off), ring RTL
+`a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+`build-scratch1.log`. Deploys on gate per the standing order. Pre-reg as
+recorded above (shaft two rides vs d6182af4: #8 bands -> 0, snap_db_stale
+-> 0; flicker and the cell dark screen predicted unchanged).
