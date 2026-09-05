@@ -8735,3 +8735,35 @@ every frame of the log). The "tidy repeated wall" in GPGX is that one
 texture tiled uniformly by the row bug. So the contract the Pocket must
 honour is the whole per-frame stream in the game's order, not a few
 slots; the corrected per-sprite walk is the right size of fix.
+
+### The corrected stream contract, from GPGX's paprium_sprite, verbatim
+
+Per `0xAD` object in order, per sprite in order:
+- skip if `tile == 0` (mega-ppm: `blockNum == 0`), skip if `spriteCount >= 94`;
+- `tileSize = size_x * size_y * 0x20` from the size nibbles;
+- **the DMA descriptor and `vram += tileSize` run for every such sprite,
+  on screen or not** (the `dmalimit`/`vramlimit` guard is commented out);
+- the SAT entry is written only if the sprite is inside the 128..448 /
+  128..368 window AND `spriteCount < 80`, with tile `(vram / 0x20)` as it
+  stood when that sprite was walked;
+- `vram` starts at `0x200` on `0xAE`; the DMA source is the staging area
+  in list order; one descriptor per sprite of `tileSize` bytes.
+
+So: membership is every sprite with a block of every object, off-screen
+included; the stride is per sprite, not per block; the SAT tile is the
+cursor at walk time; the stream never stops mid-list. The previous
+implementation got all four wrong (16 per block, first-pass membership,
+list index, budget stop). The Pocket has every input: `size`, `blockNum`,
+`offset` (tile offset of the sprite within its 16-tile block).
+
+**Implementation (behind the same switch, default 0):** decoded blocks
+cached in SDRAM as before; `ppm_vram_load_block` returns the cache slot;
+in `ppm_obj_render`'s first pass each sprite with a block is memcpy'd from
+its cache entry (`+ offset*0x20`, `tileSize` bytes) to the staging cursor
+at `0x9000+`, one DMA of `tileSize` bytes is queued to the VRAM cursor, the
+sprite's tile is recorded, and both cursors advance; the second pass
+writes the recorded tile into the SAT. Frame start resets both cursors.
+Bounds: staging must stay below `0xFA00`, the DMA list below 120 entries;
+either exhausted marks the object's blocks unavailable (the existing
+fallback path). Budget charged per sprite (`tileSize/2 + 0x10` words) but
+never stops the stream.
