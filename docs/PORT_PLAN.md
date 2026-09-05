@@ -8691,3 +8691,38 @@ is not exposed. Note if scenes look short on sprites.
 progress intact. Firmware switches as shipped on it: `PPM_DA_PAD 1`,
 `PPM_BUSY_REST 1` (pulse on `0xDB`/`0xDA` only), `PPM_LIST_ORDER_VRAM 1`,
 `PPM_ONSET_RING 1`. Test against the pre-registration at 19:1x.
+
+### A/B on 6206eb53 (list-order): REVERT, per e8863e3
+
+Tester: boots; the title sequence lags and the title art is broken -
+train sprites forming and scrolling in the shape of the start screen;
+"everything looks broken like the elevator." New corruption outside the
+shaft -> revert. Card rolled to `d6182af4` (busyrest-narrow-pad.CANDIDATE:
+pad + busy-rest, pulse on `0xDB`/`0xDA` only, list-order off), md5
+confirmed, region zeroed. `6206eb53` archived. `PPM_LIST_ORDER_VRAM` back
+to 0; on-disk firmware `2c522e9f` = the card's.
+
+**Measured, from the failed run's capture (3,979 frames, title + play):**
+`dma_remaining` was **0 at the end of every frame that loaded anything**
+(every entry in the ring's load list reads "0 blocks left") - the per-frame
+stream exhausted the game's budget every time, so the mid-list budget stop
+fired and the rest of each list went undelivered. Budget refusals counted
+0 because the list-order path no longer charges at load time; evictions
+per frame 0.48, worst 21 in one frame (vs 8 before).
+
+**Why the model was wrong, from GPGX's code already read:** `paprium_sprite`
+walks `vram += tileSize` with `tileSize = size_x * size_y * 0x20` - **per
+drawn sprite, by that sprite's own tile count**, starting at `0x200` - not
+16 tiles per block, and only for sprites that survive culling. My layout
+put block k at `16 + 16k` for every block the first render pass touched,
+including sprites the second pass culls. Wrong stride, wrong membership,
+longer lists: tiles reached that the retail stream never touches, and the
+budget blown on blocks the game never draws.
+
+**Next design, not built:** reproduce GPGX's walk exactly - after culling,
+in sprite order, `vram` advancing by each sprite's own tile count from
+`0x200`; the SAT tile is that `vram/0x20`; staging is built in that order
+from the SDRAM decoded-block cache (sprites reference blocks; a block's
+tiles are copied at the sprite's stride); one DMA per sprite of
+`tileSize` bytes. Budget charged per sprite as the game's own DMA list
+would. The SDRAM cache and `PPM_BUSY_REST` stay as they are.
