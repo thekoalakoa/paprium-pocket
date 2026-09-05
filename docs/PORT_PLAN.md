@@ -8767,3 +8767,21 @@ Bounds: staging must stay below `0xFA00`, the DMA list below 120 entries;
 either exhausted marks the object's blocks unavailable (the existing
 fallback path). Budget charged per sprite (`tileSize/2 + 0x10` words) but
 never stops the stream.
+
+**Corrected stream design implemented, default 0, compiles both ways** (on:
+`mcu.txt f36cc836`; off: `2c522e9f`, the card's). The wrong list-order code
+is replaced, not layered. Per `0xAD` object, `ppm_stream_walk` runs over
+every sprite with a block in order: cache-slot lookup via
+`ppm_vram_load_block` (now returning slot+1), memcpy of the sprite's
+`w*h*0x20` bytes from its cache entry (`+ offset*0x20`) to the staging
+cursor at `0x9000+`, one DMA of that size to the VRAM cursor (from `0x200`
+at frame start), the tile recorded for the SAT pass, both cursors
+advanced. Off-screen sprites are streamed (GPGX does); only the SAT write
+is position-gated, as before. If the block-load fallback re-points the
+object at its previous animation, that list is walked too. Bounds:
+staging below `0xFA00`, DMA list below 120 entries, 64 sprites per object;
+any of them exhausted marks the object's blocks unavailable
+(`ppm_stream_over` counts it; not exposed yet). Budget charged per sprite
+(`words + 0x10`) and never stops the stream. Arithmetic: GPGX moves ~2,432
+words a frame in the shaft; with the overhead the Pocket charges ~2,640
+against the game's 2,816-word budget there. Not fitted; the reviewer's go.
