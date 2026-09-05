@@ -9106,3 +9106,12 @@ Proposed card: `70c5265c` on ring RTL @ seed 5 (ROM-only) - reproduce the
 cell hang, exit via the menu, decode. Hardening held back until the record
 speaks: reserve ~40 descriptors for the game in the walk's cap; clamp the walk
 to 64 entries.
+
+**Title criteria correction (B Jam, 2026-09-05):** some sprite flicker on the
+title is expected until main Paprium has finished reading. Do not score
+"residual title flicker" and do not end the title gate early - wait until that
+load completes, then judge ordered train menu vs chaos / wrong layout. On
+3f0ee17d the title is therefore **pending a full wait-through**, not a soft
+pass with a flicker defect. Still standing: in-game sprite flicker after that
+point, and the hang after the prison-cell screen goes dark. Card remains
+d6182af4. **Heartbeat card 70c5265c: HOLD - no GO, questions open, no fit.**
