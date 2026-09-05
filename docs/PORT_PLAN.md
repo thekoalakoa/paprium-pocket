@@ -9247,3 +9247,11 @@ RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 GO'd fit passes the gate, deploy to the SD without asking, and always list ALM
 / setup / hold after a fit. Pre-reg unchanged: reproduce the cell hang -> menu
 exit -> `decode_heartbeat.py` (trap record + phases 7-10).
+
+**Fit result (build-heartbeat2.log, 10:50-11:17):** dec2f09f's placement:
+
+    heartbeat2-stream.CANDIDATE   6bcc8524   mcu.txt a36d6a75   ALM 18,194 (98%)  M10K 72%  setup -2.549  hold +0.264 (worst corner +0.004)   PASS
+
+Deployed per the standing order: card `d6182af4 -> 6bcc8524`, md5 confirmed.
+The save still holds the 2dbae90a capture; `ppm_hb_init` zeroes the heartbeat
+and trap records at setup, so the next boot starts clean without a wipe.
