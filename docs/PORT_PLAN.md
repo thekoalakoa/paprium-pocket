@@ -8808,3 +8808,13 @@ helped, not to zero. Shaft still bad, banded (busy-rest only, expected).
 Title clean: the revert is clean. This is the playable baseline; the
 corrected-stream fit stays GO with title-intact first. Capture archived as
 narrowpulse-run1.sav; counters above.
+
+#### Corrected-stream build 95dcfe40: dec2f09f's placement (sixth). On the card.
+
+    stream-busyrest-pad.CANDIDATE   95dcfe40   mcu.txt f36cc836   ALM 18,194  setup -2.549  hold +0.004   PASS
+
+Gated numerically by the armed chain, archived, deployed, md5 confirmed on
+the card, snapshot region zeroed, progress intact. Firmware switches on it:
+`PPM_DA_PAD 1`, `PPM_BUSY_REST 1` (pulse `0xDB`/`0xDA`), `PPM_LIST_ORDER_VRAM
+1` (the corrected per-sprite stream), `PPM_ONSET_RING 1`. Test against the
+five-point pre-registration at c22d0ca, title first.
