@@ -1683,10 +1683,10 @@ index b568843..bdd53e5 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..08d0594 100644
+index 06ccf59..b97c45d 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,134 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,137 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1787,10 +1787,13 @@ index 06ccf59..08d0594 100644
 +static inline void hb_w16(u8 off, u16 v) { ppm_hb[off] = (u8)(v >> 8); ppm_hb[off + 1] = (u8) v; }
 +static inline void hb_w32(u8 off, u32 v) { ppm_hb[off] = (u8)(v >> 24); ppm_hb[off + 1] = (u8)(v >> 16); ppm_hb[off + 2] = (u8)(v >> 8); ppm_hb[off + 3] = (u8) v; }
 +#else
-+static inline u32 ppm_hb_sp(void) { return 0; }
-+static inline void hb_w8(u8 off, u8 v)   { (void) off; (void) v; }
-+static inline void hb_w16(u8 off, u16 v) { (void) off; (void) v; }
-+static inline void hb_w32(u8 off, u32 v) { (void) off; (void) v; }
++// Macros, not inline functions: the arguments carry volatile mailbox/SDRAM reads
++// that an empty function would still have to perform. With the switch off the
++// firmware must be byte-identical to the card without the heartbeat.
++#define ppm_hb_sp()      0u
++#define hb_w8(off, v)    ((void) 0)
++#define hb_w16(off, v)   ((void) 0)
++#define hb_w32(off, v)   ((void) 0)
 +#endif
 +#define PPM_BLOCK_CACHE_BASE    0x1F8000
 +#define PPM_LIST_MAX            16
