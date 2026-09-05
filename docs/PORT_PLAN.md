@@ -8785,3 +8785,19 @@ any of them exhausted marks the object's blocks unavailable
 (`words + 0x10`) and never stops the stream. Arithmetic: GPGX moves ~2,432
 words a frame in the shaft; with the overhead the Pocket charges ~2,640
 against the game's 2,816-word budget there. Not fitted; the reviewer's go.
+
+### Corrected-stream fit: GO (reviewer, 20:0x), pre-registered
+
+Ring RTL (`a22aea4`), seed 5, firmware pad 1 + busy-rest 1 (pulse
+`0xDB`/`0xDA`) + corrected per-sprite stream = `mcu.txt f36cc836`. ROM-only:
+expected placement `dec2f09f`'s. Flash only after gate; md5 on the card
+before the A/B.
+
+    1. title intact (no train-sprite start screen, no title lag spike)  fail -> revert at once
+    2. shaft matches the cart                 -> the contract owns the remaining #8
+    3. shaft unchanged                        -> measure the walk, the budget, ppm_stream_over
+    4. new corruption elsewhere               -> staging / cache / cursor; revert
+    5. lag vs c5a2c22e stays eased            -> the narrow pulse is still on
+
+Caveat accepted: the budget is charged but the stream never stops
+mid-walk; watch dma_remaining and overruns on heavy frames.
