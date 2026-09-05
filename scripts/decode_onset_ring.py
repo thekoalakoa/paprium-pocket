@@ -161,9 +161,9 @@ def main():
               % (lo, min(start + W, ring_frames) - ring_frames - 1))
         if stream:
             print("  spr  " + band(walked[chunk], rf))
-            continue
-        print("  ref  " + band(refuse[chunk], rf))
-        print("  ld   " + band(loads[chunk], rf))
+        else:
+            print("  ref  " + band(refuse[chunk], rf))
+            print("  ld   " + band(loads[chunk], rf))
         print("  aff  " + band(afford[chunk], af))
         start += W
 
