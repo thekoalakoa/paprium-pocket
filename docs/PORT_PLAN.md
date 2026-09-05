@@ -9255,3 +9255,57 @@ exit -> `decode_heartbeat.py` (trap record + phases 7-10).
 Deployed per the standing order: card `d6182af4 -> 6bcc8524`, md5 confirmed.
 The save still holds the 2dbae90a capture; `ppm_hb_init` zeroes the heartbeat
 and trap records at setup, so the next boot starts clean without a wipe.
+
+### 2026-09-05: heartbeat-2 record (6bcc8524) - the MCU did not hang; the 68000 stopped talking
+
+User: "cell hang reproduced, exited via menu" - then clarified: **the game does
+not crash. The screen goes dark / greyscale and it becomes unplayable, sprites
+everywhere.** Also: the start screen still shows lots of sprite flicker after
+the wait-through on this card. Save archived as
+`vdp-capture/saves/paprium-cellhang-6bcc8524.sav` (e933fec1), boot counter 6.
+
+    frame 5035 (83.9 s)   last cmd 0xAE (frame start)   phase 10 = handler tail, response about to be written
+    object slot 11, sprite 0 of 1 (previous frame's walk)   cursor 300   dma_cmd_count 34   dma_remaining wrapped
+    sat_count 44   BGM unchanged (0x09001E + 11,500)   sp 0x8003FFAC   flags none
+    traps: NONE since boot
+
+Reading: the MCU finished the frame-start command cleanly and never saw another
+post - no phase 1 was written again. No exception of any kind, so the
+bus-timeout/skip hypothesis is refuted for this stop. Everything the MCU could
+do between commands was then audited offline:
+- `ppm_start` loop = `ppm_cmd_handler(); sfx_player_update(); tick++; if
+  (md_rst_status) return;`. The loop-exit path: `md_srst` is the SYSTEM reset
+  (`.md_srst(reset)` in paprium_cart.sv), so it cannot fire with the game still
+  running. `sfx_player_update` is non-blocking (skips a full FIFO).
+- `cmd_resp` is only ever 0 / 0x00FF - never bit 15.
+- The game's send routine (0x0B4344 / 0x0B43A0) waits `blt` until reg_cmd bit 15
+  is clear before posting; every command it posts has bit 15 set. So it cannot
+  post over an unfinished handler - no lost-post race. The DB path also waits
+  on status_2 bit 14 (busy) then polls status_1 bit 2 with the 0xFFFE timeout.
+- Every reader of 0x1FE4: 0x09DA9A and 0x0B41C4 are the timed polls;
+  0x0BCA22 is a one-shot boot capability read (checks an "MA" signature at
+  0xA130EC/FC). Nothing on the 68000 waits untimed on the MCU.
+
+So the 68000 stopped posting while not waiting on the MCU at all. With the
+display left mid-update (greyscale = a fade frozen mid-way, sprites everywhere
+= the half-updated frame), the remaining silent freeze is a **bus cycle that
+never completes** - a 68000 read of the stream window whose SDRAM port1
+request is never acknowledged holds the CPU forever, and only the stream puts
+sustained traffic on that path. Decidable from the MCU: `dma_cmd_count` /
+`dma_total` are 68000-owned and reset by the game only after it has run the
+vblank list, so their values at loop idle say whether the 68000 froze inside
+the list (count still held) or after it (count 0, nothing posted).
+
+**Heartbeat 3 (`68bd389`, decoder `9fa9009`):** at loop idle (every 64
+iterations) the MCU snapshots the mailbox into the retired t[] block (bram
+0xFE8): reg_cmd, status_1, status_2, dma_cmd_count, dma_total, dma_remaining,
+cmd_args[0], loop tick, tape-pointer shadow; plus a post-overwrite counter (the
+command word compared at handler exit against what was read at entry) and a
+loop-exit marker (0xEE00 | phase) on the md_rst_status return. Firmware:
+stream on `26bbdd60`, stream off `0da97b8b`, heartbeat off `c642dfe3`
+(byte-identical). Proposed card: `26bbdd60` on ring RTL @ seed 5. Pre-reg:
+reproduce -> menu exit -> decode. dma_cmd_count still held at idle -> the 68000
+froze in the vblank list (bus cycle) -> RTL window-read path. Count 0 and
+nothing posted -> the game stopped after its frame start on its own logic.
+reg_cmd >= 0x8000 at idle -> a post the MCU never took -> the MCU loop stopped
+(tick frozen).
