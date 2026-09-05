@@ -53,6 +53,7 @@ def swapped(b):
 def main():
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
+    stream = '--stream' in sys.argv           # PPM_LIST_ORDER_VRAM build: byte 1 = highest tile the cursor reached
     d = open(sys.argv[1], 'rb').read()
     if len(d) < 0x1000:
         raise SystemExit("%s is %d bytes; expected a 4096-byte save" % (sys.argv[1], len(d)))
@@ -188,6 +189,21 @@ def main():
         print()
         print("  frames with any load, (frame, loads, blocks left after):")
         print("    " + "  ".join("(%d, %d, %d)" % f for f in busy))
+    if stream:
+        # On a stream build byte 1 is the cursor's highest tile that frame (saturating
+        # at 255). GPGX's title stream stays at tiles 16-80, the shaft's at ~154; a
+        # cursor past the scene's plane art is the corruption, frame by frame.
+        print()
+        print("STREAM CURSOR  highest VRAM tile reached per frame (byte 1 on this build)")
+        print("  frames %d   max %d   min %d   frames past tile 80: %d   past 154: %d   saturated(255): %d"
+              % (ring_frames, max(afford), min(afford),
+                 sum(1 for v in afford if v > 80), sum(1 for v in afford if v > 154), sum(1 for v in afford if v == 255)))
+        def cf(v):
+            return '.' if v <= 80 else ':' if v <= 154 else '#' if v < 255 else '!'
+        print("  . <= 80 (title-sized)   : 81-154 (shaft-sized)   # above 154   ! saturated")
+        for start in range(0, ring_frames, 120):
+            print("  frame %+d .. %+d" % (start - ring_frames, min(start + 120, ring_frames) - ring_frames - 1))
+            print("  cur  " + ''.join(cf(v) for v in afford[start:start + 120]))
     starve_frames = sum(1 for v in afford if v == 0)
     print()
     print("  frames ending with ZERO blocks affordable : %d of %d (%.1f%%)"
