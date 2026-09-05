@@ -9744,3 +9744,29 @@ Readings:
   scratch on the strength of "never in any log" - the logger never hooked
   0xF2, so that was vacuous), the both-build BGM guard, heartbeat/RTE setup.
   Measuring F2's presence at boot in GPGX first.
+
+**Chasing card 1's lag / ~1 s boot pause (reviewer: keep cc639d69, stream
+parked, fix the lag before more stream work):**
+- Diff card 1 (801da897) vs the baseline's firmware (2c522e9f): heartbeat 4
+  (bram stores on every command / object / sprite / DMA / frame end; idle
+  mailbox snapshot every 64 loop iterations; RTE install), PPM_SCRATCH_HIGH
+  (loader unpack base, 0xAF re-arm and cmd_F2 at 0x1E0000), the both-build
+  BGM guard, the residual counter, the 32-bit cursor. Only the heartbeat is on
+  the hot path.
+- bram path (paprium_backup.sv): a state machine IDLE -> WR0 -> WR1 -> ACK ->
+  DONE, ~6-7 clocks per store, on-chip true dual-port M10K; `bram_change`
+  becomes `save_change`, which core_top.sv leaves UNCONNECTED ("MiSTer uses it
+  to schedule a save writeback, APF does not") - so the heartbeat cannot cause
+  OS/bridge traffic. Cost ~660 stores/frame x 7 clocks = ~86 us = 0.5% of a
+  frame, plus ~170 clocks per 64 idle iterations - small, but it is the only
+  hot-path addition, and it has never been A/B'd on the LRU build.
+- cmd_F2 was moved with the scratch on the strength of "never in any log";
+  the logger never hooked 0xF2, so that was vacuous. A GPGX boot run with
+  every command byte hooked (kind 17) is in flight to see whether F2 is
+  issued at boot (between "presented by" and the WM logo) and what follows.
+- Smallest experiment, compiled: CARD 3 = card 1 with the heartbeat OFF
+  (LRU + PPM_SCRATCH_HIGH, PPM_HEARTBEAT 0) = `059e7d13`. Same placement
+  expected. A/B by stopwatch: disclaimer -> WM logo on d6182af4 vs cc639d69 vs
+  card 3, and the between-screens drops. #8 must stay clean (the scratch move
+  is unchanged). If card 3 still pauses, the relocation itself (F2 / loader
+  base) is next: card 4 = card 3 with F2's addresses left at 0x9000.

@@ -32,6 +32,7 @@ Record, 8 bytes, little-endian:
                     (for 1,2,4,5 address = object index)
                  15 sprite streamed: address = block number (tile field), pad = tile offset within it >> 1
                  16 stale-word injection (env PAPRIUM_STALE_N = every Nth window word is replaced by the previous one)
+                 17 any other command: pad = command byte, address = full command word (e.g. 0xF2xx, 0xADxx, 0xB1xx)
     u8   pad      see above
     u16  address
     u32  stamp    frame counter (high 16) | v_counter (low 16)
@@ -160,6 +161,7 @@ def main():
         TAB + TAB + "else if (cmd == 0xDA) winlog_raw(4, 0, (unsigned short)(data & 0xFF), stamp);",
         TAB + TAB + "else if (cmd == 0xAF) winlog_raw(5, 0, 0, stamp);",
         TAB + TAB + "else if (cmd == 0xAE) winlog_raw(11, 0, 0, stamp);",
+        TAB + TAB + "else winlog_raw(17, (unsigned char) cmd, (unsigned short)(data & 0xFFFF), stamp);",
         TAB + "}",
         "#endif",
     ]), 1)
