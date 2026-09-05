@@ -9411,3 +9411,42 @@ gate per the standing order. Pre-reg: greyscale/sprites freeze and flicker vs
 
 Deployed per the standing order: card `d6182af4 -> a9bdd55a`, md5 confirmed.
 Records clear at boot; no save wipe needed.
+
+### 2026-09-05: option B record (a9bdd55a) - not a freeze; the 68000 main loop dies
+
+User: lots of SFX crackle (the pause drains the FIFOs); video unchanged -
+intro still glitchy, sprite flicker in gameplay as before; and a correction:
+the game never froze - the screen goes very dark ("turns off the backlight")
+and glitches to the point nothing is legible, sprites still flickering.
+Save `vdp-capture/saves/paprium-cellhang-a9bdd55a.sav` (a31e4d2f), boot 8:
+
+    frame 4178 (69.6 s)   last cmd 0xAD (object 13, sprite 0 of 1, cursor 16 - the frame's first sprite)
+    phase 10   traps none   idle 4.0 M iterations   reg_cmd acked   dma_cmd_count 4   dma_total 624   tape 0x9000
+
+Reading: option B did not touch the flicker -> the MCU's SDRAM traffic is not
+what corrupts the tape; the window-read path itself is unreliable under the
+stream's back-to-back VDP reads. And the stop points differ between records
+(#3: after 0xAF with the list built; #4: mid-frame after an 0xAD with four
+descriptors) - not one "halted in the runner" mechanism. What fits all four
+records and the user's read: **the 68000's main loop is dead while its VBLANK
+interrupt keeps running** - the ISR keeps DMAing SAT/palette (the glitching),
+the MCU idles (no more posts), music continues (MCU-side).
+
+Why it dies: the ROM header sends EVERY exception - bus error, address error,
+illegal instruction - to a bare `rte` at 0x206. On a 68000 an `rte` from a
+group-0 fault mis-pops the 14-byte frame and jumps to the faulting address as
+code: one address error is an endless fault loop. The cart overlays the vector
+table with the mailbox RAM (`ramdp->vectors[0x80]`, copied from flash at reset
+and patched), so the EFFECTIVE handlers are whatever the game installs there -
+readable by the MCU. Under the stream, a desynced tape corrupts not only tile
+data (flicker) but the 0xDB payloads the game reads through the same window at
+scene transitions - a bad pointer there is the address error. Consistent with
+every record: the dark screen is the transition's fade, mid-way.
+
+**Heartbeat 4 (`9a024a6`):** the effective vectors 2/3/4/28 are copied from
+the mailbox to bram 0xFB0 at loop idle. Firmware: stream on + heartbeat 4,
+option B off `20d392de`; with option B `9f0602a4`; heartbeat off `c642dfe3`.
+Option B parked (crackle, no visual change). Card reverted to d6182af4.
+GPGX experiment in flight: inject a stale window word every N reads
+(`PAPRIUM_STALE_N`) and look for the Pocket's signature - commands stop while
+DMAs continue - at a transition.
