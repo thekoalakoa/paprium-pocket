@@ -9375,3 +9375,26 @@ Instruments / experiments on the table:
     Tests the flicker mechanism directly; may also change the freeze rate.
 (C) Firmware: cap the stream's per-frame descriptors/bytes (e.g. 8 KB) -
     tests whether the freeze scales with list length.
+
+**Follow-ups (same day):**
+- GPGX from `cellroom.state`: 1,800 frames of mailbox/status polls only (kinds
+  8/9/12), no frame commands, no DMA, no window reads - the game spins in a
+  wait the state restore does not satisfy. Discarded; a state a little before
+  the cell would be needed for a GPGX cell log.
+- The SFX player reads its samples through `ppmio.flash`, which the Pocket's
+  MCU memory adapter serves from the SAME SDRAM port2 - one byte per active
+  channel per loop iteration whenever a FIFO has room. In the cell, with
+  sounds playing, that is continuous port2 traffic through vblank, and the
+  port2 anti-starvation boost then takes rounds from port1 exactly while the
+  VDP reads the window on fixed timing. Option B is therefore concrete.
+- **Option B prepared, default OFF:** `PPM_SFX_QUIET_DMA` pauses sample reads
+  from 0xAF until the 68000 has zeroed `dma_cmd_count` (the runner's last act)
+  or the next 0xAE. Firmware with it on: `95e55ebe` (stream on + heartbeat 3);
+  off: `26bbdd60` unchanged. Commit `6cb3847`. Risk: SFX crackle if a FIFO
+  drains during the ~1-2 ms pause.
+- Card reverted `70c9a726 -> d6182af4` (md5 confirmed) per the hang rule.
+Recommendation: B first (firmware-only, same placement; tests the flicker
+mechanism directly and removes the MCU's contention from the freeze picture,
+with the heartbeat still recording); A (readable `stream_ptr`) if the freeze
+persists, as the decisive instrument for WHERE the VDP stopped; C as the
+volume experiment.
