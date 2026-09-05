@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..78173c9 100644
+index b568843..b726907 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -295,7 +295,7 @@ index b568843..78173c9 100644
 +        if (!sd->blockNum) continue;
 +        uint16_t slot1 = ppm_vram_load_block(sd->blockNum);        // cache slot + 1, or 0
 +        uint32_t w = ((sd->size >> 2) & 3) + 1, h = (sd->size & 3) + 1, bytes = w * h * 0x20;
-+        if (!slot1 || ppm_stream_stage + bytes > 0xFA00 || ppmio.ramdp->dma_cmd_count >= 120) {
++        if (!slot1 || ppm_stream_stage + bytes > PPM_SCRATCH_END || ppmio.ramdp->dma_cmd_count >= 120) {
 +            // no cache slot, or out of staging / descriptors: leave this sprite's VRAM
 +            // stale but KEEP THE CURSOR MOVING, so every later sprite lands where the
 +            // game's layout expects. Skipping it shifted the whole title screen.
@@ -434,7 +434,11 @@ index b568843..78173c9 100644
 +                    lz = c >> 2;
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 1;
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +                else if (c & 0x10) {                 // code_10
 +                    len = c & 0x07;
 +                    if (len == 0) {
@@ -500,11 +504,7 @@ index b568843..78173c9 100644
 +                        raw_n--;
 +                    }
 +                    else break;
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +            }
              }
              break;
@@ -958,12 +958,12 @@ index b568843..78173c9 100644
 +#endif
      ppm_drawListPtr = ppm_drawList;
 +#if PPM_INLINE_COMPOSE
-+    ppm_block_unpack_addr = 0x9000;   // was reset by the batch; nothing else uses it
++    ppm_block_unpack_addr = PPM_SCRATCH_BASE;   // was reset by the batch; nothing else uses it
 +#if PPM_LIST_ORDER_VRAM
 +#if PPM_SFX_QUIET_DMA
 +    ppm_list_pending = 0;
 +#endif
-+    ppm_stream_walked_shadow = ppm_stream_walked; ppm_stream_walked = 0; ppm_stream_vram = 0x200; ppm_stream_stage = 0x9000;
++    ppm_stream_walked_shadow = ppm_stream_walked; ppm_stream_walked = 0; ppm_stream_vram = 0x200; ppm_stream_stage = PPM_SCRATCH_BASE;
 +#endif
 +    ppm_dma_refresh();                // MUST precede any inline compose
 +#endif
@@ -1455,11 +1455,10 @@ index b568843..78173c9 100644
 +#if PPM_HEARTBEAT
 +    ppm_hb_frame++; hb_w32(4, ppm_hb_frame); hb_w8(9, 6); hb_w16(22, ppmio.ramdp->sat_count); hb_w16(18, ppmio.ramdp->dma_cmd_count);
 +#endif
- 
++
 +
 +#if !PPM_INLINE_COMPOSE
-     ppm_block_unpack_addr = 0x9000;
--    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
++    ppm_block_unpack_addr = PPM_SCRATCH_BASE;
 +#endif
 +
 +    // The frame's DMA budget is refreshed in ppm_dma_refresh(), which moved to
@@ -1479,8 +1478,10 @@ index b568843..78173c9 100644
 +    // 0xAE is dispatched reliably - measured at 30,585 against 30,584 for 0xAF -
 +    // so this has never actually bitten. Resetting here as well is idempotent and
 +    // removes the dependency on one command firing for the pair to stay matched.
-+    ppm_block_unpack_addr = 0x9000;
-+
++    ppm_block_unpack_addr = PPM_SCRATCH_BASE;
+ 
+-    ppm_block_unpack_addr = 0x9000;
+-    ppmio.ramdp->dma_remaining = ppmio.ramdp->dma_budget - ppmio.ramdp->dma_total;
  
      //printf("dma: %i\n", ppmio.ramdp->dma_remaining);
  
@@ -1527,8 +1528,8 @@ index b568843..78173c9 100644
 +#endif
 +    {
 +        u32 prev_ptr = ppm_sptr_shadow;
-+        FPGAIO->sdram_ptr = 0x9000;
-+        ppm_sptr_shadow = 0x9000;
++        FPGAIO->sdram_ptr = PPM_SCRATCH_BASE;
++        ppm_sptr_shadow = PPM_SCRATCH_BASE;
 +#if PPM_EPOCH_RING
 +        snap_epoch_note(prev_ptr);
 +#endif
@@ -1754,10 +1755,10 @@ index b568843..78173c9 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..43f1c52 100644
+index 06ccf59..a634d11 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,181 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,199 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1837,7 +1838,7 @@ index 06ccf59..43f1c52 100644
 +// listed blocks are memcpy'd into the 0x9000 staging area in list order and
 +// one DMA per listed block streams them to tile 16 + 16k, charged 0x110 each
 +// against the game's own dma_budget - exactly what the retail cart spends.
-+#define PPM_LIST_ORDER_VRAM     1
++#define PPM_LIST_ORDER_VRAM     0
 +// Crash-context heartbeat: a 40-byte record in battery RAM (bram 0xF70..0xF97,
 +// the free gap between the onset ring's meta and the dispatch block) rewritten
 +// at every command entry/exit, per object, per walked sprite, per stream DMA,
@@ -1873,6 +1874,24 @@ index 06ccf59..43f1c52 100644
 +// the stream cards, the mechanism is MCU port2 traffic starving the 68000's own
 +// ROM fetches on the VDP's fixed acknowledge - not the stream's data. Default OFF.
 +#define PPM_PORT2_LOAD          0
++// Scratch relocation (2026-09-05, review verdicts E/F): shaft-type levels park a
++// mode-3 0xDA payload at SDRAM 0x9000 and read its rows back LATER through
++// 0xDB06 at 0x9000+index as the elevator scrolls (ROM 0x07F956 / 0x07F448),
++// while mega-ppm's block loader unpacks new blocks at 0x9000 + 0x200*n and the
++// stream stages every frame's tiles at 0x9000+. Whatever the MCU wrote there
++// since the payload landed is what the game reads back: 0x200-byte blocks =
++// sprite art in slot-wide bands (#8), per-frame staging = every row garbage.
++// With this 1 the MCU scratch (loader unpack base, stream staging, the 0xAF
++// tape re-arm) moves to PPM_SCRATCH_BASE, outside the game's 64 KB payload
++// space; the tape pointer is 21 bits so 0x1E0000 is reachable. cmd_F2's 0x9000
++// unpack is for the game and stays. Default OFF until GO.
++#define PPM_SCRATCH_HIGH        0
++#if PPM_SCRATCH_HIGH
++#define PPM_SCRATCH_BASE        0x1E0000u
++#else
++#define PPM_SCRATCH_BASE        0x9000u
++#endif
++#define PPM_SCRATCH_END         (PPM_SCRATCH_BASE + 0x6A00u)   // was the fixed 0xFA00 cap
 +#define PPM_PORT2_LOAD_BYTES    0x1000   // ~ the walk's per-object traffic (12 objects x 4 KB ~ 48 KB/frame)
 +#if PPM_SFX_QUIET_DMA
 +extern volatile u8 ppm_list_pending;   // 1 between 0xAF and the runner's completion
