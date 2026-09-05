@@ -9129,3 +9129,21 @@ at 54 sprites / 12 objects / 3 commands per frame about 650 stores, i.e. under
 15 us of a 16.7 ms frame even at one store per cycle. The one assumption to
 state: the Pocket OS dumping bram after an MCU hang is inferred from the boot
 marker's normal-path evidence, not yet observed on a hang.
+
+**Boot timeline, GPGX 77 s (`winlog-boot-90s.bin`), matched to the user's
+hardware read ("about 45 seconds in was the start screen, the rest attract"):**
+
+    0-8 s     boot loads (0xDA, page turns)
+    12-18 s   3-7 sprites, cursor 56-80          disclaimer / logo
+    19-37 s   no streamed sprites at all          the intro (18 s quiet)
+    38-41 s   load burst, 11-12 sprites           transition
+    42-50 s   19 sprites, cursor 203, constant    THE START SCREEN (user: ~45 s)
+    51 s+     37-47 sprites, cursor 353-495       attract demo, with load bursts
+              between its scenes (56 s, 65 s, 68 s, 73 s)
+
+So the 19-sprite / cursor-203 screen measured earlier IS the start screen; the
+reference numbers for the title gate stand (cursor 203-242 on the Pocket's
+ring, 19-20 sprites/frame). The title gate is judged there, after the intro,
+and a wait-through means letting the start screen sit (it persists ~8 s in GPGX
+before attract begins). Where earlier runs put the start screen at 22-28 s,
+RetroArch's boot timing varied between runs; the scene order did not.
