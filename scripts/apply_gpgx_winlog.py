@@ -31,6 +31,7 @@ Record, 8 bytes, little-endian:
                     3 walked (address = index | count<<8), 4 sprite skipped tile==0, 5 skipped spriteCount>=94
                     (for 1,2,4,5 address = object index)
                  15 sprite streamed: address = block number (tile field), pad = tile offset within it >> 1
+                 16 stale-word injection (env PAPRIUM_STALE_N = every Nth window word is replaced by the previous one)
     u8   pad      see above
     u16  address
     u32  stamp    frame counter (high 16) | v_counter (low 16)
@@ -67,6 +68,9 @@ def main():
         "#include <stdio.h>",
         "static FILE *winlog_fp = NULL;",
         "static unsigned int winlog_frames = 0;",
+        "#include <stdlib.h>",
+        "static int stale_n = -1, stale_ctr = 0; static unsigned short stale_prev = 0;",
+        "static int stale_enabled(void) { if (stale_n < 0) { const char *e = getenv(" + Q + "PAPRIUM_STALE_N" + Q + "); stale_n = e ? atoi(e) : 0; } return stale_n > 0; }",
         "static void winlog_raw(unsigned char kind, unsigned char pad, unsigned short address, unsigned int stamp)",
         "{",
         "    unsigned char rec[8];",
@@ -116,7 +120,8 @@ def main():
     s = s.replace(old, NL.join([TAB + "default:",
                                 TAB + TAB + "data = *(uint16 *)(paprium_s.ram + address);",
                                 "#if PAPRIUM_WINLOG",
-                                TAB + TAB + "if (address >= 0xC000) winlog(0, (unsigned short) address);",
+                                TAB + TAB + "if (address >= 0xC000) { winlog(0, (unsigned short) address);",
+        TAB + TAB + TAB + "if (stale_enabled()) { unsigned short cur = (unsigned short) data; if ((++stale_ctr % stale_n) == 0) { data = stale_prev; winlog(16, (unsigned short) address); } stale_prev = cur; } }",
         TAB + TAB + "else if (address >= 0x1F10 && address <= 0x1F1F) winlog_status((unsigned short) address);",
                                 "#endif",
                                 TAB + TAB + "break;",
