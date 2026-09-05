@@ -8818,3 +8818,25 @@ the card, snapshot region zeroed, progress intact. Firmware switches on it:
 `PPM_DA_PAD 1`, `PPM_BUSY_REST 1` (pulse `0xDB`/`0xDA`), `PPM_LIST_ORDER_VRAM
 1` (the corrected per-sprite stream), `PPM_ONSET_RING 1`. Test against the
 five-point pre-registration at c22d0ca, title first.
+
+### 95dcfe40: title gate FAIL -> reverted to d6182af4. Cause measured.
+
+Tester: train art on the start screen again - better than 6206eb53, still
+wrong. Reverted at once per c22d0ca; no shaft test. Card `d6182af4`, md5
+confirmed, region zeroed. `95dcfe40` archived.
+
+**Measured, from the run's capture (1,187 frames, title then quit):
+1,800 "out of DMA budget" refusals, 3.7 per frame over the last eight
+seconds, against 59 successful loads.** The stream charged the budget per
+sprite; the block loader's `dma_remaining < 0x110` check then refused
+almost every new block; my walk skipped a refused sprite WITHOUT advancing
+the cursor, and re-walked the fallback animation on top. GPGX never
+refuses, never skips, never re-walks. Every refusal shifted every later
+sprite's tiles from the layout the game authored. The title is the first
+scene, where every block is a cache miss - so it fails there first.
+
+**Fixed under the switch (default 0, compiles; on: see build log):** the
+loader never refuses for budget when the stream is on; a sprite whose block
+cannot be cached (no slot) or that does not fit staging/the DMA list still
+advances the cursor by its size (its own VRAM left stale, everything after
+it in place); no re-walk on fallback. Not fitted.
