@@ -8999,3 +8999,16 @@ Pre-registration proposal: 1. title = ordered train menu (chaos -> revert);
 (ALM 18,194 / setup -2.549 / hold +0.004). Flash only after gate; md5 before A/B.
 Pre-reg as proposed (title ordered / title ring cursor 203-242 + byte 0 19-20 /
 shaft / attract / lag).
+
+**Fit result (build-stream3.log, 22:01-22:25):** ROM-only property held again -
+dec2f09f's placement exactly:
+
+    stream3-busyrest-pad.CANDIDATE   3f0ee17d   mcu.txt c642dfe3   ALM 18,194  setup -2.549  hold +0.004   PASS
+    (design-wide worst corner -2.596 / +0.004, TNS -1428, as on every card of this placement)
+
+Gate PASS -> deployed: card `d6182af4 -> 3f0ee17d`, md5 confirmed; save's
+snapshot region blank (0xFF from 0x900). Working tree left with
+`PPM_LIST_ORDER_VRAM 1` / mcu.txt `c642dfe3` to match the card while it is under
+test. Pre-reg stands: 1. title ordered train menu (chaos -> revert d6182af4);
+2. title ring `--stream`: cursor 203-242, byte 0 = 19-20 sprites/frame (capture
+while the title is up); 3. shaft vs cart; 4. attract clean; 5. lag vs d6182af4.
