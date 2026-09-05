@@ -9770,3 +9770,16 @@ parked, fix the lag before more stream work):**
   card 3, and the between-screens drops. #8 must stay clean (the scratch move
   is unchanged). If card 3 still pauses, the relocation itself (F2 / loader
   base) is next: card 4 = card 3 with F2's addresses left at 0x9000.
+
+**F2 check (GPGX, every command byte hooked, `winlog-boot-allcmds.bin`, 2,400
+frames):** 0xF2 is never issued - not at boot, not on the title, not in
+attract. cmd_F2's relocation is not the pause. Boot sequence: 0x81 x3 + 0xC6
+(f169), DA/DB (f174), 0x88 (f192), then 0x83 every second frame through the
+"presented by" phase (f193-f235; mega-ppm's handler for 0x83 is
+`cmd_unknown_muted`, a no-op - the MCU does nothing there), the init burst
+A4 B0 EC CA C9 D2 B6 8D B1 (f240-247), first 0xAF/0xAE at f280, sprites (0xAD)
+from f725, and the WM-logo -> start-menu transition is the 38 s load burst (4
+DA, 12 page turns, 14,448 window words of mode-2 CPU copies). Nothing in the
+boot path touches the relocated scratch except the loader once sprites start.
+Card 3 (heartbeat off, `059e7d13`) remains the bisection; if the pause
+survives it, the next split is the relocation itself.
