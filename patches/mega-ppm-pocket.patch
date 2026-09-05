@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..862585f 100644
+index b568843..78173c9 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -1558,15 +1558,18 @@ index b568843..862585f 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -402,6 +1794,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -402,6 +1794,10 @@ void ppm_obj_render(uint16_t obj_slot) {
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
 +    hb_w8(9, 2); hb_w8(10, (u8) obj_slot); hb_w16(12, spr_info->count); hb_w32(24, data_offset);
++#if PPM_PORT2_LOAD
++    memcpy(&ppmio.sdram[0x1F0000], &ppmio.sdram[0x1E0000], PPM_PORT2_LOAD_BYTES);   // port2 traffic only; nothing reads it
++#endif
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1803,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1806,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1578,7 +1581,7 @@ index b568843..862585f 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,7 +1819,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,7 +1822,9 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1588,7 +1591,7 @@ index b568843..862585f 100644
      if (!blocks_available) {
  
          if (previous_offset) {
-@@ -437,10 +1837,16 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -437,10 +1840,16 @@ void ppm_obj_render(uint16_t obj_slot) {
          }
      }
  
@@ -1605,7 +1608,7 @@ index b568843..862585f 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +1867,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1870,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1650,7 +1653,7 @@ index b568843..862585f 100644
          satEntry++;
      }
  
-@@ -482,12 +1925,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +1928,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1677,7 +1680,7 @@ index b568843..862585f 100644
          return 0;
      }
  
-@@ -505,15 +1962,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +1965,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1732,7 +1735,7 @@ index b568843..862585f 100644
      ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
      ppm_block_unpack_addr += 0x200;
  
-@@ -536,6 +2032,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2035,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1740,7 +1743,7 @@ index b568843..862585f 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2046,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2049,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1751,10 +1754,10 @@ index b568843..862585f 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..85fae4d 100644
+index 06ccf59..43f1c52 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,173 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,181 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1863,6 +1866,14 @@ index 06ccf59..85fae4d 100644
 +// until the 68000 has zeroed dma_cmd_count (the runner's last act) or the next
 +// frame start (0xAE), whichever first. Experiment; default OFF.
 +#define PPM_SFX_QUIET_DMA       0
++// Port2-load experiment (2026-09-05): on the LRU baseline, add the stream
++// walk's SDRAM traffic WITHOUT any stream code - a scratch memcpy of
++// PPM_PORT2_LOAD_BYTES per 0xAD (SDRAM 0x1E0000 -> 0x1F0000, below the block
++// cache, above every payload). If the baseline then flickers / goes dark like
++// the stream cards, the mechanism is MCU port2 traffic starving the 68000's own
++// ROM fetches on the VDP's fixed acknowledge - not the stream's data. Default OFF.
++#define PPM_PORT2_LOAD          0
++#define PPM_PORT2_LOAD_BYTES    0x1000   // ~ the walk's per-object traffic (12 objects x 4 KB ~ 48 KB/frame)
 +#if PPM_SFX_QUIET_DMA
 +extern volatile u8 ppm_list_pending;   // 1 between 0xAF and the runner's completion
 +#endif
