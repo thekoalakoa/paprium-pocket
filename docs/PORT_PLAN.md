@@ -9499,3 +9499,44 @@ timing; unchanged => the stream's data path is back in play. Option B parked.
 
 Deployed per the standing order: card `d6182af4 -> 64f1a57f`, md5 confirmed.
 LRU baseline rendering + heartbeat 4 + a 4 KB scratch memcpy per 0xAD.
+
+### 2026-09-05: port2-load card 64f1a57f - (i) REFUTED; the 0x9000 collision
+
+User: no dark/glitch, no intro glitch, cell OK - plays like the baseline; mild
+lag / missing frames between screens (the 4 KB memcpy per object). So the walk's
+SDRAM traffic alone does nothing: MCU port2 starvation of the 68000's fetches is
+refuted, and the stream's DATA PATH is back in play. No hang, nothing to
+decode. Card reverted `64f1a57f -> d6182af4`.
+
+**Timing from the GPGX logs (the game's own code order, valid for the Pocket):**
+- In gameplay essentially ALL 0xDB/0xDA are issued in the 0xAF -> 0xAE window
+  (train 76/76, elevator 1,167/1,169), i.e. in vblank around the DMA list;
+  in boot/attract none are. Issued BEFORE that vblank's DMAs ran: elevator 3
+  of 1,167, train 0 of 76 - "the pointer moved before the runner" is rare.
+- The game's only window-sourced DMA is the 0xDA payload transfer: 1,024
+  words (occasionally 400/480/736/80), always ALONE in its vblank at vcount
+  ~225, index 0. A mode-7 0xDA is transferred exactly 3 frames later, every
+  time; mode-2 payloads much later / not by DMA.
+- In 3 of 8 mode-7 DAs (elevator) sprite tiles were staged during the 3-frame
+  gap (GPGX stages at cart RAM 0x2000+, harmlessly).
+
+**The collision (firmware evidence):** the game requests its 0xDA payload
+destination in cmd_args[0] and mega-ppm unpacks exactly there and points the
+tape at it (`cmd_DA_unpack`: dst = cmd_args[0]; ppm_unpack(src, dst);
+sdram_ptr = cmd_args[0]) - 43 of 49 DAs in the epoch ring asked for 0x9000.
+mega-ppm's block loader unpacks new blocks at `ppm_block_unpack_addr = 0x9000`
+(reset at mame.c:1107/1609/1629, +0x200 per block) and the stream stages every
+frame's tiles at `ppm_stream_stage = 0x9000` (mame.c:1112); the tape is
+re-armed to 0x9000 at every 0xAF (mame.c:1681). Whichever of them writes
+0x9000+ between a 0xDA and its transfer three frames later overwrites the
+payload: 0x200-byte blocks -> the 2 KB page corrupted in slot-wide bands under
+a correct name table = the baseline's remaining #8 (and upstream's elevator
+bug, intermittent because it needs a block load in the gap); per-frame
+staging -> every page after any DA corrupt = the stream's glitching; a 16 KB
+mode-2 payload at 0x9000 under the staging -> corrupted data the game follows
+-> the 68000 fault into the header's `rte` stubs -> the dark, glitching
+screen. One root cause for #8, the flicker and the death. Adversarial review
+of the claim and of a firmware-only fix (relocate the MCU scratch out of the
+payload space; keep the tape contiguous with the list order by copying the
+pending payload next to the staged tiles at 0xAF when the game's window
+descriptor is present) launched as a workflow before any fit is proposed.
