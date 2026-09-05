@@ -9791,3 +9791,24 @@ without the heartbeat: LRU + PPM_SCRATCH_HIGH, PPM_HEARTBEAT 0), ring RTL
 stopwatch, "presented by" -> WM logo on d6182af4 vs cc639d69 vs card 3, and
 the between-screens drops; #8 must stay clean. Pause/drops gone => the
 heartbeat (ship without it); unchanged => the relocation, card 4 splits it.
+
+### 2026-09-05 19:40 - card 3 on the SD: 51b67a50 (firmware 059e7d13, heartbeat off)
+
+Fit at seed 5 on ring RTL a22aea4, launched 19:13, fitter done 19:37, flow exit 0 at 19:40.
+
+    ALM 18,194 / 18,480 (98%)   M10K 72%
+    setup -2.549   hold +0.264       (worst corner -2.596 / +0.004)
+    = dec2f09f's placement, byte-for-byte the same corner set as card 1's fit (build-scratch1.log)
+
+Gate PASS. Deployed per the standing order: card md5 cc639d69 -> 51b67a50; built ==
+archive (scratch3-lru-nohb.CANDIDATE.rbf_r) == card. Card 1 (cc639d69) stays in the
+gate archive as scratch1-lru.CANDIDATE.
+
+Only difference from card 1: PPM_HEARTBEAT 0 (no bram writes from the MCU loop, no
+trap recorder, no idle snapshot). Everything else identical: LRU loader, PPM_SCRATCH_HIGH
+(scratch at 0x1E0000, 32-bit loader cursor), stream off.
+
+Read protocol (user, stopwatch): "presented by" -> WaterMelon logo on d6182af4 vs
+cc639d69 vs 51b67a50; dropped frames between screens; #8 shaft must stay clean.
+- pause and drops gone on card 3  => the heartbeat was the cost; v0.2.0 ships card 3
+- unchanged                       => the cost is in the relocation itself; card 4 splits it
