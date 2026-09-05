@@ -8946,3 +8946,11 @@ redeployed to the card for a retest under the corrected criteria (md5
 Also added (not on any card yet): under `PPM_LIST_ORDER_VRAM`, ring byte 0 =
 sprites streamed last frame (`ppm_stream_walked_shadow`); switch-on firmware
 `4b2ad450`, switch-off unchanged `2c522e9f`.
+
+Boot 2,400 frames (`winlog-boot-stream3.bin`, title at frame 1338 this run -
+boot timing varies between RetroArch runs): title = 12 distinct blocks for the
+19 sprites, tile offsets max 14. Past the title the attract demo streams up to
+**54 sprites and cursor 482 per frame** (15 KB of tiles) - within the stream
+build's staging (0x9000-0xFA00 = 848 tiles) and the 120-descriptor list cap,
+but the heaviest load yet measured; if the retest passes the title, attract
+mode is the next scene to watch for cursor/budget.
