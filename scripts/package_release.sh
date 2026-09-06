@@ -51,6 +51,8 @@ for core_json in "$PROJECT_DIR"/pkg/pocket/Cores/*/core.json; do
   rm -f "$zip_path"
   # Run from pkg/pocket/ so the archive's paths are SD-card-root relative.
   # -x '*/.gitkeep' drops the empty-dir marker but keeps Assets/<id>/common/.
+  # Cores/<pkg>/README.md is a note to repo browsers (the bitstream is not in git);
+  # it is not part of the core and 0.1.0 did not ship it. Both zippers skip it.
   # The Pocket shows Platforms/_images/<id>.bin next to the platform name. It was
   # missing from the archive until 0.1.0, so a release install had no artwork.
   PLAT_IMG=""
@@ -59,7 +61,7 @@ for core_json in "$PROJECT_DIR"/pkg/pocket/Cores/*/core.json; do
   # Git for Windows ships no `zip`, so fall back to a Python zipper that writes
   # the same layout. A release should not depend on which shell is installed.
   if command -v zip >/dev/null 2>&1; then
-    ( cd "$PROJECT_DIR/pkg/pocket" &&       zip -r "$zip_path"         "Cores/${pkgdir}" "Platforms/${pid}.json" ${PLAT_IMG:+"$PLAT_IMG"} "Assets/${pid}"         -x '*/.gitkeep' ) >&2
+    ( cd "$PROJECT_DIR/pkg/pocket" &&       zip -r "$zip_path"         "Cores/${pkgdir}" "Platforms/${pid}.json" ${PLAT_IMG:+"$PLAT_IMG"} "Assets/${pid}"         -x '*/.gitkeep' "Cores/${pkgdir}/README.md" ) >&2
   else
     ( cd "$PROJECT_DIR/pkg/pocket" &&       python "$SCRIPT_DIR/_zip_fallback.py" "$zip_path"         "Cores/${pkgdir}" "Platforms/${pid}.json" ${PLAT_IMG:+"$PLAT_IMG"} "Assets/${pid}" ) >&2
   fi

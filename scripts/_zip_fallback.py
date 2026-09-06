@@ -7,6 +7,7 @@ Run from the directory the archive paths should be relative to, exactly as the
 `zip -r` call in package_release.sh does. Skips `.gitkeep` so the empty-directory
 markers do not ship, while still creating the directories that hold them - which
 is what `-x '*/.gitkeep'` did.
+Also skips Cores/<pkg>/README.md, as package_release.sh's zip call does.
 
 Exists because Git for Windows ships no `zip`, and a release should not depend on
 which shell the maintainer happens to have.
@@ -14,6 +15,11 @@ which shell the maintainer happens to have.
 import os
 import sys
 import zipfile
+
+def f_is_pkg_readme(root):
+    parts = root.replace(os.sep, '/').strip('/').split('/')
+    return len(parts) == 2 and parts[0] == 'Cores'
+
 
 def main():
     if len(sys.argv) < 3:
@@ -28,6 +34,9 @@ def main():
                 continue
             for dirpath, _dirnames, filenames in os.walk(root):
                 keep = [f for f in filenames if f != '.gitkeep']
+                if dirpath == root and f_is_pkg_readme(root):
+                    # Cores/<pkg>/README.md: a note to repo browsers, not part of the core
+                    keep = [f for f in keep if f != 'README.md']
                 if not keep:
                     # preserve the directory itself, as zip -r does
                     z.writestr(dirpath.replace(os.sep, '/').rstrip('/') + '/', '')
