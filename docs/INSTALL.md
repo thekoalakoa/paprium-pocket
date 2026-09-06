@@ -24,7 +24,7 @@ does not put it in the public domain - it is still their work.
 ## Get the core
 
 Download **`openfpga-Paprium_<version>.zip`** from the
-[latest release](https://github.com/thekoalakoa/paprium-pocket/releases/latest)
+[latest release](https://github.com/thekoalakoa/paprium-pocket/releases)
 and unzip it onto the root of your SD card, merging with the folders already
 there.
 

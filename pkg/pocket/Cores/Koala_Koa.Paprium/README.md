@@ -5,7 +5,7 @@
 (`.gitignore`, `pkg/pocket/Cores/*/*.rbf_r`) rather than committed on every change.
 
 **To install the core**, download `openfpga-Paprium_<version>.zip` from the
-[latest release](https://github.com/thekoalakoa/paprium-pocket/releases/latest).
+[latest release](https://github.com/thekoalakoa/paprium-pocket/releases).
 The zip contains this folder *with* the bitstream, plus the platform entry and the
 asset directories, laid out for the root of your SD card.
 
