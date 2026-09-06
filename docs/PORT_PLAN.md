@@ -9998,3 +9998,12 @@ Two packaging fixes on the way: check_packages.sh scoped to Koala_Koa.* (the ups
 drizzt.MegaDrive baseline package made it fail on 0.1.0 too), and both zippers now leave
 the repo-facing Cores/<pkg>/README.md out of the archive (5df0814). The SD card holds the
 release bitstream (3e491f73) already.
+
+**2026-09-05 21:55 - build logs moved to `build-logs/`.** The user asked for the fit
+transcripts out of the repo root (33 of them were sitting there, 7 tracked and the rest
+loose). All thirty `build*.log` files since 0.1.0 now live under `build-logs/` and are
+tracked, with a `build-logs/README.md` index (start time, seed, fitter result, first
+setup/hold pair) generated from the files. `.gitignore`'s `build.log` became `/build.log`
+so a stray root log stays ignored while `build-logs/build.log` is kept. The fit recipe
+from here on writes `> build-logs/build-<name>.log`. Earlier PORT_PLAN entries name the
+logs without a path; they mean this folder.
