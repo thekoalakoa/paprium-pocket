@@ -10097,3 +10097,162 @@ installed Paprium 0.2.0 on its own. Verified on the card afterwards:
 
 User report: game works. That closes the 0.2.0 release checklist. Next: backlog item 1,
 characters animating on the spot.
+
+
+# 2026-09-06 09:30 - Character animation: a refused block load LOSES the animation switch
+
+Backlog item 1 after 0.2.0. Starting point, from the user: GPGX does not have
+the missing frames; only this port (and, per the README, every other setup on
+mega-ppm) does. So the fault is in the cartridge-side loader logic, not in the
+Mega Drive core, and the reference to compare against is GPGX's
+`core/cart_hw/paprium.h`.
+
+## Why GPGX never stalls - and why that is not evidence for its algorithm
+
+`paprium.h:2895` sets `fast_dma_hack = 1  /* skip vram management */`, and
+`vdp_ctrl.c:712-716` honours it: every 68k->VRAM DMA completes inside one line
+regardless of length. On top of that `paprium_sprite()` (`paprium.h:1167-1461`)
+re-uploads EVERY sprite's exact tiles EVERY frame - one DMA entry per sprite
+piece, `tileSize = size_x*size_y*0x20`, source `draw_src` from 0x2000 and VRAM
+`draw_dst` from 0x200, both reset in `paprium_sprite_start` (`:1519-1520`) - with
+the per-frame limit commented out (`:1428`, `//if( !tiledupe && dmaPtr < dmalimit
+&& vram < vramlimit ...`). No slot cache, no budget, no refusal, ever. PORT_PLAN
+4950 already said it: "emulated VRAM writes are free." GPGX cannot show a
+loader stall because it has no loader.
+
+The retail cart streams too (PORT_PLAN 8739, the corrected stream contract) and
+overruns vblank when busy - hence the tester's "hardware tears but does not lose
+animation". mega-ppm is the one implementation that CACHES 16-tile blocks in 53
+VRAM slots and charges 0x110 words per block against the game's `dma_budget`
+(0x0B00 = 10 blocks/frame, 0x1200 = 16; PORT_PLAN 4915), refusing a load at
+`dma_remaining < 0x110` (`mame.c ppm_vram_load_block`). So the question was
+never "why is GPGX smooth" but "what does mega-ppm do with a refusal".
+
+## The refusal is rare - too rare to be the visible symptom by itself
+
+Hardware counters, shipping-config firmware (PORT_PLAN 7046-7105, 7583, 7738):
+
+    subway -> rooftop   2,983 refused of 89,918 attempts   3.3%
+    elevator only         829 refused of 25,413            3.3%
+    whole runs          0.025 refusals/frame, 0.8 loads/frame, worst frame 15-22
+
+A refusal on the ADVANCE path costs one frame: `ppm_obj_render` rewinds
+`anim_offset`/`counter`, redraws the previous frame, and retries the same frame
+on the next 0xAD. One frame in forty is invisible. The visible symptom - a
+character sliding while its cycle does not advance - needs a refusal whose
+effect PERSISTS. It does, on exactly one path.
+
+## The mechanism: the game's one-shot reset is destroyed
+
+The two carts read the object record (16 bytes at ramdp 0xF80 + index*16)
+differently at word +0xA:
+
+    GPGX  paprium.h:1182,1248-1251   `reset`: game writes 1 to ask for a restart,
+                                     the cart processes it and writes 0 back
+    mega-ppm  mame.h ppm_intf_obj    `animCounter`: a counter the cart increments
+                                     every frame and writes back; a MISMATCH with
+                                     the handle's counter is one of three restart
+                                     triggers (with `objID & 0x8000` and
+                                     `anim != crtAnim`), mame.c ppm_obj_render
+
+What the game actually does - the set-animation routine, ROM 0x031024 (a0 =
+`$AF844` base + index*16, d1 = requested anim):
+
+    031046  cmp.w (a0),d1 ; beq -> return        same anim: do nothing
+    031050  tst.w d1 ; blt -> force             bit 15: restart even if equal
+    031058  move.w #1,$A(a0)                    reset = 1, ONCE
+    031062  move.w d1,(a0)                      anim = new
+    031064  move.w #$FFFF,2(a0)                 nextAnim = none
+    (bit 14 path, 03103C-03104E: queue d1 as nextAnim instead)
+
+So +0xA is a one-shot request, written once per animation change, and the game
+never rewrites it. Now the refusal path in `ppm_obj_render` (stock krikzz code,
+unchanged since the `init` commit 4b489eb):
+
+    if (!blocks_available) {
+        if (previous_offset) {
+            handle->anim_offset = previous_offset;      // back to the OLD frame
+            handle->counter     = previous_counter;
+            intf_obj->animCounter = previous_counter;   // OVERWRITES the game's 1
+            ...redraw the old frame...
+        } else return;
+    }
+
+`handle->crtAnim` was already set to the NEW anim on the way in. Next 0xAD:
+`anim == crtAnim` (both new), `animCounter == counter` (both previous_counter),
+bit 15 clear -> the ADVANCE path runs, from `previous_offset` - i.e. it carries
+on with the OLD animation. The switch is gone until the game asks for a
+different anim number. If the old animation was the idle cycle and the new one
+the walk, the character walks across the screen in its idle pose; if it was the
+walk and the new one an attack, the attack never shows. A switch is precisely
+when a frame needs blocks that are not resident, so refusals concentrate on
+switches: the 3% rate is spent where it hurts most.
+
+The `nextAnim` chain (anim ends, `intf_obj->anim = nextAnim; nextAnim = 0xffff;
+ppm_obj_render()` recursion) takes the same switch path, and a refusal there
+loses the follow-up too: the old animation loops instead. The `objID & 0x8000`
+fresh path is the one that is self-healing - `previous_offset = 0` returns
+before the bit is cleared, so it re-fires - which is why spawns were never the
+complaint.
+
+Consistent with everything measured: both earlier improvements (49->53 slots,
+budget refreshed at frame start) cut refusals and were reported as "much
+improved"; neither touched the switch path, and the residue stayed.
+
+## The fix - firmware only, same placement
+
+`PPM_STICKY_SWITCH 1` (mame.h): on a refused load in the set/update path the
+game's record is left exactly as written (anim word and its reset word) and
+`handle->crtAnim` is parked at `PPM_ANIM_PENDING` (0xFFFF - the game masks
+anims to 12 bits, so it never matches). The next draw takes the set/update path
+again whichever trigger it was. The object shows its previous frame for that
+one frame, as the advance-path rewind already does. The blocks that DID load
+stay resident, so the retry needs fewer, and converges.
+
+`PPM_PIN_FALLBACK 1` (mame.h): at any rewind, touch (usage++, age = 0) the
+fallback frame's blocks that are still resident. Without it the SAT points at
+tiles in slots with usage 0 this frame, and a later object's load in the same
+frame can evict one before the vblank DMA - a one-frame flash of another
+sprite's art on the rewound object. Lookups only; nothing loads and no budget is
+spent. This applies to the advance-path rewind too.
+
+Counters (PPM_SAT_SNAPSHOT, shipping config): `snap_switch_refused` and
+`snap_switch_retry_ok`, parked in `t[17..20]` of the save block - the bytes of
+the stream-pointer audit that nothing ever wrote. `scripts/decode_sat_snapshot.py`
+prints them in place of that dead section.
+
+    firmware mcu.txt   73075a01 (card 5) -> f044d85e   19,732 B of 32 KB IMEM
+    fit                build-logs/build-stickyswitch.log, seed 5, started 09:28
+                       ROM-only change -> expect dec2f09f's placement
+    canonical patch    patches/mega-ppm-pocket.patch regenerated (+130 lines)
+
+## What to look at on hardware
+
+Any stage: start and stop walking repeatedly, throw attacks in a crowd, watch
+enemies change from walk to attack and back. Pass = every change of action
+shows its animation within a frame or two; the counters read `refused > 0` and
+`completed` close to it. Regressions to watch: pillar/crate smash (the switch
+to the destroyed sprite is exactly a refused switch), subway relink, rooftop
+masks, elevator bands, boss entrances. Refusals themselves are unchanged - a
+first-frame hiccup of one frame stays possible; if that is still visible, the
+next lever is the budget (`PPM_DMA_OVERBUDGET`, already in the tree, never
+tried) or prefetching the next animation frame's blocks during hold frames.
+
+Committee (Workflow `paprium-animation-committee`, six readers, four
+diagnosticians, three refuters per hypothesis, one synthesis) was run in
+parallel with this read; its verdicts are appended below when it returns.
+
+### Fit and deploy (09:55)
+
+    build-stickyswitch.log   seed 5   first pair setup -2.549 / hold +0.264   PASS
+    ALM 18,194 / 18,480 (98%)   M10K 294 / 308 (95%)   block bits 72%
+    rbf 495e7e19 -> paprium.rbf_r 9416df87   firmware f044d85e
+    card D: 3e491f73 (card 5, 0.2.0) -> 9416df87   md5 confirmed, pkg matches card
+    archive: build_output/gate-archive/stickyswitch.txt (same numbers as card 5's
+    scratch5-busyrest-v2.txt - the ROM-only change kept dec2f09f's placement)
+
+Deployed per the standing order (GO'd work, gate passed). Rollback is the
+0.2.0 release rbf (3e491f73) or `git checkout 7ab2d55 -- rtl/PAPRIUM/mcu.txt`.
+First run of scripts/deploy_bitstream.sh went out without arguments and wrote
+the generic md_ntsc.rbf_r name, leaving the card untouched (md5 verified before
+the retry); the Paprium package needs `deploy_bitstream.sh <rbf> paprium.rbf_r`.

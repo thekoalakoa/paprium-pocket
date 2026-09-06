@@ -220,26 +220,27 @@ def main():
         print("  -> slot pressure, which is what PPM_VRAM_SAFE_SLOTS caps.")
         print("     That is a DIFFERENT bug from budget starvation.")
 
-    # Stream pointer audit. The MCU unpacks blocks to 0x9000, 0x9200, ... and sets
-    # the 68000's read cursor to 0x9000; the RTL advances it two bytes per
-    # delivered word. After a frame is drained the two should agree exactly.
-    mism = struct.unpack('>H', t[17:19])[0]
-    last = struct.unpack('>i', t[19:23])[0]
-    worst = struct.unpack('>i', swapped(b[8 + 640 + 1024 + 16 + 0x10:])[0:4])[0]
+    # ANIMATION SWITCHES (PPM_STICKY_SWITCH, 2026-09-06). t[17..22] used to be the
+    # stream-pointer audit, which nothing ever wrote; the firmware now parks two
+    # counters there. 'refused' = a draw whose animation CHANGED could not load
+    # every block of the new frame (budget or slot) and was kept pending instead
+    # of being dropped; 'completed' = one of those switches went through on a
+    # later draw. Before the fix every 'refused' was a lost switch: the object
+    # carried on in its previous cycle until the game asked for another anim.
+    sw_ref = struct.unpack('>H', t[17:19])[0]
+    sw_ok = struct.unpack('>H', t[19:21])[0]
 
     print()
-    print("STREAM POINTER AUDIT")
-    # DEAD INSTRUMENT. Nothing in mcu/mame.c writes t[17..22]: the writer belonged
-    # to the RTL stream-pointer read-back, which never fitted (docs/attempts/).
-    # These bytes are zeroed on every capture, so "0 frames where it did not land"
-    # was never a measurement. It was printed as one across three captures and
-    # quoted as ruling out pointer desync. It rules out nothing. The pointer is
-    # advanced by the RTL and the firmware has no way to read it back.
-    print("  NOT MEASURED - the firmware has no read-back of the RTL pointer.")
-    print("  t[17..22] are never written; the value below is zeroed bytes.")
-    print("  (raw mismatch field: %d - do not cite it)" % mism)
-    # The old if/else that narrated this value is gone with it; either branch
-    # was a sentence about zeroed bytes.
+    print("ANIMATION SWITCHES REFUSED FOR ART (kept pending, retried next draw)")
+    print("  switches refused                : %d" % sw_ref)
+    print("  pending switches completed later: %d" % sw_ok)
+    if frames:
+        print("  refused per 1000 frames         : %.2f" % (1000.0 * sw_ref / frames))
+    if sw_ref and not sw_ok:
+        print("  -> refusals happen but none completed: either the firmware is")
+        print("     pre-fix (no sentinel) or the retry path is broken. Check the md5.")
+    elif sw_ref:
+        print("  -> every refused switch was a frozen cycle on the pre-fix firmware.")
 
     # Eviction audit - the firmware-only question for the elevator corruption.
     e = swapped(b[8 + 640 + 1024 + 16 + 0x10:])
