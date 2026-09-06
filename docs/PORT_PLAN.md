@@ -9891,3 +9891,48 @@ and `decode_heartbeat.py` have nothing to read from it; the SAT snapshot is stil
 Pre-registered (from the 20:20 entry): pause gone + shaft clean => v0.2.0 candidate;
 pause gone + shaft banded => DA_PAD back next; pause present => card 5 = card 4 minus
 SCRATCH_HIGH as the control.
+
+### 2026-09-05 21:05 - card 4 tested: pause gone; shaft "occasional bg blank or shifted". Card 5 = busy-rest v2.
+
+Tester (card 4, 0945652f): no pause at the intro; the shaft no longer has the banding
+mess; occasional background row blank or shifted. "Good enough for 0.2.0", and asked for
+the next fit in case it clears the residue.
+
+**Reading.** Pause gone => PPM_BUSY_REST v1 was the pause (predicted). The residue is new
+relative to card 1 (busy-rest ON, shaft called clean) and card 4 differs from it by
+busy-rest, DA_PAD, ONSET_RING and HEARTBEAT. The blank/shifted row matches the race
+busy-rest was written for, now visible because the banding no longer masks it: 0xAF
+rewinds the tape to PPM_SCRATCH_BASE every frame end, the shaft's per-frame 0xDB re-points
+it to the row, and the game tests busy ONCE right after posting (0x07F46E) - if the MCU
+has not yet serviced the 0xDB (its loop is in sfx_player_update, up to ~75 us), busy reads
+clear and the sixteen longwords come off the tape at the scratch base: a blank or foreign
+row. The 20:20 entry's "busy-rest never showed a hardware benefit" is withdrawn: its
+benefit was invisible under the banding.
+
+**Busy-rest v2 (`PPM_BUSY_CLEAR_THROUGH_RESP 1`, paprium.c dispatcher):** busy stays SET
+at rest (as v1). After 0xDA/0xDB the handler clears busy, writes the response with busy
+still clear, then spins up to PPM_BUSY_WAIT_LOOPS (4000, ~0.5-1.5 ms) watching reg_cmd
+bit 15 and raises busy the moment the game posts its next command (or at the timeout).
+Per reader:
+- 0x0B4276 / 0x07F46E / 0x09DA9A (poll right after posting): busy is SET at their post
+  (at rest, or raised by the wait on that very post); it falls when the pointer is
+  written; they read the window after the write. No pulse width to get right.
+- 0x0B41C4 (waits for the response, then polls busy-clear): sees clear - the response
+  went out with busy down. No timeout. The 0xDB it posts one scanline later raises busy
+  through the wait loop within ~0.1 us, long before that 0xDB's own poll.
+- Residual: if the 68000 is interrupted for longer than the wait between the response
+  and its busy read (vblank landing in a ~15 us window, ~0.1% per mode-7 0xDA), that
+  reader still times out once (0.56 s). Bounded, rare, no corruption.
+- Cost: MCU time only, at most the wait per pointer command when no post follows it
+  (a 0xDB that is the last command of its frame). The SFX FIFO is 256 deep (audio_sfx.sv
+  FIFO_SIZE 8), ~20 ms at 13 kHz, so the wait cannot underrun it.
+
+Card 5 firmware `73075a01` (-O2, 19,216 bytes): card 4 + PPM_BUSY_REST 1 +
+PPM_BUSY_CLEAR_THROUGH_RESP 1. DA_PAD still 0 (single variable). The two `#error`
+apostrophes in mame.h are reworded (preprocessor warnings only; no code change).
+Launched at seed 5 on ring RTL a22aea4 (`build-scratch5.log`), auto-deploy on gate per
+the standing order; if the SD is not in the PC at flow exit the copy waits for "sd in".
+
+Pre-registered: shaft rows clean (no blank/shifted) AND no pause => card 5 ships as
+0.2.0. Rows still blank/shifted, no pause => not the race; DA_PAD back next (card 6).
+Pause returns => the wait design is wrong somewhere; ship card 4 as 0.2.0 and revisit.

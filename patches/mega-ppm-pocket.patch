@@ -1767,10 +1767,10 @@ index b568843..a3ca413 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..5d815a4 100644
+index 06ccf59..610cccb 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,219 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,226 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1785,7 +1785,7 @@ index 06ccf59..5d815a4 100644
 +// into thirty read identically in a sticky counter and mean opposite things.
 +// The ring keeps the tail of the run, which is where the onset is, because the
 +// tester quits shortly after the band appears.
-+#define PPM_ONSET_RING          1
++#define PPM_ONSET_RING          0
 +#define PPM_ONSET_FRAMES        480   // 8 seconds at 60 Hz, 2 bytes each
 +
 +// The 0xDA payload CRC recorder is RETIRED. It answered its question outright -
@@ -1822,7 +1822,7 @@ index 06ccf59..5d815a4 100644
 +// every 0xDA unpack so the tape serves the same bytes. Two memcpys of at
 +// most one page, once per 0xDA. Default 0 until the elevator log says the
 +// mechanism is present in the shaft and the reviewer says build.
-+#define PPM_DA_PAD              1
++#define PPM_DA_PAD              0
 +
 +// #8 mechanism (PORT_PLAN: "the mechanism, in the game's own code"). After a
 +// 0xDB the game tests reg_status_1 bit 2 (busy) ONCE and, if clear, reads
@@ -1838,6 +1838,13 @@ index 06ccf59..5d815a4 100644
 +// would hang on this).
 +#define PPM_BUSY_REST           1
 +#define PPM_BUSY_PULSE_LOOPS    600   // ~40 us at 53.69 MHz; the game poll iteration is ~68 cycles = ~9 us
++#define PPM_BUSY_CLEAR_THROUGH_RESP 1 // v2 (2026-09-05): after 0xDA/0xDB, clear busy BEFORE the response and hold it
++                                      // clear until the game's next post (or PPM_BUSY_WAIT_LOOPS). The 0x0B41C4 reader
++                                      // waits for the response and THEN polls busy-clear; under the 40 us pulse it
++                                      // never saw clear and ran its 65,534-iteration timeout (~0.56 s) after every
++                                      // mode-7 0xDA - the boot pause and the between-screen hitch. 0 = the pulse.
++#define PPM_BUSY_WAIT_LOOPS     4000  // ~0.5-1.5 ms across NEORV32 CPI: 30x the 68000's response-to-busy-read latency,
++                                      // under the SFX FIFO's time at 13 kHz. A post within it raises busy at once.
 +
 +// #8, the remaining mechanism (PORT_PLAN: 'the list-order placement fix').
 +// The retail cart streams the frame's whole tile list into VRAM from tile 16
@@ -1869,7 +1876,7 @@ index 06ccf59..5d815a4 100644
 +//  4 first mepc u32  8 first mtval u32  12 sp u32  16 hb frame u32  20 last cause u8
 +//  21 last phase u8  22 pad. The RTE still skips the faulting instruction, as the
 +//  crt0 dummy handler did - no behaviour change beyond the record.
-+#define PPM_HEARTBEAT           1
++#define PPM_HEARTBEAT           0
 +// Option B (2026-09-05): keep the MCU off SDRAM while the game runs its vblank
 +// DMA list. The SFX player reads samples through ppmio.flash, which the Pocket's
 +// MCU memory adapter serves from the same SDRAM port2; with the port2
@@ -1898,7 +1905,7 @@ index 06ccf59..5d815a4 100644
 +// space; the tape pointer is 21 bits so 0x1E0000 is reachable. cmd_F2's unpack
 +// and re-arm move with the scratch (its data must stay where the 0xAF re-arm
 +// points, as today). Default OFF until GO.
-+#define PPM_SCRATCH_HIGH        0
++#define PPM_SCRATCH_HIGH        1
 +#if PPM_SCRATCH_HIGH
 +#define PPM_SCRATCH_BASE        0x1E0000u
 +#else
@@ -1906,18 +1913,18 @@ index 06ccf59..5d815a4 100644
 +#endif
 +#define PPM_SCRATCH_END         (PPM_SCRATCH_BASE + 0x6A00u)   // was the fixed 0xFA00 cap
 +#if PPM_SCRATCH_HIGH
-+// bounds: above the game's 64 KB payload space, below the decoded-block cache at
++// bounds: above the 64 KB payload space of the game, below the decoded-block cache at
 +// 0x1F8000 (PPM_BLOCK_CACHE_BASE is defined further down; the literal is asserted
 +// against it there too)
 +#if (PPM_SCRATCH_BASE < 0x10000u)
-+#error PPM_SCRATCH_BASE must sit above the game's 64 KB payload space
++#error PPM_SCRATCH_BASE must sit above the 64 KB payload space of the game
 +#endif
 +#if (PPM_SCRATCH_BASE + 0x6A00u > 0x1F8000u)
 +#error PPM_SCRATCH_END overlaps the decoded-block cache
 +#endif
 +#endif
 +#if PPM_PORT2_LOAD && PPM_SCRATCH_HIGH
-+#error PPM_PORT2_LOAD's scratch memcpy (0x1E0000..0x1F1000) overlaps PPM_SCRATCH_BASE - never both
++#error the PPM_PORT2_LOAD scratch memcpy (0x1E0000..0x1F1000) overlaps PPM_SCRATCH_BASE - never both
 +#endif
 +extern u32 snap_ptr_while_list_pending;   // 0xDA/0xDB pointer writes while the 0xAF list was still unconsumed (residual I7)
 +extern u32 snap_bgm_over;                 // BGM modules whose unpack reached the MCU scratch
@@ -2026,7 +2033,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..fe305c3 100644
+index 1a1de1d..eb1d1ea 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -2120,7 +2127,7 @@ index 1a1de1d..fe305c3 100644
      cmp_ptr[0xF2] = cmd_F2_unpack;
      cmp_ptr[0xF4] = cmd_F4_unpack_scal;
      cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
-@@ -185,15 +211,38 @@ void ppm_cmd_handler() {
+@@ -185,16 +211,62 @@ void ppm_cmd_handler() {
      ppmio.ramdp->reg_status_1 |= 0x0004;
      ppmio.ramdp->reg_status_2.bits.busy = 1;
  
@@ -2136,14 +2143,23 @@ index 1a1de1d..fe305c3 100644
 +    hb_w8(9, 0);
 +
 +#if PPM_BUSY_REST
-+    // The pointer (or whatever the command changed) is in place. Pulse busy
-+    // low long enough for the game's btst/bne loop to see it, then raise it
-+    // again BEFORE posting the response - the response is what lets the game
-+    // send its next command, so busy is already up for that one's test.
-+    // Only the pointer-moving commands are followed by that test (the ROM's
-+    // 0xDB path and its siblings); pulsing after every 0xAD - seven a frame -
-+    // stalled the 68000 ~300 us a frame and showed as lag in sprite-heavy
-+    // moments. Everything else gets the old immediate clear.
++  #if PPM_BUSY_CLEAR_THROUGH_RESP
++    // v2. The pointer (or whatever the command changed) is in place. For the
++    // pointer-moving commands clear busy now and LEAVE it clear through the
++    // response: the readers that poll right after posting (0x0B4276, 0x07F46E,
++    // 0x09DA9A) see it fall here, and the one that waits for the response first
++    // (0x0B41C4, after a mode-7 0xDA) sees it clear when it looks. It is raised
++    // again below, the moment the game posts its next command - before that
++    // post's own poll can see stale-clear. Everything else stays up at rest.
++    u8 pointer_cmd = (cmd == 0xDB || cmd == 0xDA);
++    if (pointer_cmd) {
++        ppmio.ramdp->reg_status_1 &= ~0x0004;
++    } else {
++        ppmio.ramdp->reg_status_1 |= 0x0004;   // stays up at rest
++    }
++  #else
++    // v1: pulse. Raised again BEFORE the response, which the 0x0B41C4 reader
++    // cannot see (it polls after the response) - 0.56 s timeout per mode-7 0xDA.
 +    if (cmd == 0xDB || cmd == 0xDA) {
 +        ppmio.ramdp->reg_status_1 &= ~0x0004;
 +        for (volatile u32 i = 0; i < PPM_BUSY_PULSE_LOOPS; i++) { }
@@ -2151,6 +2167,7 @@ index 1a1de1d..fe305c3 100644
 +    } else {
 +        ppmio.ramdp->reg_status_1 |= 0x0004;   // stays up at rest
 +    }
++  #endif
 +#else
      ppmio.ramdp->reg_status_1 &= ~0x0004;
 +#endif
@@ -2159,9 +2176,23 @@ index 1a1de1d..fe305c3 100644
 +    ppm_hb_overwrite(posted, ppmio.ramdp->reg_cmd);
 +    hb_w8(9, 10);
      ppmio.ramdp->reg_cmd = cmd_resp;
++#if PPM_BUSY_REST && PPM_BUSY_CLEAR_THROUGH_RESP
++    if (pointer_cmd) {
++        // Busy is clear and the response is out. Hold busy clear until the
++        // game's next post, then raise it before that post's immediate poll.
++        // No other work here (sfx_player_update would open the window again).
++        for (u32 i = 0; i < PPM_BUSY_WAIT_LOOPS; i++) {
++            if (ppmio.ramdp->reg_cmd & 0x8000) {
++                break;
++            }
++        }
++        ppmio.ramdp->reg_status_1 |= 0x0004;
++    }
++#endif
  }
  
-@@ -233,18 +282,31 @@ void cmd_84_sdram_off() {
+ void cmd_unknown() {
+@@ -233,18 +305,31 @@ void cmd_84_sdram_off() {
  
  void cmd_AD_obj_add() {
  
@@ -2193,7 +2224,7 @@ index 1a1de1d..fe305c3 100644
      // frame finish
      // af01: no scaling ongoing
      // af02: must reserve bandwith for scaling buffer?
-@@ -261,6 +323,10 @@ void cmd_B1_sprite_pause() {
+@@ -261,6 +346,10 @@ void cmd_B1_sprite_pause() {
  
  void cmd_C6_setup_data() {
  
@@ -2204,7 +2235,7 @@ index 1a1de1d..fe305c3 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -290,13 +356,76 @@ void cmd_DA_unpack() {
+@@ -290,13 +379,76 @@ void cmd_DA_unpack() {
      u32 src = (ppmio.ramdp->cmd_args[1] << 16) + ppmio.ramdp->cmd_args[2];
      u32 dst = ppmio.ramdp->cmd_args[0];
  
@@ -2284,7 +2315,7 @@ index 1a1de1d..fe305c3 100644
  }
  
  void cmd_DF_eep_rd() {
-@@ -375,10 +504,18 @@ void cmd_F2_unpack() {
+@@ -375,10 +527,18 @@ void cmd_F2_unpack() {
      // todF2o: check block range
      //used in sprites test menu
  
@@ -2307,7 +2338,7 @@ index 1a1de1d..fe305c3 100644
  }
  
  void cmd_F4_unpack_scal() {
-@@ -390,16 +527,91 @@ void cmd_F5_stamp_rescale() {
+@@ -390,16 +550,91 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
