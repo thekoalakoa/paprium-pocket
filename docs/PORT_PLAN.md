@@ -10054,3 +10054,16 @@ Pocket firmware and Pupdate's folder set) and the inventory flip to 0.2.0. Then,
 
 Items 2 and 3 are separate decisions; either one on its own invalidates the fixed-
 placement bisecting method until a new baseline placement is found.
+
+**2026-09-05 23:05 - backlog addendum: the synth, and FX68K estimates.** The user adds a
+fourth item and the reason the CPU swaps matter: **the cartridge synth has to be worked
+for the audio to be correct and for the sax man sounds to play**, and that needs the
+area a Z80 and/or FX68K swap frees. The user's testing puts the FX68K swap alone at
+about **89% ALM, 93% M10K, WNS -1.179, TNS -51.4** - explicitly estimates, not exact, but
+expected to be close. For reference the shipping fit is 98% ALM (18,194 / 18,480), 95%
+M10K (294 / 308), setup -2.549, TNS about -1,201. If the estimate holds, FX68K is also
+the first change that has moved the timing gate since the port began.
+
+Order agreed: (1) character animation on the 0.2.0 baseline, firmware first, short;
+(2) FX68K, now justified on the numbers, one swap at a time; (4) the synth on the freed
+area; (3) the Z80 swap held in reserve for when the synth needs more than FX68K gave.
