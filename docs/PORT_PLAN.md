@@ -10021,3 +10021,15 @@ GitHub Sponsors page. That is `.github/FUNDING.yml`, which arrived unchanged in 
 baseline commit (b2b1dc8) from drizzt's repo, not a deliberate credit. The inventory
 re-reads FUNDING.yml on every run, so changing it takes effect without a release.
 Left for the user to decide (no Sponsors listing on thekoalakoa; a `custom:` URL works).
+
+**2026-09-05 22:30 - inherited GitHub automation removed.** On the user's call: deleted
+`.github/workflows/upstream.yml` (drizzt's nightly Copybara mirror of MegaDrive_MiSTer,
+which had failed on this repo every night since 29 Aug for want of his repository
+secret, and could only ever have overwritten the diverged RTL here), its
+`.github/copy.bara.sky`, and `.github/FUNDING.yml` (inherited from the baseline, it made
+the repo's Sponsor button and the openFPGA inventory point at drizzt's Sponsors page).
+No sponsor link replaces it. build.yml, release.yml and dependabot stay: they only run
+on a manual trigger, a pull request or a dependency bump, and have never fired here.
+The inventory re-reads FUNDING.yml on its next run, so its sponsor field clears without
+a release. The wider question of what else of the generic MegaDrive core to remove is
+surveyed but not acted on (see the 0.2.0 follow-ups).
