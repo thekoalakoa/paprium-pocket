@@ -10256,3 +10256,124 @@ Deployed per the standing order (GO'd work, gate passed). Rollback is the
 First run of scripts/deploy_bitstream.sh went out without arguments and wrote
 the generic md_ntsc.rbf_r name, leaving the card untouched (md5 verified before
 the retry); the Paprium package needs `deploy_bitstream.sh <rbf> paprium.rbf_r`.
+
+### Hardware result (user, ~10:20) and the second candidate: PPM_DMA_FLOOR_BLOCKS
+
+On 9416df87: **"fight animations better, no more missing fighting frames"** - the
+lost switch was the attack symptom, closed. **Residual: "sticky walking looks
+like standing still but moving when coming from another screen."** That is a
+different case. Coming in from the previous screen is the transition scroll,
+and in those frames the game fills the SHARED DMA list itself: up to 34 of its
+own descriptors a frame against a median of 1 (GPGX capture, PORT_PLAN 9076),
+each booked as `0x10 + words` into `dma_total` (ROM 0x09D430). So
+`dma_remaining = dma_budget - dma_total` sits below one block for the whole
+scroll, EVERY sprite load is refused - the walk switch is now retried every
+frame instead of lost, but it cannot complete, and every advance step is
+refused too - so the character slides in its standing pose until the scroll
+ends. The retail cart overruns its vblank in that situation and tears (tester).
+
+Lever: a floor. `dma_budget` = 0x0B00 = 2,816 words is the game's own
+conservative figure; an NTSC vblank carries ~3,700+ words of 68k->VRAM DMA
+(H40, ~205 words/line over the blank lines), so three blocks (0x330 = 816
+words) above the game's budget still fit inside the blank - no tearing
+expected, and if the estimate is wrong the overrun is one to three blocks at
+the slow active-display rate, visible as a torn sprite in a transition frame.
+`PPM_DMA_FLOOR_BLOCKS 3` (mame.h): in `ppm_dma_refresh`, when the game stayed
+inside its budget and left < 3 blocks, lift `dma_remaining` to 3 blocks. The
+wrap case (total > budget -> u16 wrap -> nothing refused) is stock and untouched.
+Not the OVERBUDGET knob: that multiplies every frame; this touches only the
+frames the game has already spent.
+
+Instruments: `snap_floor_frames` (t[21..22]) and `snap_floor_run_max` (spare
+h[28..29]) - how many frames the floor fired and the longest run, which is the
+length of a transition in frames. Pre-registered read: walk-in from another
+screen animates within a few frames; counters show runs of tens of frames at
+transitions and near-zero elsewhere. If the walk-in still freezes with the
+floor firing, the starvation is ours (burst demand), and the next lever is
+prefetch, not a bigger floor. Regression watch: tearing or torn sprites during
+transitions, plus the usual list.
+
+    firmware  f044d85e -> (built below)   fit build-dmafloor.log, seed 5
+
+#### Correction before the floor reached the card (10:30): the game owns 0x1F14
+
+The committee's code refuter (H2, ROM bytes verified) settles who writes
+`dma_remaining`, and it is not us: the game's 0xAE sender at ROM 0x030F68
+stores `dma_total = 0x0240` (0x030F8C: `317C 0240 1F10`, the full 144-entry
+SAT upload) and `dma_cmd_count = 0` BEFORE posting 0xAE, and its gameplay
+frame routine (0x032FF4-0x0334E8) rewrites `0x1F14 = dma_budget - dma_total`
+at 0x03304E-0x03305A after its own appends and before the first 0xAD sender.
+Two consequences:
+
+- the effective ceiling has always been (2816 - 576 - game words) / 0x110 =
+  **8 blocks** a frame, not 10; PORT_PLAN 4785 ("MCU-private") is wrong and
+  9565 (68000 writes 0x1F14) is right. The onset-ring residues (7586-7590:
+  5-6 loads leaving 1-3 blocks) fit a 2,240-word ceiling, not 2,816.
+- anything this firmware writes into `dma_remaining` at 0xAE - the OVERBUDGET
+  knob, and the floor as first written above - is discarded before any load
+  is gated. The 10:25 fit (`build-dmafloor.log`, firmware 3b7b7208) was that
+  build; killed at 10:29 before it reached the card. Never flash it.
+
+So the floor moved to the gate as an MCU-private per-frame credit
+(`ppm_floor_used`, reset at 0xAE): in `ppm_vram_load_block`, when the shared
+word is below one block, up to `PPM_DMA_FLOOR_BLOCKS` loads are still granted
+and NOT charged to `dma_remaining`. Two blocks, not three: the refuter's
+physical estimate is ~11 blocks in the usable blank against 8 charged, and a
+transition frame's 34 descriptors carry runner overhead beyond the 0x10 each is
+booked at, so two (544 words) keeps a margin where three would be on the line.
+Counters unchanged in meaning: frames that used the floor, longest run.
+The 0x1F14 ownership also explains why the OVERBUDGET probe was never worth
+flashing and is the reason a "bigger budget" was never a lever here.
+
+Committee summary (33 agents, 4.99 M tokens, 75 min): H1 (the lost switch)
+survived 3/3 refuters unrefuted; H2 (budget arithmetic) refuted 3/3 as stated
+but its corrected form is the paragraph above; H3 (budget waste/order), H5
+(cyclic LRU), H6 (MCU latency), H7 (unpinned fallback - now shipped as
+PPM_PIN_FALLBACK) refuted 3/3; H4 (prefetch) 2/3 - the premise (on-demand
+loader, hold frames common: 94% of object-frames keep the previous block set
+in the title capture) verified, the magnitude claim ("22+ blocks a frame")
+refuted because refusals are counted per sprite call, not per block. Prefetch
+stays the next lever if the floor is not enough.
+
+    firmware  5dd9c0c7 (floor at the gate, 2 blocks)   fit build-logs/build-dmafloor2.log, seed 5, started 10:30
+
+### 0.2.1 hardware run decoded (card 9416df87, save paprium-sticky-9416df87.sav, ~10:40)
+
+User's route: stage 1 walking/fighting, subway, elevator. Verdict: "fight
+animations better, no more missing fighting frames"; subway still relinks,
+pillars still break, elevator shaft still clean. Counters, 35,247 frames
+(~9.8 min):
+
+    animation switches refused for art       230     (6.5 per 1,000 frames)
+    ...of which completed on a later draw    211     (the rest: object gone or still pending at exit)
+    block loads refused, budget            1,388 of 32,487 attempts (4.3%, 0.039/frame)
+    block loads refused, no slot               5     (first non-zero ever: the pin holds a few more slots)
+    loads/frame                             0.88
+    evictions of live art                   0.88/frame, worst 8 in a frame
+    evicted then fetched back (thrash)     7,533     (24% of all loads re-fetch something just evicted)
+    anim-over drops                            0
+    floor                                      0     (pre-floor firmware, as expected)
+
+Reading: 230 lost animations in ten minutes is what the pre-fix firmware was
+producing - every one of them a character finishing its old cycle instead of
+starting the new one - and 92% of them now complete on the next draw or two.
+The refusal rate is up from 0.025 to 0.039/frame because a pending switch
+re-requests its blocks every frame until it lands; harmless. The thrash figure
+is the LRU's cyclic-eviction pattern the committee's H5 described (refuted as
+the cause of the stall, but real in magnitude): a quarter of all loads are
+re-fetches. That is the prefetch/eviction-policy lever, for after the floor.
+
+### Floor fit and deploy (10:54)
+
+    build-dmafloor2.log   seed 5   first pair setup -2.549 / hold +0.264   PASS
+    ALM 18,194 / 18,480 (98%)   M10K 294 / 308   archive dmafloor2.txt == stickyswitch.txt
+    rbf bee837ff -> paprium.rbf_r 888ad681   firmware 5dd9c0c7 (PPM_DMA_FLOOR_BLOCKS 2 at the gate)
+    card D: 9416df87 (0.2.1 content) -> 888ad681   md5 confirmed, pkg matches card
+
+Pre-registered read for the user's next run: walking in from another screen
+animates within a few frames; the save's "frames that used the floor" is in
+the hundreds with a longest run of tens of frames (one transition); refused
+switches stay in the low hundreds and mostly complete. Regression watch:
+tearing or a torn sprite during transitions (the floor's only physical risk),
+then the usual subway / pillars / elevator / rooftop / boss list. Rollback to
+0.2.1 content is pkg 9416df87 (build_output/gate-archive/stickyswitch.*).
