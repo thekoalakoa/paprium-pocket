@@ -10482,3 +10482,44 @@ set - the capture says that is at most a few frames) and the usual list.
 Test: walk in from another screen (the transition), then the enemies'
 approach, then the usual list. Rollback: 0.2.1 content = pkg 9416df87
 (gate-archive/stickyswitch.*); floor-only = 888ad681 (gate-archive/dmafloor2.*).
+
+### Chain-rule hardware result (user, ~12:20): "fixed the walking, and no regression"
+
+Card c2bf6e66, save paprium-chainend-c2bf6e66.sav, 23,054 frames (~6.4 min):
+
+    block loads refused, budget       364 of 21,725 (1.7%, 0.016/frame)
+    switches refused / completed     57 / 55
+    frames that used the floor        282 (1.2%)   (longest-run field reads 0: the
+                                                    decoder's spare-block offset for
+                                                    h[28..29] is unverified - unread,
+                                                    not zero; low priority)
+    no-slot refusals                    0
+    thrash                          4,795    evictions 0.92/frame
+
+Both animation faults are closed on hardware:
+
+    attacks losing frames     lost one-shot switch on a refused load   PPM_STICKY_SWITCH + PPM_PIN_FALLBACK
+    walk-in sliding           queued follow-up taken at cycle end      PPM_CHAIN_ONLY_AT_END
+
+The second is shared with GPGX and is the first place this port is more
+faithful than the reference. The floor (PPM_DMA_FLOOR_BLOCKS 2) fired in 1.2%
+of frames across two runs with no visible effect either way; it ships as
+tested rather than as a fresh untested build.
+
+Backlog item 1 (character animation) is DONE pending release. 0.2.1 = firmware
+fd872d74 exactly as tested on card c2bf6e66. The README row is rewritten for
+both faults. Next: cut 0.2.1 per the 0.2.0 recipe (info.txt fix rides along).
+
+## 2026-09-06 12:30 - 0.2.1: character animation fixed, first full (non-beta) release
+
+User: "keep the frame fix... fighting frame fix should be noted as 0.2.1",
+then "fixed the walking, and no regression", then "also make this release
+not beta". Content = firmware fd872d74 / bitstream c2bf6e66 exactly as tested
+on card D: (0.2.0 + PPM_STICKY_SWITCH + PPM_PIN_FALLBACK + PPM_DMA_FLOOR_BLOCKS 2
++ PPM_CHAIN_ONLY_AT_END; PPM_SAT_SNAPSHOT still 1 as in 0.2.0). core.json
+0.2.1 / 2026-09-06; info.txt fix rides along; README download line and
+versioning paragraph rewritten - releases are full releases from 0.2.1.
+Package check OK; openfpga-Paprium_0.2.1.zip rebuilt after removing the stray
+md_ntsc.rbf_r that this morning's argument-less deploy_bitstream.sh run had
+left in both package directories (14 files, one bitstream, md5 verified in the
+zip). Tag `0.2.1`, GitHub release (not pre-release) with the zip.

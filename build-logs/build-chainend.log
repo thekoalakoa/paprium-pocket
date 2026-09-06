@@ -2681,4 +2681,288 @@ Info (332146): Worst-case minimum pulse width slack is 0.776
     Info (332119):   161.838               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
 Info (332114): Report Metastability: Found 34 synchronizer chains.
     Info (332114): Worst-Case MTBF of Design is 1e+09 years or 3.15e+16 seconds.
-    In
+    Info (332114): Typical MTBF of Design is 1e+09 years or 3.15e+16 seconds.
+
+    Info (332114): Number of Synchronizer Chains Found: 34
+    Info (332114): Shortest Synchronizer Chain: 2 Registers
+    Info (332114): Fraction of Chains for which MTBFs Could Not be Calculated: 0.294
+    Info (332114): Worst Case Available Settling Time: 21.257 ns
+    Info (332114): Worst-Case MTBF values are calculated based on the worst-case silicon characteristics, with worst-case operating conditions.
+    Info (332114):   - Under worst-case conditions, an increase of 100ps in available settling time will increase MTBF values by a factor of 1.8
+    Info (332114): Typical MTBF values are calculated based on the nominal silicon characteristics, at nominal operating conditions.
+    Info (332114):   - Under typical conditions, an increase of 100ps in available settling time will increase MTBF values by a factor of 17.8
+Info: Analyzing Fast 1100mV 85C Model
+Info (334003): Started post-fitting delay annotation
+Info (334004): Delay annotation completed successfully
+Info (332097): The following timing edges are non-unate.  The Timing Analyzer will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[3]  to: clkout
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in the Timing Analyzer to see clock uncertainties.
+Info (332146): Worst-case setup slack is 3.495
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):     3.495               0.000 ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     4.054               0.000 clk_74a 
+    Info (332119):     5.258               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    10.707               0.000 bridge_spiclk 
+    Info (332119):    77.173               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    79.773               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):   135.908               0.000 ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):   173.157               0.000 ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332146): Worst-case hold slack is 0.095
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):     0.095               0.000 ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.098               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.151               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.160               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.167               0.000 clk_74a 
+    Info (332119):     0.180               0.000 ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.180               0.000 ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.226               0.000 bridge_spiclk 
+Info (332146): Worst-case recovery slack is 14.993
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):    14.993               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332146): Worst-case removal slack is 0.322
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):     0.322               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332146): Worst-case minimum pulse width slack is 0.776
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):     0.776               0.000 ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0] 
+    Info (332119):     0.830               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0] 
+    Info (332119):     3.541               0.000 ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     5.211               0.000 clk_74a 
+    Info (332119):     6.327               0.000 bridge_spiclk 
+    Info (332119):     6.655               0.000 clk_74b 
+    Info (332119):     8.190               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    39.569               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    73.440               0.000 ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    73.916               0.000 ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    92.092               0.000 ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    92.562               0.000 ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):   162.269               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332114): Report Metastability: Found 34 synchronizer chains.
+    Info (332114): Worst-Case MTBF of Design is 1e+09 years or 3.15e+16 seconds.
+    Info (332114): Typical MTBF of Design is 1e+09 years or 3.15e+16 seconds.
+
+    Info (332114): Number of Synchronizer Chains Found: 34
+    Info (332114): Shortest Synchronizer Chain: 2 Registers
+    Info (332114): Fraction of Chains for which MTBFs Could Not be Calculated: 0.294
+    Info (332114): Worst Case Available Settling Time: 24.051 ns
+    Info (332114): Worst-Case MTBF values are calculated based on the worst-case silicon characteristics, with worst-case operating conditions.
+    Info (332114):   - Under worst-case conditions, an increase of 100ps in available settling time will increase MTBF values by a factor of 3.8
+    Info (332114): Typical MTBF values are calculated based on the nominal silicon characteristics, at nominal operating conditions.
+    Info (332114):   - Under typical conditions, an increase of 100ps in available settling time will increase MTBF values by a factor of 17.8
+Info: Analyzing Fast 1100mV 0C Model
+Info (332097): The following timing edges are non-unate.  The Timing Analyzer will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[3]  to: clkout
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in the Timing Analyzer to see clock uncertainties.
+Info (332146): Worst-case setup slack is 4.177
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):     4.177               0.000 ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     4.211               0.000 clk_74a 
+    Info (332119):     5.698               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    11.055               0.000 bridge_spiclk 
+    Info (332119):    77.458               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    79.916               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):   137.424               0.000 ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):   174.673               0.000 ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332146): Worst-case hold slack is 0.004
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):     0.004               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.057               0.000 ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.133               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.147               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.152               0.000 clk_74a 
+    Info (332119):     0.172               0.000 ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.172               0.000 ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     0.214               0.000 bridge_spiclk 
+Info (332146): Worst-case recovery slack is 15.324
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):    15.324               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332146): Worst-case removal slack is 0.259
+    Info (332119):     Slack       End Point TNS Clock 
+    InTBBmalloc: skip allocation functions replacement in ucrtbase.dll: unknown prologue for function _msize
+Info: *******************************************************************
+Info: Running Quartus Prime Timing Analyzer
+    Info: Version 21.1.1 Build 850 06/23/2022 SJ Lite Edition
+    Info: Copyright (C) 2022  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and any partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel FPGA IP License Agreement, or other applicable license
+    Info: agreement, including, without limitation, that your use is for
+    Info: the sole purpose of programming logic devices manufactured by
+    Info: Intel and sold by Intel or its authorized distributors.  Please
+    Info: refer to the applicable agreement for further details, at
+    Info: https://fpgasoftware.intel.com/eula.
+    Info: Processing started: Sun Sep  6 12:00:55 2026
+Info: Command: quartus_sta -t scripts/sta_custom_report.tcl
+Info: Base directory : C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket
+Info: Project        : C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/projects/megadrive_pocket
+Info: Report output  : C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports
+Info (20030): Parallel compilation is enabled and will use 6 of the 6 processors detected
+Info (21077): Low junction temperature is 0 degrees C
+Info (21077): High junction temperature is 85 degrees C
+Info (332164): Evaluating HDL-embedded SDC commands
+    Info (332165): Entity dcfifo_03o1
+        Info (332166): set_false_path -from *delayed_wrptr_g* -to *rs_dgwp|dffpipe_vu8:dffpipe3|dffe4a* 
+    Info (332165): Entity dcfifo_06o1
+        Info (332166): set_false_path -from *delayed_wrptr_g* -to *rs_dgwp|dffpipe_su8:dffpipe7|dffe8a* 
+    Info (332165): Entity dcfifo_26o1
+        Info (332166): set_false_path -from *delayed_wrptr_g* -to *rs_dgwp|dffpipe_tu8:dffpipe3|dffe4a* 
+    Info (332165): Entity dcfifo_46o1
+        Info (332166): set_false_path -from *delayed_wrptr_g* -to *rs_dgwp|dffpipe_uu8:dffpipe3|dffe4a* 
+    Info (332165): Entity dcfifo_vqk1
+        Info (332166): set_false_path -from *rdptr_g* -to *ws_dgrp|dffpipe_1v8:dffpipe9|dffe10a* 
+        Info (332166): set_false_path -from *delayed_wrptr_g* -to *rs_dgwp|dffpipe_0v8:dffpipe6|dffe7a* 
+Info (332104): Reading SDC File: '../platform/pocket/apf_constraints.sdc'
+Info (332110): Deriving PLL clocks
+    Info (332110): create_generated_clock -source {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|refclkin} -divide_by 512 -multiply_by 4153 -duty_cycle 50.00 -name {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]} {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]}
+    Info (332110): create_generated_clock -source {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 49 -duty_cycle 50.00 -name {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 196 -duty_cycle 50.00 -name {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|refclkin} -divide_by 512 -multiply_by 4443 -duty_cycle 50.00 -name {ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]} {ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]}
+    Info (332110): create_generated_clock -source {ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 12 -duty_cycle 50.00 -name {ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 6 -duty_cycle 50.00 -name {ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 96 -duty_cycle 50.00 -name {ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 120 -duty_cycle 50.00 -name {ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 96 -phase 90.00 -duty_cycle 50.00 -name {ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 120 -phase 90.00 -duty_cycle 50.00 -name {ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk} {ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk}
+Info (332104): Reading SDC File: '../target/pocket/core_constraints.sdc'
+Info (332151): Clock uncertainty is not calculated until you update the timing netlist.
+Info (332097): The following timing edges are non-unate.  The Timing Analyzer will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[3]  to: clkout
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in the Timing Analyzer to see clock uncertainties.
+Info: Generating setup timing paths report...
+Info (332115): Report Timing: Found 80 setup paths (80 violated).  Worst case slack is -2.549
+    Info (332115): -setup
+    Info (332115): -npaths 80
+    Info (332115): -detail full_path
+    Info (332115): -file {C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports/megadrive_pocket.sta.paths_setup.rpt}
+Info: Generating hold timing paths report...
+Info (332115): Report Timing: Found 40 hold paths (0 violated).  Worst case slack is 0.264
+    Info (332115): -hold
+    Info (332115): -npaths 40
+    Info (332115): -detail full_path
+    Info (332115): -file {C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports/megadrive_pocket.sta.paths_hold.rpt}
+Info: No sdram_clk defined, skipping the SDRAM path reports
+Info: Generating clock Fmax summary...
+Info: Generating 0C setup timing paths report...
+Info (332097): The following timing edges are non-unate.  The Timing Analyzer will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[3]  to: clkout
+    Info (332098): Cell: ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in the Timing Analyzer to see clock uncertainties.
+Info (332115): Report Timing: Found 120 setup paths (120 violated).  Worst case slack is -2.596
+    Info (332115): -setup
+    Info (332115): -npaths 120
+    Info (332115): -detail full_path
+    Info (332115): -file {C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports/megadrive_pocket.sta.paths_setup_current_0c.rpt}
+Info:   OK: C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports/megadrive_pocket.sta.paths_setup.rpt (1185024 bytes)
+Info:   OK: C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports/megadrive_pocket.sta.paths_setup_current_0c.rpt (1952805 bytes)
+Info:   OK: C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports/megadrive_pocket.sta.paths_hold.rpt (639788 bytes)
+Info:   OK: C:/Users/Profe/Downloads/PAPRIUM project/paprium-pocket/build_output/reports/megadrive_pocket.sta.clock_summary.rpt (2558 bytes)
+Info: Custom STA reports complete.
+Info (23030): Evaluation of Tcl script scripts/sta_custom_report.tcl was successful
+Info: Quartus Prime Timing Analyzer was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 5508 megabytes
+    Info: Processing ended: Sun Sep  6 12:01:06 2026
+    Info: Elapsed time: 00:00:11
+    Info: Total CPU time (on all processors): 00:00:14
+fo (332119): ========= =================== =====================
+    Info (332119):     0.259               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332146): Worst-case minimum pulse width slack is 0.776
+    Info (332119):     Slack       End Point TNS Clock 
+    Info (332119): ========= =================== =====================
+    Info (332119):     0.776               0.000 ic|mp1|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0] 
+    Info (332119):     0.830               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0] 
+    Info (332119):     3.542               0.000 ic|mp1|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):     5.163               0.000 clk_74a 
+    Info (332119):     6.333               0.000 bridge_spiclk 
+    Info (332119):     6.664               0.000 clk_74b 
+    Info (332119):     8.192               0.000 ic|mp1|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    39.568               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    73.439               0.000 ic|mp1|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    73.937               0.000 ic|mp1|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    92.084               0.000 ic|mp1|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):    92.571               0.000 ic|mp1|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk 
+    Info (332119):   162.260               0.000 ic|audio_mixer|audio_pll|mf_audio_pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk 
+Info (332114): Report Metastability: Found 34 synchronizer chains.
+    Info (332114): Worst-Case MTBF of Design is 1e+09 years or 3.15e+16 seconds.
+    Info (332114): Typical MTBF of Design is 1e+09 years or 3.15e+16 seconds.
+
+    Info (332114): Number of Synchronizer Chains Found: 34
+    Info (332114): Shortest Synchronizer Chain: 2 Registers
+    Info (332114): Fraction of Chains for which MTBFs Could Not be Calculated: 0.294
+    Info (332114): Worst Case Available Settling Time: 24.335 ns
+    Info (332114): Worst-Case MTBF values are calculated based on the worst-case silicon characteristics, with worst-case operating conditions.
+    Info (332114):   - Under worst-case conditions, an increase of 100ps in available settling time will increase MTBF values by a factor of 1.8
+    Info (332114): Typical MTBF values are calculated based on the nominal silicon characteristics, at nominal operating conditions.
+    Info (332114):   - Under typical conditions, an increase of 100ps in available settling time will increase MTBF values by a factor of 17.8
+Info (332102): Design is not fully constrained for setup requirements
+Info (332102): Design is not fully constrained for hold requirements
+Info: Quartus Prime Timing Analyzer was successful. 0 errors, 2 warnings
+    Info: Peak virtual memory: 6495 megabytes
+    Info: Processing ended: Sun Sep  6 12:00:54 2026
+    Info: Elapsed time: 00:01:01
+    Info: Total CPU time (on all processors): 00:03:05
+Info (293000): Quartus Prime Full Compilation was successful. 0 errors, 286 warnings
+Info: Running custom STA report...
+Info: Custom STA completed successfully.
+Info (23030): Evaluation of Tcl script generate.tcl was successful
+Info: Quartus Prime Shell was successful. 0 errors, 286 warnings
+    Info: Peak virtual memory: 4636 megabytes
+    Info: Processing ended: Sun Sep  6 12:01:06 2026
+    Info: Elapsed time: 00:25:04
+    Info: Total CPU time (on all processors): 01:33:41
