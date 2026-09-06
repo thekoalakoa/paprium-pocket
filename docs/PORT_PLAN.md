@@ -10067,3 +10067,15 @@ the first change that has moved the timing gate since the port began.
 Order agreed: (1) character animation on the 0.2.0 baseline, firmware first, short;
 (2) FX68K, now justified on the numbers, one swap at a time; (4) the synth on the freed
 area; (3) the Z80 swap held in reserve for when the synth needs more than FX68K gave.
+
+**2026-09-05 23:30 - FX68K: already in progress, and the numbers are measured.** The
+user confirms the 89% ALM / 93% M10K / WNS -1.179 / TNS -51.4 figures come from a
+**real fit of FX68K test builds**, worked in parallel (another session) while this one
+was on the elevator. Two consequences. (1) The prediction in "Experiment: swap
+nuked-md's 68000 for FX68K" above - that area would not move timing because the worst
+paths are VDP -> Z80 latches - is **overturned by measurement**: the swap moves setup
+from -2.549 to about -1.2 and TNS from ~-1,201 to -51. Do not cite the old note as a
+reason against the swap. (2) Item 2 of the backlog is not "queued", it is running;
+what remains is getting it working on hardware and then the full-playthrough gate
+(boot -> cell -> subway -> elevator -> rooftop), with every README fix re-verified,
+before it becomes the new baseline placement.
