@@ -10523,3 +10523,7 @@ Package check OK; openfpga-Paprium_0.2.1.zip rebuilt after removing the stray
 md_ntsc.rbf_r that this morning's argument-less deploy_bitstream.sh run had
 left in both package directories (14 files, one bitstream, md5 verified in the
 zip). Tag `0.2.1`, GitHub release (not pre-release) with the zip.
+
+### README known issues (12:45)
+
+User: the occasional single-pixel flicker in the intro is gone on 0.2.1 as well. Both open rows moved to "Fixed here"; the open table now reads "None open as of 0.2.1". The flicker fix is attributed, with the hedge stated, to PPM_PIN_FALLBACK (a rewound object's tiles evicted by a later load in the same frame).
