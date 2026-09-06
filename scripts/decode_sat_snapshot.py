@@ -242,6 +242,22 @@ def main():
     elif sw_ref:
         print("  -> every refused switch was a frozen cycle on the pre-fix firmware.")
 
+    # DMA FLOOR (PPM_DMA_FLOOR_BLOCKS, 2026-09-06). Frames where the game's own
+    # descriptors left the loader less than one block and the floor lifted it,
+    # and the longest run of such frames - a screen transition is a run.
+    fl = struct.unpack('>H', t[21:23])[0]
+    hsp = swapped(b[8 + 640 + 1024 + 16 + 8 + 0x10:])
+    fl_run = struct.unpack('>H', hsp[28:30])[0]
+    print()
+    print("DMA FLOOR (loads granted past a spent budget, PPM_DMA_FLOOR_BLOCKS per frame)")
+    print("  frames that used the floor : %d" % fl)
+    print("  longest run of such frames : %d" % fl_run)
+    if frames and fl:
+        print("  share of frames            : %.2f%%" % (100.0 * fl / frames))
+    if fl == 0:
+        print("  -> the floor never fired: either pre-floor firmware or the game")
+        print("     never exhausted its budget in this run.")
+
     # Eviction audit - the firmware-only question for the elevator corruption.
     e = swapped(b[8 + 640 + 1024 + 16 + 0x10:])
     ev_live = struct.unpack('>I', e[0:4])[0]

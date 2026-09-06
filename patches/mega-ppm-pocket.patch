@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..844e3ad 100644
+index b568843..445379e 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -463,7 +463,11 @@ index b568843..844e3ad 100644
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 16384;
 +                    if (lz == 16384) break;          // end of stream
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +                else {                               // code_00
 +                    if (state == 0) {
 +                        raw_n = c & 0x0F;
@@ -494,11 +498,7 @@ index b568843..844e3ad 100644
 +                        lz += 2049;
 +                        len = 3;
 +                    }
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +
 +                state = (len > 0) ? raw_n : 4;
 +                copy_addr = dest_addr - lz;
@@ -518,7 +518,7 @@ index b568843..844e3ad 100644
              }
              break;
  
-@@ -260,12 +659,471 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +659,487 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -564,6 +564,9 @@ index b568843..844e3ad 100644
 +static u16 snap_noslot      = 0;        // every VRAM slot already in use
 +static u16 snap_switch_refused = 0;     // animation switch refused for budget/slot, kept pending
 +static u16 snap_switch_retry_ok = 0;    // a pending switch that completed on a later draw
++static u16 snap_floor_frames = 0;       // frames where the game's own DMA left < 1 block and the floor lifted it
++static u16 snap_floor_run = 0, snap_floor_run_max = 0;   // consecutive such frames, and the longest run
++static u8 ppm_floor_used = 0;            // PPM_DMA_FLOOR_BLOCKS: loads granted from the floor this frame
 +// EVICTION AUDIT - the firmware-only question for the elevator corruption (#8).
 +//
 +// A slot is evicted when nobody REQUESTED its block this frame (usage is cleared
@@ -970,6 +973,19 @@ index b568843..844e3ad 100644
 +    snap_ring_commit();     // MUST precede ppm_dma_refresh() - see the note there
 +#endif
      ppm_drawListPtr = ppm_drawList;
++#if PPM_DMA_FLOOR_BLOCKS
++#if PPM_SAT_SNAPSHOT
++    // Book the frame that just ended: did the floor carry any of its loads?
++    if (ppm_floor_used) {
++        if (snap_floor_frames != 0xffff) snap_floor_frames++;
++        if (snap_floor_run != 0xffff) snap_floor_run++;
++        if (snap_floor_run > snap_floor_run_max) snap_floor_run_max = snap_floor_run;
++    } else {
++        snap_floor_run = 0;
++    }
++#endif
++    ppm_floor_used = 0;
++#endif
 +#if PPM_INLINE_COMPOSE
 +    ppm_block_unpack_addr = PPM_SCRATCH_BASE;   // was reset by the batch; nothing else uses it
 +#if PPM_LIST_ORDER_VRAM
@@ -990,7 +1006,7 @@ index b568843..844e3ad 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +1133,538 @@ void ppm_obj_frame_start() {
+@@ -275,18 +1149,539 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -1221,7 +1237,7 @@ index b568843..844e3ad 100644
 +    // t[17..22] were the dead stream-pointer audit (never written). Reused 2026-09-06.
 +    t[17] = (u8) (snap_switch_refused >> 8);  t[18] = (u8) snap_switch_refused;
 +    t[19] = (u8) (snap_switch_retry_ok >> 8); t[20] = (u8) snap_switch_retry_ok;
-+    t[21] = 0; t[22] = 0;
++    t[21] = (u8) (snap_floor_frames >> 8);   t[22] = (u8) snap_floor_frames;
 +    t[23] = 0;
 +    u8 *e = &b[SNAP_OFF_EVICT];
 +    e[0] = (u8) (snap_evict_live >> 24); e[1] = (u8) (snap_evict_live >> 16);
@@ -1237,6 +1253,7 @@ index b568843..844e3ad 100644
 +    SNAP_PUT32(16, snap_da_dest_9000);
 +    SNAP_PUT32(20, snap_db_stale_first);
 +    SNAP_PUT32(24, snap_db_below);
++    h[28] = (u8) (snap_floor_run_max >> 8); h[29] = (u8) snap_floor_run_max;   // 2026-09-06, floor run
 +    SNAP_PUT32(28, snap_db_stale);
 +    SNAP_PUT32(32, snap_db_last);
 +    SNAP_PUT32(36, snap_db_max);
@@ -1531,7 +1548,7 @@ index b568843..844e3ad 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,7 +1677,22 @@ void ppm_obj_frame_end() {
+@@ -299,7 +1694,22 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1555,7 +1572,7 @@ index b568843..844e3ad 100644
  }
  
  void ppm_close_sprite_table() {
-@@ -333,6 +1726,21 @@ void ppm_close_sprite_table() {
+@@ -333,6 +1743,21 @@ void ppm_close_sprite_table() {
      dma_entry->cmdL = 0x0083;
  }
  
@@ -1577,7 +1594,7 @@ index b568843..844e3ad 100644
  void ppm_obj_render(uint16_t obj_slot) {
  
      ppm_intf_obj *intf_obj = &ppmio.ramdp->obj_data[obj_slot]; // interface obj
-@@ -340,12 +1748,23 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,12 +1765,23 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1601,7 +1618,7 @@ index b568843..844e3ad 100644
  
      //	printf("Slot 0x%02x (ID 0x%04x): ", obj_slot, intf_obj->objID);
  
-@@ -363,6 +1782,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -363,6 +1799,9 @@ void ppm_obj_render(uint16_t obj_slot) {
          handle->anim_offset = offset;
          handle->crtAnim = intf_obj->anim;
          handle->counter = intf_obj->animCounter;
@@ -1611,7 +1628,7 @@ index b568843..844e3ad 100644
      } else {
          // move to next frame
  
-@@ -382,6 +1804,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -382,6 +1821,7 @@ void ppm_obj_render(uint16_t obj_slot) {
                  intf_obj->anim = intf_obj->nextAnim;
                  intf_obj->nextAnim = 0xffff; // unverified
                  ppm_obj_render(obj_slot);
@@ -1619,7 +1636,7 @@ index b568843..844e3ad 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -402,6 +1825,10 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -402,6 +1842,10 @@ void ppm_obj_render(uint16_t obj_slot) {
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
@@ -1630,7 +1647,7 @@ index b568843..844e3ad 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1837,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1854,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1642,7 +1659,7 @@ index b568843..844e3ad 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,26 +1853,64 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,26 +1870,64 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1707,7 +1724,7 @@ index b568843..844e3ad 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +1931,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1948,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1752,7 +1769,7 @@ index b568843..844e3ad 100644
          satEntry++;
      }
  
-@@ -482,12 +1989,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +2006,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1765,10 +1782,19 @@ index b568843..844e3ad 100644
      }
  
      // enough DMA budget?
+-    if (ppmio.ramdp->dma_remaining < 0x110) {
++    bool floor_grant = false;
++#if PPM_DMA_FLOOR_BLOCKS && !PPM_LIST_ORDER_VRAM
++    // See PPM_DMA_FLOOR_BLOCKS in mame.h: the shared word is spent (by the game's
++    // own descriptors, or by us), but the vblank still has room for a few blocks.
++    if (ppmio.ramdp->dma_remaining < 0x110 && ppm_floor_used < PPM_DMA_FLOOR_BLOCKS) {
++        floor_grant = true;
++    }
++#endif
 +#if PPM_LIST_ORDER_VRAM
 +    if (0) {   // the stream never refuses for budget: 1,800 refusals in 1,187 title frames skipped sprites and drifted the cursor
 +#else
-     if (ppmio.ramdp->dma_remaining < 0x110) {
++    if (ppmio.ramdp->dma_remaining < 0x110 && !floor_grant) {
 +#endif
 +#if PPM_SAT_SNAPSHOT
 +        if (snap_dma_starved != 0xffff) snap_dma_starved++;
@@ -1779,7 +1805,7 @@ index b568843..844e3ad 100644
          return 0;
      }
  
-@@ -505,15 +2026,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,24 +2051,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1834,7 +1860,22 @@ index b568843..844e3ad 100644
      ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
      ppm_block_unpack_addr += 0x200;
  
-@@ -536,6 +2096,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+     ppm_dma_cmd *dma_entry = &ppmio.ramdp->dma_cmd[ppmio.ramdp->dma_cmd_count++];
+ 
++#if PPM_DMA_FLOOR_BLOCKS
++    if (floor_grant) {
++        ppm_floor_used++;               // carried by the floor; the shared word is already spent
++    } else
++#endif
+     ppmio.ramdp->dma_remaining -= 0x110;
+     dma_entry->autoinc = 0x8f02;
+     dma_entry->lenH = 0x9401;
+-    dma_entry->lenL = 0x9300; // 0x200 words size
++    dma_entry->lenL = 0x9300; // 0x100 words = one 0x200-byte block (the comment used to say 0x200 words)
+     dma_entry->srcH = 0x9700;
+     dma_entry->srcM = 0x9660;
+     dma_entry->srcL = 0x9500; // 0xc000 source
+@@ -536,6 +2126,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1842,7 +1883,7 @@ index b568843..844e3ad 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2110,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2140,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1853,10 +1894,10 @@ index b568843..844e3ad 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..a683973 100644
+index 06ccf59..cab2e22 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,270 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,272 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1960,34 +2001,36 @@ index 06ccf59..a683973 100644
 +// for that one frame, exactly as the advance-path rewind already does.
 +#define PPM_STICKY_SWITCH       1
 +#define PPM_ANIM_PENDING        0xFFFF   // never a real anim: the game masks to 12 bits
-+// At a rewind the SAT is about to point at the fallback frame's tiles, but those
-+// slots carry usage 0 this frame, so a later object's load in the same frame can
-+// evict one before the vblank DMA runs and the sprite shows that object's art
-+// for a frame. Touch the fallback blocks that are still resident so they survive
-+// the frame. Lookups only, no loads, so no budget is spent.
++// At a rewind the SAT is about to point at the fallback frame's tiles. On the
++// FIRST refused frame those slots are safe anyway: they were used last frame,
++// so their age is still 0 and the victim rule (age > 0) cannot pick them. From
++// the SECOND consecutive refusal they carry age 1 and usage 0, and a later
++// object's load in the same frame can evict one before the vblank DMA runs -
++// the sprite then shows that object's art for a frame. Touching the fallback
++// blocks that are still resident keeps them at age 0 for as long as the object
++// is stuck. Lookups only, no loads, so no budget is spent.
 +#define PPM_PIN_FALLBACK        1
-+// STICKY ANIMATION SWITCH (2026-09-06). The game's set-animation routine (ROM
-+// 0x031024) writes the record's word +0xA to 1 exactly once per animation
-+// change - a one-shot request, GPGX's `reset` - then the new anim number. This
-+// firmware reads that word as animCounter, and when a block of the NEW frame
-+// cannot load it rewinds: anim_offset/counter back to the old frame AND the
-+// game's word overwritten with previous_counter, while crtAnim already says the
-+// new anim. Next 0xAD: anim == crtAnim, counter == animCounter, so the advance
-+// path resumes the OLD animation and the switch is gone for good - the object
-+// slides in its previous cycle until the game asks for a different anim. GPGX
-+// never refuses (its DMA is free, vdp_ctrl.c fast_dma_hack), the retail cart
-+// streams rather than caches, so neither shows it. With this on, a refused
-+// switch leaves the game's request untouched and parks a sentinel in crtAnim so
-+// the restart re-fires on the next draw; the object shows its previous frame
-+// for that one frame, exactly as the advance-path rewind already does.
-+#define PPM_STICKY_SWITCH       1
-+#define PPM_ANIM_PENDING        0xFFFF   // never a real anim: the game masks to 12 bits
-+// At a rewind the SAT is about to point at the fallback frame's tiles, but those
-+// slots carry usage 0 this frame, so a later object's load in the same frame can
-+// evict one before the vblank DMA runs and the sprite shows that object's art
-+// for a frame. Touch the fallback blocks that are still resident so they survive
-+// the frame. Lookups only, no loads, so no budget is spent.
-+#define PPM_PIN_FALLBACK        1
++// DMA FLOOR (2026-09-06, second candidate; corrected the same morning). The DMA
++// list is shared: the game appends its own descriptors (dma_total += 0x10 +
++// words, ROM 0x09D430) and a screen transition carries up to 34 of them a frame
++// (GPGX capture, PORT_PLAN 9076) against a median of 1. The game ALSO owns the
++// budget arithmetic: its 0xAE sender pre-charges dma_total = 0x240 (ROM
++// 0x030F8C, the full 144-entry SAT upload) and its frame routine rewrites
++// 0x1F14 = dma_budget - dma_total (ROM 0x03304E-0x03305A) AFTER its appends
++// and BEFORE the 0xAD stream - so anything this firmware writes into
++// dma_remaining at 0xAE is discarded before the first load is gated, and the
++// effective ceiling is (2816 - 576 - the game's words) / 0x110 = 8 blocks in
++// an ordinary frame and nothing at all through a transition scroll. Every
++// sprite load is refused for the whole scroll and the walk-in from the previous
++// screen plays standing still (hardware, 2026-09-06, on the sticky-switch build:
++// attacks fixed, walk-in still frozen). The retail cart overruns its vblank when
++// busy and tears rather than freezing (tester).
++// So the floor lives at the GATE, as an MCU-private per-frame credit: when
++// dma_remaining is below one block, up to this many loads are still granted and
++// NOT charged to the shared word (it is already spent). An NTSC vblank carries
++// ~3,670 usable words against the game's 2,816; two blocks (0x220 = 544 words)
++// fit even under a transition's descriptor overhead. 0 = off.
++#define PPM_DMA_FLOOR_BLOCKS    2
 +// Crash-context heartbeat: a 40-byte record in battery RAM (bram 0xF70..0xF97,
 +// the free gap between the onset ring's meta and the dispatch block) rewritten
 +// at every command entry/exit, per object, per walked sprite, per stream DMA,
