@@ -10079,3 +10079,21 @@ reason against the swap. (2) Item 2 of the backlog is not "queued", it is runnin
 what remains is getting it working on hardware and then the full-playthrough gate
 (boot -> cell -> subway -> elevator -> rooftop), with every README fix re-verified,
 before it becomes the new baseline placement.
+
+**2026-09-06 09:15 - CLEAN-CARD INSTALL CHECK: PASS, through Pupdate.** The openFPGA
+inventory picked 0.2.0 up overnight (updater runs 04:57 and 09:10 UTC; API shows
+version 0.2.0, the 0.2.0 zip as download, sponsor field empty). The user took a blank
+exFAT card (F:, nothing on it but System Volume Information at 22:15 the night before),
+ran Pupdate against it - firmware 2.7 plus its whole core list, 275 cores - and Pupdate
+installed Paprium 0.2.0 on its own. Verified on the card afterwards:
+
+    Cores/Koala_Koa.Paprium/   9 files, no README (the zip fix holds)
+    paprium.rbf_r              md5 3e491f73 = the release bitstream
+    core.json                  0.2.0 / 2026-09-05 / Koala_Koa
+    Platforms/paprium.json + Platforms/_images/paprium.bin
+    Assets/paprium/common/     created by the install; user added Paprium.md (8 MB)
+                               and paprium.pcm (543 MB, the ADPCM blob)
+    Saves/paprium/common/Paprium.sav  4096 bytes - written by the core on first run
+
+User report: game works. That closes the 0.2.0 release checklist. Next: backlog item 1,
+characters animating on the spot.
