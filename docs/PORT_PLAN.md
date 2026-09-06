@@ -9865,3 +9865,9 @@ Side finding: the 0.1.0 tag's rtl/PAPRIUM/mcu.txt (c645d08c, committed 09-02 20:
 not reproduced by the tag's own patch (-O2 69585468, -Os 90d5f61a): the patch kept
 moving for ~4 h after that firmware was built. Not a blocker; noted for the 0.2.0 release
 (commit the mcu.txt and the patch together).
+
+**GO received (2026-09-05, 20:05): card 4 - firmware `fce5dc45`, ring RTL a22aea4, seed 5,
+auto-deploy on gate.** rtl/PAPRIUM/mcu.txt = fce5dc45 verified; rtl/ differs from a22aea4 by
+mcu.txt only. Fit launched 20:06 (`build-scratch4.log`). Card holds card 3 (51b67a50) until
+the gate passes; then archive as `scratch4-shipping-plus-fix.CANDIDATE`, copy to the SD, md5
+before/after, ping.
