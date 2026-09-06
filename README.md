@@ -455,19 +455,35 @@ did not exist upstream — plus changes throughout the rest:
   handshake redesigned so busy is held set at rest, dropped once the read
   pointer has moved, released through the command response and raised again on
   the game's next post (`PPM_BUSY_REST`, `PPM_BUSY_CLEAR_THROUGH_RESP`). Stock
-  `mega-ppm` has neither, so the fault is on every setup running it. The MCU's
+  `mega-ppm` has neither, so the fault is on every setup running it. The
+  animation faults (0.2.1) are three more firmware changes on the same RTL: a
+  refused block load no longer destroys the game's one-shot animation request
+  (`PPM_STICKY_SWITCH`), the frame shown meanwhile keeps its tiles
+  (`PPM_PIN_FALLBACK`), and a queued follow-up animation applies only when an
+  animation actually ends rather than at its next cycle end
+  (`PPM_CHAIN_ONLY_AT_END`) — a rule the reference emulator gets wrong too. A
+  small floor on the loader's share of the frame's DMA budget
+  (`PPM_DMA_FLOOR_BLOCKS`) ships alongside, measured harmless. The MCU's
   instruction memory is also 32 KB here, grown from 16 KB, to hold the
   diagnostic builds.
 - **Diagnostics** — a mailbox command logger, SFX channel-state capture, a
   Genesis Plus GX cartridge-window logger with its analysers
   (`scripts/apply_gpgx_winlog.py`, `scripts/analyze_stream.py`,
-  `scripts/busy_polls.py`), a battery-RAM crash recorder and its decoder
-  (`scripts/decode_heartbeat.py`), and savestate tooling that reads the VDP
+  `scripts/busy_polls.py`) which since 0.2.1 also records the object record as
+  the game writes it on every draw command (`scripts/analyze_objrec.py`), a
+  battery-RAM crash recorder and its decoder (`scripts/decode_heartbeat.py`),
+  a block of counters in the save — block loads refused, animation switches
+  refused and completed, evictions, frames carried by the DMA floor — read by
+  `scripts/decode_sat_snapshot.py`, and savestate tooling that reads the VDP
   registers, sprite table and tile patterns straight out of a GPGX state
-  (`scripts/parse_gpgx_state.py`, `scripts/render_vram_tiles.py`). All of the
-  firmware instruments sit behind switches and are off in the release; the
-  shipped firmware is 0.1.0's configuration plus the two elevator fixes. That is how the VRAM map was settled: the
-  planes and the sprites use strictly separate tile ranges —
+  (`scripts/parse_gpgx_state.py`, `scripts/render_vram_tiles.py`). The
+  loggers and the crash recorder sit behind switches and are off in the
+  release; the save-block counters are compiled in, cost nothing, and are how
+  the 0.2.1 numbers were read from the shipping card. The shipped firmware is
+  0.1.0's configuration plus the two elevator fixes (0.2.0) and the three
+  animation fixes with the floor (0.2.1). The savestate tooling is how the
+  VRAM map was settled: the planes and the sprites use strictly separate tile
+  ranges —
 
       tiles  800-863   VRAM 0x6400-0x6BFF   background art, planes only
       tiles 1984-2047  VRAM 0xF800-0xFFFF   sprite art, SAT only
