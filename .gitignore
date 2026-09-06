@@ -12,7 +12,7 @@ projects/*.smp_dump.txt
 projects/*assignment_defaults.qdf
 projects/quartus.pid
 projects/map.log
-build.log
+/build.log
 
 # Generated bitstream / loader / package binaries
 build_output/
