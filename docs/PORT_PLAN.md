@@ -10527,3 +10527,7 @@ zip). Tag `0.2.1`, GitHub release (not pre-release) with the zip.
 ### README known issues (12:45)
 
 User: the occasional single-pixel flicker in the intro is gone on 0.2.1 as well. Both open rows moved to "Fixed here"; the open table now reads "None open as of 0.2.1". The flicker fix is attributed, with the hedge stated, to PPM_PIN_FALLBACK (a rewound object's tiles evicted by a later load in the same frame).
+
+### Known issues, per the user (12:55)
+
+"the open to be fixed would be the synth implementation and vmdac working when enabled." README Known issues now lists exactly those two as open: the synthesiser (album substitution, no live modulation) and the VM DAC option (inert since the 0x80 fill; real hardware routes PCM through the YM2612 DAC and thins the mix). Everything else stays under Fixed here.
