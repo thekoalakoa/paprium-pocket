@@ -9871,3 +9871,23 @@ auto-deploy on gate.** rtl/PAPRIUM/mcu.txt = fce5dc45 verified; rtl/ differs fro
 mcu.txt only. Fit launched 20:06 (`build-scratch4.log`). Card holds card 3 (51b67a50) until
 the gate passes; then archive as `scratch4-shipping-plus-fix.CANDIDATE`, copy to the SD, md5
 before/after, ping.
+
+### 2026-09-05 20:33 - card 4 on the SD: 0945652f (firmware fce5dc45, shipping switches + PPM_SCRATCH_HIGH)
+
+Fit at seed 5 on ring RTL a22aea4, launched 20:05, fitter done 20:30, flow exit 0 at 20:32.
+
+    ALM 18,194 / 18,480 (98%)   M10K 72%
+    setup -2.549   hold +0.264       (worst corner -2.596 / +0.004)
+    = dec2f09f's placement, fourth ROM-only fit in a row to land on it
+
+Gate PASS. Deployed per the standing order: card md5 51b67a50 -> 0945652f; built ==
+archive (scratch4-shipping-plus-fix.CANDIDATE.rbf_r) == card.
+
+Firmware: PPM_ONSET_RING 0, PPM_DA_PAD 0, PPM_BUSY_REST 0, PPM_HEARTBEAT 0, stream off,
+PPM_SCRATCH_HIGH 1 - i.e. the 0.1.0 behaviour plus the scratch relocation. Note for the
+decoders: no onset ring and no heartbeat in this card's save, so `decode_onset_ring.py`
+and `decode_heartbeat.py` have nothing to read from it; the SAT snapshot is still written.
+
+Pre-registered (from the 20:20 entry): pause gone + shaft clean => v0.2.0 candidate;
+pause gone + shaft banded => DA_PAD back next; pause present => card 5 = card 4 minus
+SCRATCH_HIGH as the control.
