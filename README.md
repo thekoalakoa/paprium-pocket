@@ -74,8 +74,13 @@ Expect it to play well, not to be cycle-accurate.
 
 ## Known issues
 
-None open as of 0.2.1. Everything that was listed here has moved to
+Two, both on the audio side. Everything else that was listed here has moved to
 [Fixed here](#fixed-here).
+
+| Issue | Status |
+|---|---|
+| The music is the released soundtrack, not the cartridge's synthesiser | **Open.** The real cartridge synthesises the music live on a 26-voice sampler and bends it with play: the crisis variant the game switches to, the sax man's cues, the pitch of hits. This port plays the album instead, so none of that reacts. The instrument bank and all 52 sequence modules are decoded; the event semantics are not, and a 26-voice renderer needs FPGA area the 68000 swap is expected to free. Tracked in `docs/PORT_PLAN.md` |
+| The "VM DAC" option does nothing when enabled | **Open.** On a real cartridge, enabling it routes the cartridge's PCM through the YM2612's DAC and thins the mix. Here the stream buffer the 68000 reads for it (cart RAM `0x1802–0x19FF`) is held at mid-scale, so the option is silent rather than static and the audio is unchanged. Making it work means the firmware keeping that buffer filled with the mixed PCM the game expects |
 
 ### Fixed here
 
