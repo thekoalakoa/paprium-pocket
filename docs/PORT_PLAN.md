@@ -10007,3 +10007,17 @@ setup/hold pair) generated from the files. `.gitignore`'s `build.log` became `/b
 so a stray root log stays ignored while `build-logs/build.log` is kept. The fit recipe
 from here on writes `> build-logs/build-<name>.log`. Earlier PORT_PLAN entries name the
 logs without a path; they mean this folder.
+
+**2026-09-05 22:10 - info.txt aligned with the README.** The in-core info text (shown on
+the Pocket and mirrored on the openFPGA inventory page) still said the music blob was
+built by `scripts/build_cdda_blob.sh`, the old uncompressed packer. It now describes the
+documented two-step build (`build_cdda.sh`, then `build_cdda_adpcm.py`), marks the ROM
+required and the blob optional, and points at the README's Music section. Ships with the
+next release; the inventory only reads info.txt out of a release zip, so 0.2.0's page keeps
+the old wording.
+
+Side finding while checking Pupdate: the inventory lists our sponsor link as drizzt's
+GitHub Sponsors page. That is `.github/FUNDING.yml`, which arrived unchanged in the
+baseline commit (b2b1dc8) from drizzt's repo, not a deliberate credit. The inventory
+re-reads FUNDING.yml on every run, so changing it takes effect without a release.
+Left for the user to decide (no Sponsors listing on thekoalakoa; a `custom:` URL works).
