@@ -10531,3 +10531,7 @@ User: the occasional single-pixel flicker in the intro is gone on 0.2.1 as well.
 ### Known issues, per the user (12:55)
 
 "the open to be fixed would be the synth implementation and vmdac working when enabled." README Known issues now lists exactly those two as open: the synthesiser (album substitution, no live modulation) and the VM DAC option (inert since the 0x80 fill; real hardware routes PCM through the YM2612 DAC and thins the mix). Everything else stays under Fixed here.
+
+### README "How these were found" (13:05)
+
+Four bullets added for today: the ROM as the arbiter between the two ports (0x031024), before/after counters in the save (and the floor negative result), the adversarial committee catching the 0x1F14 rewrite before a build was flashed, and logging the object record as the game writes it (the walk-in, a bug the reference shares).

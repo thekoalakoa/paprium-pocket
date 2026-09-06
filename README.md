@@ -187,6 +187,39 @@ still open:
   crash, which took a whole chain of "corrupted payload → CPU fault"
   explanations off the table without a single fix attempt
 
+- **Reading the game's own protocol instead of either port's guess.** Word `+0xA`
+  of the animation record is a frame counter that `mega-ppm` increments every
+  draw and restarts on any mismatch; in GPGX it is a one-shot reset the cart
+  clears. Six bytes of 68000 at ROM `0x031024` say which: the game compares the
+  requested animation with the current one, does nothing if equal, and otherwise
+  writes `1` once. With that, "a refused block load rewinds the object" became
+  "a refused block load overwrites the game's one request", and the attack
+  frames followed from a two-line change. Neither implementation was the
+  reference; the ROM was
+- **Counting in the save, before and after.** Two counters added to the save
+  block (`scripts/decode_sat_snapshot.py`) measured the fault on the card that
+  shipped: 230 lost animations in ten minutes on the old rule, and 92% of them
+  completing within a draw or two on the fix. The same file then refuted the
+  next idea: a floor on the loader's budget fired in 44 of 7,808 frames while the
+  walk-in slid on unchanged, so the budget was not the mechanism. A counter with
+  a denominator turns "feels better" into a number, and a negative result into
+  a closed door
+- **A committee that tries to knock each hypothesis down.** Six readers over the
+  firmware, the reference, the plan's history and the game side; four
+  diagnosticians with different lenses; three adversarial refuters per surviving
+  hypothesis; one synthesis. It ranked the lost switch first and refuted six
+  alternatives, and its read of the ROM's DMA accounting — the game rewrites the
+  remaining-budget word itself between frame start and the first draw — caught
+  a build that would have done nothing before it reached the card
+- **Logging what the game writes, not what the cart does with it.** The reference
+  had the walk-in bug too, so comparing against it could not find it. The window
+  logger gained one record per draw command holding the object record as the
+  game left it (`scripts/analyze_objrec.py`). Two minutes of play showed the
+  game queueing idle behind the walk and then scripting the character across
+  for 295 frames without touching the record; both carts took the queued
+  follow-up at the next cycle end. The tester's note that the real cartridge
+  keeps walking was the arbiter, and the fix was one condition: a queued
+  follow-up applies only when an animation actually ends
 The pan bug is the exception: one side of every off-centre effect was
 phase-inverted, which cancels when the Pocket sums to its mono speaker. Impacts
 are the widest-panned sounds in the game, so they had the most to lose, and the
