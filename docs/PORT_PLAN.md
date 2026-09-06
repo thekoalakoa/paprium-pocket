@@ -9812,3 +9812,56 @@ Read protocol (user, stopwatch): "presented by" -> WaterMelon logo on d6182af4 v
 cc639d69 vs 51b67a50; dropped frames between screens; #8 shaft must stay clean.
 - pause and drops gone on card 3  => the heartbeat was the cost; v0.2.0 ships card 3
 - unchanged                       => the cost is in the relocation itself; card 4 splits it
+
+### 2026-09-05 20:20 - card 3 tested: pause still there. The pause is PPM_BUSY_REST.
+
+Tester (card 3, 51b67a50, heartbeat off): the boot pause is unchanged. Heartbeat
+refuted as the cost. The user's framing: 0.1.0 (shipping) has no pause and a broken
+elevator; card 1 has a clean elevator and the pause - compare the two.
+
+**What changed between 0.1.0 and card 1 (firmware only, same ring RTL a22aea4):**
+switches added and ON in card 1: PPM_ONSET_RING, PPM_DA_PAD, PPM_BUSY_REST (+pulse 600),
+PPM_HEARTBEAT, PPM_SCRATCH_HIGH. Unconditional code since 0.1.0 (source diff of the two
+patches, outside any `#if PPM_` span): the 32-bit loader cursor, `ppm_sptr_shadow`, the
+`snap_*` counters and note functions (a few compares per command), the BGM-over guard,
+`stream_cnt` in the FpgaIO map. Nothing unconditional does per-frame work worth a frame.
+
+**The pause, measured (`scripts/busy_polls.py` on winlog-boot-allcmds.bin, 2,049 frames):**
+
+    PC       first        preceding cmd        1FEA-wait first?
+    0BCA26   f 173        C6 (one-shot read, d5, not tested)
+    0B41C4   f 441/v233   DA 0007 (mode 7)     yes
+    0B41C4   f1120/v229   DA 0007 (mode 7)     yes
+    0B4276   x3           DB                   no (polls right after posting)
+
+ROM bytes at the 0x0B41C4 site: `0B41AC move.w $A(a1),d0 / tst / blt` (wait for the
+response, 0x1FEA bit 15 clear) -> `0B41B4 move.w $6(a0),d0 / btst #14 / bne` (0x1FE6) ->
+`0B41C0 move.w $4(a1),d0 / btst #2 / beq` -> poll loop `cmpi.l #$FFFE,d1 / bhi / addq /
+nop / move.w $4(a0),d0 / btst #2 / bne`. Under PPM_BUSY_REST the handler pulses busy low
+for 40 us and raises it again BEFORE writing the response; this reader cannot see the
+pulse, so it runs the full 65,534 iterations x ~66 cycles = ~0.56 s at 7.67 MHz - after
+every mode-7 0xDA. Two at boot (frames 441, 1120) = the "~1 s after presented by"; one per
+scene load = the "dropped frames between screens". Every busy-rest card has it
+(d6182af4, c5a2c22e, cc639d69, 51b67a50); 0.1.0 has no busy-rest and no pause.
+
+Not a safe patch: "leave busy low after 0xDA" - a 0xDB follows every mode-7 0xDA one
+scanline later (`scripts/backtoback_posts.py`: 3/3 at boot, 31/31 in the 90 s log) and its
+immediate poll at 0x0B4276 would then see stale-clear before the pointer moved - the very
+race busy-rest was written for. That race was never seen on hardware (0.1.0 shipped
+without busy-rest; its train/shaft rows were never reported wrong), and busy-rest's own
+card read was "boots, shaft banded, lag" - no benefit, two costs. If the race ever shows,
+the faithful fix is RTL (bit 2 raised on the 68000's write to 0x1FEA, cleared on the MCU's
+write to 0x1FE4, ~15 ALMs, placement re-roll).
+
+**Card 4 = shipping firmware + the #8 fix, nothing else:** HEAD source with the 0.1.0
+switch set (ONSET_RING 0, DA_PAD 0, BUSY_REST 0, HEARTBEAT 0) + PPM_SCRATCH_HIGH 1.
+mcu.txt `fce5dc45` (-O2, 19,084 bytes; -Os variant fe5fd800 not used). Reproducible
+(three builds). Same ring RTL a22aea4, seed 5 -> dec2f09f's placement expected.
+Pre-registered: boot pause gone AND #8 shaft clean => this is v0.2.0. Pause gone, shaft
+banded => scratch-high needs one of the dropped switches (DA_PAD next). Pause present =>
+the relocation itself, card 5 = card 4 minus SCRATCH_HIGH as the control.
+
+Side finding: the 0.1.0 tag's rtl/PAPRIUM/mcu.txt (c645d08c, committed 09-02 20:07) is
+not reproduced by the tag's own patch (-O2 69585468, -Os 90d5f61a): the patch kept
+moving for ~4 h after that firmware was built. Not a blocker; noted for the 0.2.0 release
+(commit the mcu.txt and the patch together).
