@@ -10471,3 +10471,14 @@ Pre-registered read: the walk-in from another screen animates; enemies
 approaching with idle queued animate; watch for any animation that fails to
 end (a hit reaction or attack stuck looping until the game's next explicit
 set - the capture says that is at most a few frames) and the usual list.
+
+### Chain-rule fit and deploy (12:00)
+
+    build-chainend.log   seed 5   first pair setup -2.549 / hold +0.264   PASS
+    ALM 18,194 / 18,480 (98%)   archive chainend.txt == stickyswitch.txt (same placement)
+    rbf 242a5962 -> paprium.rbf_r c2bf6e66   firmware fd872d74 (sticky + floor 2 + chain-only-at-end)
+    card D: 888ad681 -> c2bf6e66   md5 confirmed, pkg matches card
+
+Test: walk in from another screen (the transition), then the enemies'
+approach, then the usual list. Rollback: 0.2.1 content = pkg 9416df87
+(gate-archive/stickyswitch.*); floor-only = 888ad681 (gate-archive/dmafloor2.*).
