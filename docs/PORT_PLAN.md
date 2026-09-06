@@ -9989,3 +9989,12 @@ INSTALL.md known-issues + "Fixed in 0.2.0"; check_packages.sh scoped to Koala_Ko
 (drizzt.MegaDrive is the unmodified upstream baseline; the old check could never pass);
 tag 0.2.0 (annotated, no v prefix, as 0.1.0); package_release.sh 0.2.0; GitHub
 pre-release with openfpga-Paprium_0.2.0.zip only.
+
+**0.2.0 published (2026-09-05, 21:33 local):** https://github.com/thekoalakoa/paprium-pocket/releases/tag/0.2.0
+pre-release, asset openfpga-Paprium_0.2.0.zip (1,002,493 bytes, md5 4da8021c): the same
+twelve files as 0.1.0's zip, rbf_r inside = 3e491f73, core.json 0.2.0 / 2026-09-05.
+Release commit b83d70a (firmware 73075a01 + patch + docs + core.json), tag 0.2.0 annotated.
+Two packaging fixes on the way: check_packages.sh scoped to Koala_Koa.* (the upstream
+drizzt.MegaDrive baseline package made it fail on 0.1.0 too), and both zippers now leave
+the repo-facing Cores/<pkg>/README.md out of the archive (5df0814). The SD card holds the
+release bitstream (3e491f73) already.
