@@ -10535,3 +10535,7 @@ User: the occasional single-pixel flicker in the intro is gone on 0.2.1 as well.
 ### README "How these were found" (13:05)
 
 Four bullets added for today: the ROM as the arbiter between the two ports (0x031024), before/after counters in the save (and the floor negative result), the adversarial committee catching the 0x1F14 rewrite before a build was flashed, and logging the object record as the game writes it (the walk-in, a bug the reference shares).
+
+### README "What this port adds" (13:15)
+
+Firmware-fixes bullet carries the three 0.2.1 animation changes and the floor; diagnostics bullet adds the object-record logger and the save-block counters, and now states honestly that the counters are compiled into the release (PPM_SAT_SNAPSHOT 1, as in 0.2.0) while the loggers and crash recorder are off.
