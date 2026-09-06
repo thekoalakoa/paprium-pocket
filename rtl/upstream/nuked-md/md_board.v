@@ -522,7 +522,12 @@ module md_board
 	assign ext_ZCLK_o = ZCLK;
 `endif
 	
+	// fx68k-soak: USE_FX68K selects ijor/FX68K wrapper (fit/soak measurement only)
+	`ifdef USE_FX68K
+	fx68k_m68kcpu_wrap m68k
+	`else
 	m68kcpu m68k
+	`endif
 		(
 		.MCLK(MCLK2),
 `ifndef EXT_CLOCKS
