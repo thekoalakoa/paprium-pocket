@@ -54,3 +54,4 @@ Runs with different figures carried RTL changes that were later reverted or park
 | `build-scratch3.log` | Sat Sep  5 19:13:53 2026 | 5 | ok | -2.549 | 0.264 |
 | `build-scratch4.log` | Sat Sep  5 20:05:41 2026 | 5 | ok | -2.549 | 0.264 |
 | `build-scratch5.log` | Sat Sep  5 20:51:57 2026 | 5 | ok | -2.549 | 0.264 |
+| `build-stickyswitch.log` | Sun Sep  6 09:28:22 2026 | 5 | ok | -2.549 | 0.264 |

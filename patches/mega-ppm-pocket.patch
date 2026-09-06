@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..a3ca413 100644
+index b568843..844e3ad 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -443,11 +443,7 @@ index b568843..a3ca413 100644
 +                    lz = c >> 2;
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 1;
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +                else if (c & 0x10) {                 // code_10
 +                    len = c & 0x07;
 +                    if (len == 0) {
@@ -498,7 +494,11 @@ index b568843..a3ca413 100644
 +                        lz += 2049;
 +                        len = 3;
 +                    }
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +
 +                state = (len > 0) ? raw_n : 4;
 +                copy_addr = dest_addr - lz;
@@ -518,7 +518,7 @@ index b568843..a3ca413 100644
              }
              break;
  
-@@ -260,12 +659,469 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +659,471 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -562,6 +562,8 @@ index b568843..a3ca413 100644
 +u32 snap_cnt_ae = 0, snap_cnt_af = 0, snap_cnt_ad = 0, snap_cnt_refresh = 0;
 +static u16 snap_dma_starved = 0;        // out of DMA budget this frame
 +static u16 snap_noslot      = 0;        // every VRAM slot already in use
++static u16 snap_switch_refused = 0;     // animation switch refused for budget/slot, kept pending
++static u16 snap_switch_retry_ok = 0;    // a pending switch that completed on a later draw
 +// EVICTION AUDIT - the firmware-only question for the elevator corruption (#8).
 +//
 +// A slot is evicted when nobody REQUESTED its block this frame (usage is cleared
@@ -988,7 +990,7 @@ index b568843..a3ca413 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +1131,534 @@ void ppm_obj_frame_start() {
+@@ -275,18 +1133,538 @@ void ppm_obj_frame_start() {
      }
  }
  
@@ -1216,6 +1218,10 @@ index b568843..a3ca413 100644
 +    t[11] = (u8) (snap_loads_ok >> 8);  t[12] = (u8) snap_loads_ok;
 +    t[13] = (u8) (snap_frames >> 24);   t[14] = (u8) (snap_frames >> 16);
 +    t[15] = (u8) (snap_frames >> 8);    t[16] = (u8) snap_frames;
++    // t[17..22] were the dead stream-pointer audit (never written). Reused 2026-09-06.
++    t[17] = (u8) (snap_switch_refused >> 8);  t[18] = (u8) snap_switch_refused;
++    t[19] = (u8) (snap_switch_retry_ok >> 8); t[20] = (u8) snap_switch_retry_ok;
++    t[21] = 0; t[22] = 0;
 +    t[23] = 0;
 +    u8 *e = &b[SNAP_OFF_EVICT];
 +    e[0] = (u8) (snap_evict_live >> 24); e[1] = (u8) (snap_evict_live >> 16);
@@ -1525,7 +1531,7 @@ index b568843..a3ca413 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,7 +1671,22 @@ void ppm_obj_frame_end() {
+@@ -299,7 +1677,22 @@ void ppm_obj_frame_end() {
  
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
@@ -1549,7 +1555,29 @@ index b568843..a3ca413 100644
  }
  
  void ppm_close_sprite_table() {
-@@ -340,6 +1727,13 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -333,6 +1726,21 @@ void ppm_close_sprite_table() {
+     dma_entry->cmdL = 0x0083;
+ }
+ 
++#if PPM_PIN_FALLBACK
++// Mark a resident block as used this frame so the LRU will not hand its slot to
++// a later object. A miss is silently ignored: nothing is loaded here.
++static void ppm_vram_touch_block(uint16_t num) {
++    ppm_vram_slot *slot = ppm_vram_slots;
++    for (uint16_t x = 0; x < ppm_vram_max_slot; slot++, x++) {
++        if (slot->block_num == num) {
++            slot->usage++;
++            slot->age = 0;
++            return;
++        }
++    }
++}
++#endif
++
+ void ppm_obj_render(uint16_t obj_slot) {
+ 
+     ppm_intf_obj *intf_obj = &ppmio.ramdp->obj_data[obj_slot]; // interface obj
+@@ -340,12 +1748,23 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1563,7 +1591,27 @@ index b568843..a3ca413 100644
          return;
      }
  
-@@ -382,6 +1776,7 @@ void ppm_obj_render(uint16_t obj_slot) {
+     uint32_t offset, data_offset;
+     uint32_t previous_offset = handle->anim_offset;
+     uint16_t previous_counter = handle->counter;
++#if PPM_STICKY_SWITCH
++    uint16_t previous_crtAnim = handle->crtAnim;
++    bool switched = false;
++#endif
+ 
+     //	printf("Slot 0x%02x (ID 0x%04x): ", obj_slot, intf_obj->objID);
+ 
+@@ -363,6 +1782,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+         handle->anim_offset = offset;
+         handle->crtAnim = intf_obj->anim;
+         handle->counter = intf_obj->animCounter;
++#if PPM_STICKY_SWITCH
++        switched = true;
++#endif
+     } else {
+         // move to next frame
+ 
+@@ -382,6 +1804,7 @@ void ppm_obj_render(uint16_t obj_slot) {
                  intf_obj->anim = intf_obj->nextAnim;
                  intf_obj->nextAnim = 0xffff; // unverified
                  ppm_obj_render(obj_slot);
@@ -1571,7 +1619,7 @@ index b568843..a3ca413 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -402,6 +1797,10 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -402,6 +1825,10 @@ void ppm_obj_render(uint16_t obj_slot) {
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
@@ -1582,7 +1630,7 @@ index b568843..a3ca413 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1809,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1837,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1594,17 +1642,55 @@ index b568843..a3ca413 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,7 +1825,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,26 +1853,64 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
 +#endif
  
++#if PPM_STICKY_SWITCH && PPM_SAT_SNAPSHOT
++    if (switched && blocks_available && previous_crtAnim == PPM_ANIM_PENDING) {
++        if (snap_switch_retry_ok != 0xffff) snap_switch_retry_ok++;
++    }
++#endif
 +    hb_w8(9, 7);
      if (!blocks_available) {
++#if PPM_STICKY_SWITCH
++        // See PPM_STICKY_SWITCH in mame.h. The game's anim word and its one-shot
++        // reset stay exactly as it wrote them; the sentinel makes the next draw
++        // take the set/update path again whichever of the three triggers it was
++        // (anim change, forced restart of the same anim, or a nextAnim chain).
++        if (switched) {
++            handle->crtAnim = PPM_ANIM_PENDING;
++#if PPM_SAT_SNAPSHOT
++            if (snap_switch_refused != 0xffff) snap_switch_refused++;
++#endif
++        }
++#endif
  
          if (previous_offset) {
-@@ -437,10 +1843,16 @@ void ppm_obj_render(uint16_t obj_slot) {
+             // restore offset/counter
+             handle->anim_offset = previous_offset;
+             handle->counter = previous_counter;
++#if PPM_STICKY_SWITCH
++            if (!switched)      // a refused ADVANCE rewinds the counter too; a refused switch leaves the game's reset in place
++#endif
+             intf_obj->animCounter = previous_counter;
+             data_offset = ppm_anim_data[previous_offset >> 2] & 0xffffff;
+             spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
++#if PPM_PIN_FALLBACK
++            {
++                ppm_spr_data *fb = &spr_info->sprites[0];
++                for (uint16_t x = 0; x < spr_info->count; fb++, x++) {
++                    if (fb->blockNum) {
++                        ppm_vram_touch_block(fb->blockNum);
++                    }
++                }
++            }
++#endif
+ 
+         } else {
+             return;
          }
      }
  
@@ -1621,7 +1707,7 @@ index b568843..a3ca413 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +1873,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1931,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1666,7 +1752,7 @@ index b568843..a3ca413 100644
          satEntry++;
      }
  
-@@ -482,12 +1931,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +1989,26 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1693,7 +1779,7 @@ index b568843..a3ca413 100644
          return 0;
      }
  
-@@ -505,15 +1968,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,15 +2026,54 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1748,7 +1834,7 @@ index b568843..a3ca413 100644
      ppm_unpack(ppm_block_addr(num), ppm_block_unpack_addr);
      ppm_block_unpack_addr += 0x200;
  
-@@ -536,6 +2038,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2096,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1756,7 +1842,7 @@ index b568843..a3ca413 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2052,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2110,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1767,10 +1853,10 @@ index b568843..a3ca413 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..610cccb 100644
+index 06ccf59..a683973 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,226 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,270 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -1858,6 +1944,50 @@ index 06ccf59..610cccb 100644
 +// one DMA per listed block streams them to tile 16 + 16k, charged 0x110 each
 +// against the game's own dma_budget - exactly what the retail cart spends.
 +#define PPM_LIST_ORDER_VRAM     0
++// STICKY ANIMATION SWITCH (2026-09-06). The game's set-animation routine (ROM
++// 0x031024) writes the record's word +0xA to 1 exactly once per animation
++// change - a one-shot request, GPGX's `reset` - then the new anim number. This
++// firmware reads that word as animCounter, and when a block of the NEW frame
++// cannot load it rewinds: anim_offset/counter back to the old frame AND the
++// game's word overwritten with previous_counter, while crtAnim already says the
++// new anim. Next 0xAD: anim == crtAnim, counter == animCounter, so the advance
++// path resumes the OLD animation and the switch is gone for good - the object
++// slides in its previous cycle until the game asks for a different anim. GPGX
++// never refuses (its DMA is free, vdp_ctrl.c fast_dma_hack), the retail cart
++// streams rather than caches, so neither shows it. With this on, a refused
++// switch leaves the game's request untouched and parks a sentinel in crtAnim so
++// the restart re-fires on the next draw; the object shows its previous frame
++// for that one frame, exactly as the advance-path rewind already does.
++#define PPM_STICKY_SWITCH       1
++#define PPM_ANIM_PENDING        0xFFFF   // never a real anim: the game masks to 12 bits
++// At a rewind the SAT is about to point at the fallback frame's tiles, but those
++// slots carry usage 0 this frame, so a later object's load in the same frame can
++// evict one before the vblank DMA runs and the sprite shows that object's art
++// for a frame. Touch the fallback blocks that are still resident so they survive
++// the frame. Lookups only, no loads, so no budget is spent.
++#define PPM_PIN_FALLBACK        1
++// STICKY ANIMATION SWITCH (2026-09-06). The game's set-animation routine (ROM
++// 0x031024) writes the record's word +0xA to 1 exactly once per animation
++// change - a one-shot request, GPGX's `reset` - then the new anim number. This
++// firmware reads that word as animCounter, and when a block of the NEW frame
++// cannot load it rewinds: anim_offset/counter back to the old frame AND the
++// game's word overwritten with previous_counter, while crtAnim already says the
++// new anim. Next 0xAD: anim == crtAnim, counter == animCounter, so the advance
++// path resumes the OLD animation and the switch is gone for good - the object
++// slides in its previous cycle until the game asks for a different anim. GPGX
++// never refuses (its DMA is free, vdp_ctrl.c fast_dma_hack), the retail cart
++// streams rather than caches, so neither shows it. With this on, a refused
++// switch leaves the game's request untouched and parks a sentinel in crtAnim so
++// the restart re-fires on the next draw; the object shows its previous frame
++// for that one frame, exactly as the advance-path rewind already does.
++#define PPM_STICKY_SWITCH       1
++#define PPM_ANIM_PENDING        0xFFFF   // never a real anim: the game masks to 12 bits
++// At a rewind the SAT is about to point at the fallback frame's tiles, but those
++// slots carry usage 0 this frame, so a later object's load in the same frame can
++// evict one before the vblank DMA runs and the sprite shows that object's art
++// for a frame. Touch the fallback blocks that are still resident so they survive
++// the frame. Lookups only, no loads, so no budget is spent.
++#define PPM_PIN_FALLBACK        1
 +// Crash-context heartbeat: a 40-byte record in battery RAM (bram 0xF70..0xF97,
 +// the free gap between the onset ring's meta and the dispatch block) rewritten
 +// at every command entry/exit, per object, per walked sprite, per stream DMA,
