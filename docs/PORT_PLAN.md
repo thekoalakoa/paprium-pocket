@@ -10033,3 +10033,24 @@ on a manual trigger, a pull request or a dependency bump, and have never fired h
 The inventory re-reads FUNDING.yml on its next run, so its sponsor field clears without
 a release. The wider question of what else of the generic MegaDrive core to remove is
 surveyed but not acted on (see the 0.2.0 follow-ups).
+
+**2026-09-05 22:50 - backlog after 0.2.0 (user's ordering).** Scheduled first: the
+clean-card install of 0.2.0 through Pupdate (F: card, blank as of 22:15, still needs the
+Pocket firmware and Pupdate's folder set) and the inventory flip to 0.2.0. Then, in order:
+
+1. **Characters animating on the spot** - next engineering item. The per-frame streaming
+   ceiling; the stream firmware is parked with residual pointer moves and was waiting on
+   the lag fix, which 0.2.0 delivered. Resume from `PPM_LIST_ORDER_VRAM` / the stream
+   branch, on the 0.2.0 baseline (busy-rest v2 + PPM_SCRATCH_HIGH).
+2. **Swap the 68000 to FX68K.** Nuked-MD's die-derived `68k.v` is what the core compiles
+   today. FX68K (Jorge Cwik's cycle-accurate core, the one MiSTer's Genesis core used
+   before Nuked) is the candidate. Large job: a new CPU under a die-accurate bus (ym7101,
+   fc1004 arbitration), every fixed bug re-verified on hardware, the placement re-rolled
+   from scratch (today 18,194 / 18,480 ALM = 98%, 294 / 308 M10K).
+3. **Possibly a smaller Z80 for space.** Same motive: `z80.v` is also die-derived. A
+   conventional core (T80-class) would give area back for item 1's streaming work. Also
+   large; also re-rolls placement and needs the audio path (PSG/YM via the Z80 bus)
+   re-verified.
+
+Items 2 and 3 are separate decisions; either one on its own invalidates the fixed-
+placement bisecting method until a new baseline placement is found.
