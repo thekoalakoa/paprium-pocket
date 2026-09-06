@@ -10377,3 +10377,97 @@ switches stay in the low hundreds and mostly complete. Regression watch:
 tearing or a torn sprite during transitions (the floor's only physical risk),
 then the usual subway / pillars / elevator / rooftop / boss list. Rollback to
 0.2.1 content is pkg 9416df87 (build_output/gate-archive/stickyswitch.*).
+
+### Floor result (user, ~11:05): walk-in UNCHANGED - it is not a refusal at all
+
+Card 888ad681, save paprium-floor-888ad681.sav, 7,808 frames (~2.2 min):
+
+    frames that used the floor                44   (0.6% - a transition would be tens in a row)
+    block loads refused, budget               53 of 5,956 (0.9%, 0.007/frame)
+    switches refused / completed          11 / 10
+    loads/frame 0.76   evictions 0.75/frame   thrash 1,534
+
+The loader was barely refusing anything, the floor barely fired, and the
+walk-in from the previous screen still plays the standing pose. Budget
+starvation through the transition is REFUTED as the walk-in mechanism (it was
+the committee's corrected H2 and my own reading this morning). The floor is
+harmless and stays as a knob, but it is not the fix; whether it ships in 0.2.1
+is decided by the counters (it fired 44 times without visible tearing - keep
+for now, revisit).
+
+New lead, from the committee's dropped list and the ROM scan: the game writes
+the record's +0xA word with values OTHER than 1 -
+
+    031058   move.w #1,$A(a0)        the set-anim routine (once per change)
+    060FDA   move.w #$40,$A(a0)      after movea.l $FFA0A8,a0: clr.w 6(a0); +A = 0x40;
+                                     clr.w 2(a0); then records +0x10/+0x20/+0x30 get
+                                     anim 0x20, +2 = 0x80/0x82/0x84, +A = 0xFFC8 - a
+                                     four-record formation
+    0330DE / 033530   move.w d0,$A(a0)  d0 = (x & 0x3F) | 0x1C0, written to +8 AND +A
+    many     clr.w $A(a0)            right after movea.l $FFA0A8,a0 at spawn (+A = 0)
+
+GPGX (paprium.h:1182, 1248-1251) restarts only when reset == 1 and treats any
+other value as "no restart" (a non-zero value also blocks the nextAnim chain,
+:1296). mega-ppm restarts on ANY mismatch between +A and its own counter and
+then increments +A every frame, so a path that rewrites +A with 0x40 (or an
+attribute word) every frame restarts the animation every frame: the object
+holds frame 0 while its position moves - "standing still but moving". The
+walk-in is such a path if that code runs during the transition. Untraced
+statically; the GPGX window logger gets a per-0xAD record of (index, anim,
+raw objID, nextAnim, +A) so the user's own walk-in in RetroArch shows what the
+game writes. Instrument, then fix: the firmware should restart on +A == 1 (and
+the fresh bit / anim change as now) and on any OTHER mismatch adopt the value
+without restarting.
+
+## 2026-09-06 11:30 - The walk-in is the QUEUED FOLLOW-UP rule, and GPGX has it too
+
+User, on the floor card: "walking is unchanged". Then: "the walk does not
+animate in GPGX on screen transitions" and "it does not occur in original
+hardware". So a fidelity gap shared by both cart implementations. The GPGX
+window logger got a per-0xAD record of the object record as the game left it
+(scripts/apply_gpgx_winlog.py kinds 18/19/20: anim, +0xA, raw objID,
+nextAnim; scripts/analyze_objrec.py reads them). User's capture from boot
+through a transition: vdp-capture/winlog-walkin-20260906.bin, 6,940 frames,
+33,844 draws.
+
+What the game writes:
+
+- +0xA at draw time is only ever 0 (x33,182) or 1 (x662). The "other values"
+  writers (0x060FDA etc.) never touched these records in this run - dead lead.
+- objID bit 15 reads 1 on every draw in GPGX: the game sets it at spawn and
+  GPGX never clears it (mega-ppm clears it after each render). Not a signal.
+- The player (obj 1, id 0x01): anim 0x01 idle, 0x09 walk (a six-step cycle,
+  eight frames a step, blocks 7B..95), 0x43-0x46 the combo, etc. Every
+  change of action is anim + reset=1 once; every attack ends with idle QUEUED
+  as nextAnim for 1-3 draws before the game sets the next state explicitly.
+- THE TRANSITION, frames 6540-6834 (295 draws): anim 0x09 with nextAnim 0x01
+  queued and no reset - the game queued "idle after this", then scripted the
+  character across without touching the record again. GPGX's streamed blocks:
+  two more walk steps to the cycle end at 6555, then the idle blocks 1..1E for
+  the remaining 280 frames. That IS the slide, in the reference.
+- The normal stop, 6413-6449: same queue, chain at the cycle end (6441), then
+  the game sets idle EXPLICITLY eight frames later (6449) - the game tracks
+  the cycle itself and does not rely on the chain for a looping animation.
+- Enemies: obj 7 (id 0x20) anim 0x02 with idle queued for 349 draws and one
+  block set the whole time; obj 9 (id 0x31) anim 0x08 with idle queued for
+  279 draws - four frames of anim 8, then a 64-frame idle loop repeating. The
+  same chain, on enemies.
+
+Reading: both mega-ppm (`ppm_obj_render`, "anim is over, do we have fallback
+anim?") and GPGX (paprium.h:1288-1297) take a queued nextAnim as soon as the
+current CYCLE ends, loop target or not. The retail cart keeps walking through
+the transition, so its rule must be: a looping animation keeps looping; the
+queued follow-up applies only at a TERMINAL end (loop target 0), where the
+stock code would otherwise stop drawing the object. Under that rule the
+normal stop costs at most one stride (the game's explicit idle lands eight
+frames after the cycle end), attacks end as before if terminal, and a
+looping attack pose would hold for the 1-3 draws until the game's explicit
+next state - all consistent with the capture.
+
+`PPM_CHAIN_ONLY_AT_END 1` (mame.h): the chain condition gains
+`&& loop_target == 0`. One line in the advance path. Firmware 5dd9c0c7 ->
+fd872d74 (sticky + floor 2 + this). Fit build-chainend.log, seed 5, started 11:36.
+Pre-registered read: the walk-in from another screen animates; enemies
+approaching with idle queued animate; watch for any animation that fails to
+end (a hit reaction or attack stuck looping until the game's next explicit
+set - the capture says that is at most a few frames) and the usual list.

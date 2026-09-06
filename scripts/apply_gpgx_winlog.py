@@ -171,6 +171,20 @@ def main():
     assert old in s, "paprium_audio"
     s = s.replace(old, old + NL + NL.join(["#if PAPRIUM_WINLOG", TAB + "winlog_frames++;", "#endif"]), 1)
 
+    # 7a. paprium_sprite: the object record as the game left it, per 0xAD (2026-09-06):
+    #     kind 18  pad = +0xA (reset) low byte    address = index | (anim & 0xFF) << 8
+    #     kind 19  pad = +0xA (reset) high byte   address = raw +4 word (objID; bit 15 = the 'fresh' bit mega-ppm reads)
+    #     kind 20  pad = 0                        address = +2 (nextAnim)
+    old = TAB + 'int pos_y = *(uint16*) (paprium_s.ram + 0xF8E + index*16);'
+    assert s.count(old) == 1, ('sprite: record read', s.count(old))
+    s = s.replace(old, NL.join([old,
+                                '#if PAPRIUM_WINLOG',
+                                TAB + '{ unsigned int st = (winlog_frames << 16) | (v_counter & 0xFFFF);',
+                                TAB + '  winlog_raw(18, (unsigned char)(reset & 0xFF), (unsigned short)((index & 0xFF) | ((anim & 0xFF) << 8)), st);',
+                                TAB + '  winlog_raw(19, (unsigned char)((reset >> 8) & 0xFF), *(uint16*) (paprium_s.ram + 0xF84 + index*16), st);',
+                                TAB + '  winlog_raw(20, 0, (unsigned short) nextAnim, st); }',
+                                '#endif']))
+
     # 7. paprium_sprite: per-object outcome (kind 14) and per streamed sprite (kind 13)
     def stamp(): return '(winlog_frames << 16) | (v_counter & 0xFFFF)'
     old = NL.join([TAB + 'if( (framePtr == 0) || (framePtr == -1) ) {',
