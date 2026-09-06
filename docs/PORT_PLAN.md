@@ -9936,3 +9936,17 @@ the standing order; if the SD is not in the PC at flow exit the copy waits for "
 Pre-registered: shaft rows clean (no blank/shifted) AND no pause => card 5 ships as
 0.2.0. Rows still blank/shifted, no pause => not the race; DA_PAD back next (card 6).
 Pause returns => the wait design is wrong somewhere; ship card 4 as 0.2.0 and revisit.
+
+### 2026-09-05 21:17 - card 5 on the SD: 3e491f73 (firmware 73075a01, busy-rest v2)
+
+Fit at seed 5 on ring RTL a22aea4, launched 20:51, fitter done 21:15, flow exit 0 at 21:17.
+
+    ALM 18,194 / 18,480 (98%)   M10K 72%
+    setup -2.549   hold +0.264       (worst corner -2.596 / +0.004)
+    = dec2f09f's placement, fifth ROM-only fit in a row
+
+Gate PASS. Deployed per the standing order (SD was in): card md5 0945652f -> 3e491f73;
+built == archive (scratch5-busyrest-v2.CANDIDATE.rbf_r) == card.
+
+Single variable against card 4: PPM_BUSY_REST 1 + PPM_BUSY_CLEAR_THROUGH_RESP 1
+(PPM_BUSY_WAIT_LOOPS 4000). Reads as pre-registered in the 21:05 entry.
