@@ -9950,3 +9950,42 @@ built == archive (scratch5-busyrest-v2.CANDIDATE.rbf_r) == card.
 
 Single variable against card 4: PPM_BUSY_REST 1 + PPM_BUSY_CLEAR_THROUGH_RESP 1
 (PPM_BUSY_WAIT_LOOPS 4000). Reads as pre-registered in the 21:05 entry.
+
+## 2026-09-05 21:40 - 0.2.0 SHIPS: card 5. #8 CLOSED.
+
+Tester (card 5, 3e491f73): shaft rows clean, no pause. GO: "ship card 5 as 0.2.0".
+
+    bitstream   3e491f73   build_output/gate-archive/scratch5-busyrest-v2.CANDIDATE.rbf_r, on the card
+    firmware    73075a01   rtl/PAPRIUM/mcu.txt, committed in the release commit WITH the patch that builds it
+    RTL         a22aea4 (ring RTL), seed 5 -> dec2f09f's placement (ALM 18,194 / M10K 72% / setup -2.549 / hold +0.264)
+    firmware config  PPM_SCRATCH_HIGH 1, PPM_BUSY_REST 1 + PPM_BUSY_CLEAR_THROUGH_RESP 1 (wait 4000),
+                     PPM_DA_PAD 0, PPM_ONSET_RING 0, PPM_HEARTBEAT 0, stream off; everything else as 0.1.0
+    recipe      scripts/build_mcu.sh (-O2) -> rtl/PAPRIUM/mcu.txt; quartus_sh -t generate.tcl paprium 5
+
+**#8 (MisterPezz82's elevator corruption), closed.** Two faults, both in the replacement
+firmware's handshake with the game, both fixed in firmware on the unchanged ring RTL:
+1. Scratch aliasing: the game parks 0xDA payloads at SDRAM 0x9000 and reads rows back through
+   0xDB06 for thousands of frames; mega-ppm's block loader unpacked at 0x9000 + 0x200n over
+   them -> 16-tile bands of sprite art under correct name tables. Fix: PPM_SCRATCH_HIGH.
+2. Busy race: the game tests busy once right after posting each row's 0xDB; the MCU could
+   answer late (loop in sfx_player_update) -> row read before the pointer moved -> blank or
+   shifted row. Fix: busy-rest v2 - busy set at rest, cleared after the pointer write,
+   released through the response, re-raised on the game's next post. (v1's pulse, raised
+   before the response, made the 0x0B41C4 reader time out 0.56 s per mode-7 0xDA: the
+   boot pause and between-screen hitch that every card from c5a2c22e to 51b67a50 carried.)
+
+Refuted on the way and not to be re-proposed: MCU port2 SDRAM starvation of the 68000
+(64f1a57f clean); SFX-quiet DMA (a9bdd55a); the heartbeat as the pause (51b67a50); a
+DMA ceiling leaving tiles unstreamed (the README's old story); 68000 faults from payloads
+(no trap ever recorded); the stream firmware (parked - its residual pointer moves are a
+separate defect, PPM_LIST_ORDER_VRAM stays 0).
+
+Still open after 0.2.0: characters animating on the spot (streaming ceiling), intro
+single-pixel flicker (cosmetic). Per-frame sprite flicker under the STREAM builds is a
+stream-only issue and does not apply to the shipped loader.
+
+Release mechanics: core.json 0.2.0 / 2026-09-05; README known-issues row -> Fixed here;
+INSTALL.md known-issues + "Fixed in 0.2.0"; check_packages.sh scoped to Koala_Koa.*
+(drizzt.MegaDrive is the unmodified upstream baseline; the old check could never pass);
+tag 0.2.0 (annotated, no v prefix, as 0.1.0); package_release.sh 0.2.0; GitHub
+pre-release with openfpga-Paprium_0.2.0.zip only.
