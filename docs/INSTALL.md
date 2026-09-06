@@ -235,15 +235,26 @@ missing file.
 
 ## Known issues
 
-Honest list, current as of 0.1.0. All of these pre-date this port and are present
+Honest list, current as of 0.2.0. All of these pre-date this port and are present
 on other Paprium setups running the same replacement firmware — several are open
 issues on the MiSTer port too.
 
 | Issue | Status |
 |---|---|
-| Elevator shaft: corrupted background tiles | **Open.** A band of wrong tiles appears low in the shaft, rides upward with the background and builds until the level ends; the Intercom Complete screen after it is affected too. Pre-dates this port and matches an open issue on the MiSTer core. Under investigation |
 | Characters sliding without their walk animation, worse with more enemies on screen | **Much improved, not eliminated.** Two separate causes were fixed; a per-frame graphics-streaming ceiling remains |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
+
+### Fixed in 0.2.0
+
+- **Elevator shaft: corrupted background tiles**, and the Intercom Complete screen
+  after it (open as #8 on the MiSTer port). Two faults in the replacement firmware's
+  handshake with the game. The game parks a level payload in cartridge RAM at
+  `0x9000` and reads rows of it back for thousands of frames, and the firmware
+  unpacked new sprite blocks into scratch at the same address, so the rows came
+  back as bands of sprite art; the scratch moved above anything the game addresses.
+  Then, visible once the bands were gone: each frame's row request could be read
+  before the cartridge had moved its pointer, giving a blank or shifted row; the
+  busy flag is now held until the pointer is in place
 
 ### Fixed in 0.1.0
 
@@ -261,17 +272,15 @@ The full list, with what each bug actually was, is in the
 
 ### On the elevator, specifically
 
-The level had **two unrelated faults**. The depth problem — the background enemy
-scrolling wrongly and the player dropping behind the scenery — was the sprite
-ordering bug, and it is fixed. The corrupted tiles are separate and still open.
+The level had **two unrelated faults**, and both are now fixed. The depth problem —
+the background enemy scrolling wrongly and the player dropping behind the scenery —
+was the sprite ordering bug, fixed in 0.1.0. The corrupted tiles were the firmware's
+scratch area sitting on top of a payload the game reads back while the shaft scrolls,
+fixed in 0.2.0, with a second, smaller row-timing fault behind it.
 
-The working explanation for those is a per-frame streaming limit: the game grants
-a fixed graphics budget per frame, and a shaft that scrolls faster than the budget
-can refill leaves stale tiles behind. That is a derivation rather than a
-measurement, and one measurement already complicates it — the sprite side of the
-loader runs at about 3% refusals in that scene, the same as everywhere else in the
-game, so whatever is short, it is not that. The background path has not been
-measured yet.
+0.1.0's text here offered a per-frame streaming limit as the working explanation.
+That was a derivation, not a measurement, and it was wrong: the tiles were streamed
+in fine and then overwritten in cartridge RAM.
 
 Timing does not fully close on this device — a known property inherited from the
 base core, which runs correctly on hardware regardless.
