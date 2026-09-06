@@ -14,7 +14,7 @@ does not put it in the public domain - it is still their work.
 
 ## What you need
 
-- An Analogue Pocket with **openFPGA** support (firmware 1.1 or later)
+- An Analogue Pocket on **firmware 2.3 or later** — the core declares APF 2.3 because the music streamer uses a data-slot command older firmware does not offer
 - A microSD card, formatted as the Pocket expects
 - Your own dump of the Paprium cartridge — 8 MiB, serial `GM T-574120-00`
 - Optionally, the music blob (see [Music](#music))
