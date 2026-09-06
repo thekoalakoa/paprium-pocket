@@ -22,7 +22,7 @@ from your own dump is a way of keeping it playable.
 
 ## Download
 
-**[Get the latest release](https://github.com/thekoalakoa/paprium-pocket/releases)** (the newest entry — releases are marked pre-release while known issues stay open, and GitHub's "latest" link skips those) — `openfpga-Paprium_<version>.zip`, and unzip it onto your SD card.
+**[Get the latest release](https://github.com/thekoalakoa/paprium-pocket/releases/latest)** — `openfpga-Paprium_<version>.zip`, and unzip it onto your SD card.
 
 > [!NOTE]
 > **The core is not in this repository — it is in the release.** `paprium.rbf_r` is
@@ -79,7 +79,7 @@ replacement firmware. Several are confirmed on real EverDrive Pro hardware.
 
 | Issue | Status |
 |---|---|
-| Characters animating on the spot — attacks and walk cycles not showing their frames | **Fixed in 0.2.1 for changes of action; one case still open.** When a block for a *new* animation could not be loaded in time, the firmware rewound the object to its previous frame and, in doing so, overwrote the game's one-shot "restart animation" request — so the object carried on in its old cycle until the game asked for a different animation. A change of action is exactly when new art is needed, which is why attacks lost their frames. The request is now kept pending and retried on the next draw (`PPM_STICKY_SWITCH`), and the tiles of the frame shown meanwhile are protected from eviction within the same frame (`PPM_PIN_FALLBACK`). The earlier improvements stand: residency raised from 49 to the 53 blocks the game asks for, and sprites composed on the draw command rather than in a batch at frame end. Still open: walking in from a screen transition can play as the standing pose while the game's own transfers fill the frame's DMA budget; a floor on the loader's share of that budget is under test |
+| Characters animating on the spot — attacks not showing their frames, and a walk that slides in the standing pose when entering a new screen | **Fixed in 0.2.1, two separate faults.** (1) When a block for a *new* animation could not be loaded in time, the firmware rewound the object to its previous frame and, in doing so, overwrote the game's one-shot "restart animation" request — so the object carried on in its old cycle until the game asked for a different animation. A change of action is exactly when new art is needed, which is why attacks lost their frames. The request is now kept pending and retried on the next draw (`PPM_STICKY_SWITCH`), and the tiles of the frame shown meanwhile are protected from eviction within the same frame (`PPM_PIN_FALLBACK`). (2) At a screen transition the game queues "idle" as the walk's follow-up and then scripts the character across without touching it again. Stock firmware — and the reference emulator — took a queued follow-up as soon as the current cycle ended, so the character went idle and slid; the real cartridge keeps walking. A looping animation now keeps looping and a queued follow-up applies only when an animation actually ends (`PPM_CHAIN_ONLY_AT_END`). The earlier improvements stand: residency raised from 49 to the 53 blocks the game asks for, and sprites composed on the draw command rather than in a batch at frame end. A small floor on the loader's share of the frame's DMA budget (`PPM_DMA_FLOOR_BLOCKS`) is also in, measured harmless |
 | Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
 
 ### Fixed here
@@ -367,8 +367,9 @@ you obtain the ROM or the soundtrack** — see [What this is not](#what-this-is-
 
 ## Versioning
 
-Releases are **beta** while the list under [Known issues](#known-issues) is open,
-and are published as GitHub pre-releases to say so.
+Releases are published as full GitHub releases from 0.2.1 on (0.1.0 and 0.2.0
+were pre-releases while the elevator corruption was open). What is still open is
+listed under [Known issues](#known-issues); it does not hold a release back.
 
 **Any released update that changes the game takes a patch bump** — `0.1.1`,
 `0.1.2` and so on. If what a player sees or hears is different, the version moves,
