@@ -109,8 +109,8 @@ runs correctly on hardware regardless.
 
 ### How these were found
 
-Most of them came from four cheap techniques rather than from reading code until
-something looked wrong. Worth writing down, because they transfer to the parts
+Most of them came from a handful of cheap techniques rather than from reading code
+until something looked wrong. Worth writing down, because they transfer to the parts
 still open:
 
 - **A mailbox command logger.** A build variant records every command the game
@@ -151,6 +151,39 @@ still open:
   the search to the data being fed in, which turned out to be an uninitialised
   buffer. **The wrong explanation was internally consistent and produced a fix
   that would have made things worse**
+
+- **Instrumenting the emulator's cartridge window.** Genesis Plus GX, patched to
+  log every 68000 read through the cartridge window, every mailbox command and
+  every status poll with the address of the code doing it
+  (`scripts/apply_gpgx_winlog.py`, `scripts/gpgx_winlog_build.sh`). That log is
+  what showed the game parks a decompressed level payload at cartridge RAM
+  `0x9000` and reads rows of it back thousands of frames later — the moment the
+  shaft corruption stopped being "tiles never streamed" and became "tiles
+  overwritten in cartridge RAM by the firmware's own scratch". The emulator has
+  no MCU scratch, which is exactly why it does not have the bug and why the
+  comparison worked
+- **Bisecting by card, one variable at a time, on a placement that does not
+  move.** Fits on this device sit at 98% of the logic; a firmware-only change on
+  unchanged RTL lands on the identical placement every time, so consecutive test
+  builds differ by exactly one firmware switch and a hardware read means one
+  thing. Five cards settled the two elevator faults and refuted four candidates
+  on the way — MCU SDRAM traffic starving the 68000, pausing SFX reads during
+  DMA, the crash recorder as the cost of the boot pause, and the streaming
+  loader — each with one build and one ride in the shaft
+- **Reading the ROM at the poll sites.** The boot log listed every reader of the
+  cartridge's busy flag and the command posted before it; disassembling those
+  five addresses turned up one that waits for the command response first and
+  *then* polls busy-clear, with a 65,534-iteration timeout. The first busy fix
+  raised the flag again before the response, so that reader ran its full timeout
+  — 0.56 s — after every scene load. That was the boot pause, and it was a dozen
+  lines of 68000 code (`scripts/busy_polls.py`, `scripts/backtoback_posts.py`)
+- **A crash recorder in battery RAM.** A build variant has the firmware write a
+  40-byte record of what it is doing — phase, command, stack pointer, trap cause
+  — into the save every frame, and the save survives a hang if the core is
+  exited from the Pocket's menu (`scripts/decode_heartbeat.py`). It showed the
+  MCU never trapped and the 68000 never faulted during a hang that looked like a
+  crash, which took a whole chain of "corrupted payload → CPU fault"
+  explanations off the table without a single fix attempt
 
 The pan bug is the exception: one side of every off-centre effect was
 phase-inverted, which cancels when the Pocket sums to its mono speaker. Impacts
@@ -379,11 +412,25 @@ did not exist upstream — plus changes throughout the rest:
   is deliberately never asserted — see below.
 - **Firmware fixes**, built from krikzz's source — see [patches/](patches/). The
   punk-TV cue never looped because `sfx_player_update` abandons a channel once it
-  empties, so the game's later `sfx_loop` landed on a dead one.
-- **Diagnostics** — a mailbox command logger, SFX channel-state capture, and
-  savestate tooling that reads the VDP registers, sprite table and tile patterns
-  straight out of a Genesis Plus GX state (`scripts/parse_gpgx_state.py`,
-  `scripts/render_vram_tiles.py`). That is how the VRAM map was settled: the
+  empties, so the game's later `sfx_loop` landed on a dead one. The elevator
+  corruption (0.2.0) is two firmware changes on unchanged RTL: the MCU's scratch
+  area — block unpacking and staging — moved from `0x9000`, where the game parks
+  and re-reads level payloads, to `0x1E0000` (`PPM_SCRATCH_HIGH`); and the busy
+  handshake redesigned so busy is held set at rest, dropped once the read
+  pointer has moved, released through the command response and raised again on
+  the game's next post (`PPM_BUSY_REST`, `PPM_BUSY_CLEAR_THROUGH_RESP`). Stock
+  `mega-ppm` has neither, so the fault is on every setup running it. The MCU's
+  instruction memory is also 32 KB here, grown from 16 KB, to hold the
+  diagnostic builds.
+- **Diagnostics** — a mailbox command logger, SFX channel-state capture, a
+  Genesis Plus GX cartridge-window logger with its analysers
+  (`scripts/apply_gpgx_winlog.py`, `scripts/analyze_stream.py`,
+  `scripts/busy_polls.py`), a battery-RAM crash recorder and its decoder
+  (`scripts/decode_heartbeat.py`), and savestate tooling that reads the VDP
+  registers, sprite table and tile patterns straight out of a GPGX state
+  (`scripts/parse_gpgx_state.py`, `scripts/render_vram_tiles.py`). All of the
+  firmware instruments sit behind switches and are off in the release; the
+  shipped firmware is 0.1.0's configuration plus the two elevator fixes. That is how the VRAM map was settled: the
   planes and the sprites use strictly separate tile ranges —
 
       tiles  800-863   VRAM 0x6400-0x6BFF   background art, planes only
