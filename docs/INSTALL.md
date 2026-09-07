@@ -308,5 +308,6 @@ Expect it to play well, not to be cycle-accurate.
 | Paprium_MegaDrive_MiSTer | MisterPezz82 |
 | mega-ppm firmware | krikzz |
 | Pocket port | Koala_Koa |
+| Platform artwork (logo banner) | [Lemongrwab](https://github.com/Lemongrwab), used with permission |
 
 Licensed under GPLv3.

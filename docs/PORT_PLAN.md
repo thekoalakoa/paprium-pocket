@@ -4332,6 +4332,8 @@ The game plays fully with three buttons, which is how it reads the pad.
 
 ## Platform artwork: the Pocket's .bin format, decoded
 
+**Shipping art (2026-09-07):** banner by [Lemongrwab](https://github.com/Lemongrwab), used with permission. Converted to Analogue blue house style with logo-only invert (character shading preserved). Earlier WaterMelon key-art / magenta-logo key notes below are historical.
+
 Worked out by decoding Analogue's own files, since the format is not documented
 anywhere we could find:
 
