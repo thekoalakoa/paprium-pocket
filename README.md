@@ -432,9 +432,9 @@ Built on five projects. GPLv3 throughout, so all of it stays credited.
 
 ### Artwork
 
-The platform image — the banner on the Pocket's system list — is by
-**LemonGrwab**. The artwork is theirs; only the conversion into Analogue's
-format is this repo's, via `scripts/make_platform_image.py`.
+The platform image — the banner on the Pocket's system list — was made for
+this core by **LemonGrwab**. The artwork is theirs; only the conversion into
+Analogue's format is this repo's, via `scripts/make_platform_image.py`.
 
 ### What this port adds
 
