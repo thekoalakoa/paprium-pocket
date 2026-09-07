@@ -15,6 +15,7 @@ Lineage:
   openFPGA-MegaDrive (Pocket port).. drizzt
   Paprium_MegaDrive_MiSTer ......... MisterPezz82
   mega-ppm firmware ................ krikzz
+  Platform artwork ................. Lemongrwab (github.com/Lemongrwab), used with permission
 
 Assets go in /Assets/paprium/common/ :
   Paprium.md      the 8 MiB cartridge dump (GM T-574120-00), required

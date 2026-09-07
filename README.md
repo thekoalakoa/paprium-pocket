@@ -429,12 +429,13 @@ Built on five projects. GPLv3 throughout, so all of it stays credited.
 | [openFPGA-MegaDrive](https://github.com/drizzt/openFPGA-MegaDrive) | drizzt — the Pocket port this forks |
 | [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge RTL: MCU integration, mailbox, memory map, SFX engine, MD+ adapter |
 | [mega-ppm](https://github.com/krikzz/mega-ppm) | krikzz — the replacement MCU firmware, and the source this core's firmware is built from |
+| Platform artwork | [Lemongrwab](https://github.com/Lemongrwab) — logo banner for `/Platforms/_images/paprium.bin`, used with permission |
 
 ### Artwork
 
 The platform image — the banner on the Pocket's system list — was made for
-this core by **LemonGrwab**. The artwork is theirs; only the conversion into
-Analogue's format is this repo's, via `scripts/make_platform_image.py`.
+this core by **Lemongrwab**. The artwork is theirs; only the conversion into
+Analogue's format is this repo's, via `scripts/make_platform_lemongrwab.py`.
 
 ### What this port adds
 
