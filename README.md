@@ -430,6 +430,12 @@ Built on five projects. GPLv3 throughout, so all of it stays credited.
 | [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge RTL: MCU integration, mailbox, memory map, SFX engine, MD+ adapter |
 | [mega-ppm](https://github.com/krikzz/mega-ppm) | krikzz — the replacement MCU firmware, and the source this core's firmware is built from |
 
+### Artwork
+
+The platform image — the banner on the Pocket's system list — is by
+**LemonGrwab**. The artwork is theirs; only the conversion into Analogue's
+format is this repo's, via `scripts/make_platform_image.py`.
+
 ### What this port adds
 
 About 40% of `rtl/PAPRIUM` is new here — 1,519 of 3,596 lines are in files that
