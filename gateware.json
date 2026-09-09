@@ -1,7 +1,7 @@
 {
   "name": "MegaDrive",
   "displayName": "Sega Mega Drive / Genesis",
-  "description": "Sega Mega Drive / Genesis for Analogue Pocket, based on Nuked-MD-FPGA",
+  "description": "Sega Mega Drive / Genesis for Analogue Pocket, based on Nuked-MD-FPGA with the FX68K 68000",
   "author": "drizzt",
   "version": "0.2.2",
   "license": "GPL-3.0-or-later",

@@ -1,5 +1,8 @@
-// fx68k-soak: pin-compatible wrapper around ijor/FX68K for paprium-pocket Nuked md_board.
-// Measurement / soak branch only - NOT a shipping CPU swap.
+// Pin-compatible wrapper around ijor/FX68K for paprium-pocket's Nuked md_board.
+// SHIPPING CPU from 0.2.2, selected by USE_FX68K (see projects/megadrive_pocket.qsf).
+// FX68K (c) 2018, 2021 Jorge Cwik, GPLv3-or-later. Wrapper GPLv3-or-later.
+// NOTE: the 0.2.2 bitstream was fit from this file at md5 a748606093f7a18ad641d300a7824ef0,
+// which differs from the current file only in this header comment.
 // flicker A/B VCLK-enPhi on 0.2.1 (isolation: Nuked clean).
 // ONE VARIABLE vs lead-1 free-run A4DEABF0: enPhi from VCLK edge-detect (CLK=VCLK);
 // LOCKED pads 0298/AA50 unchanged. Prior VCLK 3D7CED75 was on 0.2.0 pre-animation-fix.

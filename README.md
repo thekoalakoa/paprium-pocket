@@ -167,7 +167,8 @@ still open:
   no MCU scratch, which is exactly why it does not have the bug and why the
   comparison worked
 - **Bisecting by card, one variable at a time, on a placement that does not
-  move.** Fits on this device sit at 98% of the logic; a firmware-only change on
+  move.** Fits on this device sat at 98% of the logic before the 0.2.2 CPU swap, 88%
+  after; a firmware-only change on
   unchanged RTL lands on the identical placement every time, so consecutive test
   builds differ by exactly one firmware switch and a hardware read means one
   thing. Five cards settled the two elevator faults and refuted four candidates
@@ -442,11 +443,12 @@ list actually shrinks.
 
 ## Lineage
 
-Built on five projects. GPLv3 throughout, so all of it stays credited.
+Built on six projects. GPLv3 throughout, so all of it stays credited.
 
 | | |
 |---|---|
-| [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA) | nukeykt — gate-level model of the real silicon; the console itself |
+| [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA) | nukeykt — gate-level model of the real silicon; the console itself. Everything but the 68000: the VDP, the arbiter, the I/O chip, the FM, the Z80 and the board |
+| [FX68K](https://github.com/ijor/fx68k) | Jorge Cwik (ijor) — the 68000, from 0.2.2. Replaces Nuked's gate-level CPU and frees the ALM the synthesiser needs; Nuked's netlist is still in the tree behind `USE_FX68K` |
 | [MegaDrive_MiSTer](https://github.com/MiSTer-devel/MegaDrive_MiSTer) | MiSTer-devel — the core built around it |
 | [openFPGA-MegaDrive](https://github.com/drizzt/openFPGA-MegaDrive) | drizzt — the Pocket port this forks |
 | [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge RTL: MCU integration, mailbox, memory map, SFX engine, MD+ adapter |
@@ -533,4 +535,8 @@ most likely a result of this port.
 
 ## Licence
 
-GPLv3, inherited from the upstream projects. See [LICENSE](LICENSE).
+GPLv3 or later. Nuked-MD-FPGA is GPLv2-or-later and FX68K is GPLv3-or-later;
+exercising Nuked's *or later* option is what lets the two combine, so the work as a
+whole is GPLv3-or-later. See [LICENSE](LICENSE), and the vendored
+`rtl/upstream/nuked-md/LICENSE` (GPLv2) and `rtl/fx68k/LICENSE` (GPLv3), both of
+which stay as they are.
