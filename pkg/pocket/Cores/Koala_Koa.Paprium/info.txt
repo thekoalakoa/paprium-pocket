@@ -9,28 +9,18 @@ chipset is not reproduced; this takes the EverDrive Pro approach, running
 krikzz's mega-ppm replacement MCU firmware, with the music streamed from
 SD card instead of the original wave ROM.
 
-Lineage:
-  Nuked-MD-FPGA .................... nukeykt
-                                     Copyright (C) 2022-2023 nukeykt
-                                     the chipset: VDP, arbiter, I/O, FM, Z80, board
-  FX68K (68000, from 0.2.2) ........ Jorge Cwik (ijor)
-                                     Copyright (c) 2018, 2021 Jorge Cwik
-  MegaDrive_MiSTer ................. MiSTer-devel
-  openFPGA-MegaDrive (Pocket port).. drizzt
-  Paprium_MegaDrive_MiSTer ......... MisterPezz82
-  mega-ppm firmware ................ krikzz
+Lineage, all GPL:
+  Nuked-MD-FPGA ......... (C) 2022-2023 nukeykt
+  FX68K, the 68000 ...... (c) 2018, 2021 Jorge Cwik (ijor)
+  MegaDrive_MiSTer ...... MiSTer-devel
+  openFPGA-MegaDrive .... drizzt
+  Paprium_MD_MiSTer ..... MisterPezz82
+  mega-ppm firmware ..... krikzz
 
 Assets go in /Assets/paprium/common/ :
-  Paprium.md      the 8 MiB cartridge dump (GM T-574120-00), required
-  paprium.pcm     the music blob, optional. Build it from your own rip of
-                  the soundtrack: scripts/build_cdda.sh converts the tracks,
-                  then scripts/build_cdda_adpcm.py packs them into one
-                  ~543 MB file. See the README, section "Music".
+  Paprium.md    the 8 MiB cartridge dump (GM T-574120-00), required
+  paprium.pcm   the music blob, optional - build it from your own rip
+                of the soundtrack; see the README, section "Music".
 
-Source: https://github.com/thekoalakoa/paprium-pocket
-The complete corresponding source for this bitstream, including the vendored
-Nuked-MD-FPGA and FX68K, is in that repository at the tag matching the version
-above. A copy of the GNU General Public License v3 is in this folder (LICENSE).
-
-Licensed under GPLv3 or later. Nuked-MD-FPGA is GPLv2-or-later and FX68K is
-GPLv3-or-later; the combined work is GPLv3-or-later.
+Source: github.com/thekoalakoa/paprium-pocket (complete corresponding
+source, at the tag above). GPLv3 or later; full text in LICENSE here.
