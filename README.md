@@ -41,9 +41,11 @@ Boot, decompression, graphics streaming, saves, the cartridge's own sound effect
 and music — with correct per-scene track selection and one-shot cues that stop
 rather than loop.
 
-Fits a Cyclone V `5CEBA4F23C8` at **98% ALM and 95% M10K**, on a device with less
-than half the logic of the MiSTer board this was ported from. There is very little
-room left; see [docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) before adding
+Fits a Cyclone V `5CEBA4F23C8` at **88% ALM and 93% M10K**, on a device with less
+than half the logic of the MiSTer board this was ported from. From 0.2.2 the 68000
+is [FX68K](https://github.com/ijor/fx68k) rather than the gate-level netlist, which
+is what freed the ten points of ALM the cartridge synthesiser will need. There is
+little room left; see [docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) before adding
 anything.
 
 The core boots straight into the game — no file browser, and no region option.
@@ -399,6 +401,26 @@ Photos or video of the moment it goes wrong are worth more than any description.
 
 Please check [Known issues](#known-issues) first, and note that **we cannot help
 you obtain the ROM or the soundtrack** — see [What this is not](#what-this-is-not).
+
+## Changelog
+
+**0.2.2** — the 68000 changes. The core now runs [FX68K](https://github.com/ijor/fx68k)
+(Jorge Cwik, GPL-3, vendored in `rtl/fx68k/`) in place of the gate-level netlist. For a
+player nothing should look or sound different; the point is area. The fit drops from 98%
+to 88% ALM, and that headroom is what the live synthesiser under
+[Known issues](#known-issues) needs.
+
+Getting there needed one fix in the CPU wrapper worth recording, because it is the kind of
+fault that hides for a long time. The wrapper released the 68000's function-code pins as
+soon as the address strobe went inactive, but the board registers that strobe a cycle
+later — so for one cycle the arbiter saw the pin pattern that means *interrupt
+acknowledge* while the strobe still read active, and the video chip discarded whichever
+raster interrupt it was holding. Roughly eleven thousand false acknowledgements a frame.
+Because the game's raster-interrupt chain reloads itself from each handler, one lost
+interrupt threw every later split on that frame onto the wrong line — a whole plane in the
+wrong place. Holding the function code one cycle longer fixes it.
+
+**0.2.1** — character animation fixed; first full release.
 
 ## Versioning
 

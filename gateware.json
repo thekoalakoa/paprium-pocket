@@ -3,7 +3,7 @@
   "displayName": "Sega Mega Drive / Genesis",
   "description": "Sega Mega Drive / Genesis for Analogue Pocket, based on Nuked-MD-FPGA",
   "author": "drizzt",
-  "version": "0.3.0",
+  "version": "0.2.2",
   "license": "GPL-3.0-or-later",
   "repository": "https://github.com/drizzt/openFPGA-MegaDrive",
   "keywords": [
