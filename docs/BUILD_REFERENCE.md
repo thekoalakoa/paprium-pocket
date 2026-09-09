@@ -1,14 +1,16 @@
 # Build reference: fit and timing gates
 
 Tell the variants apart by **M10K**, not ALM: cmdlog is always **308** (the 16 KB
-ring), shipping is **294**. ALM alone does not distinguish them, and mistaking one
+ring), shipping is **286** from 0.2.2 (**294** at 0.2.1 and earlier, before the FX68K
+CPU swap). ALM alone does not distinguish them, and mistaking one
 for the other already caused a gate to be set on the wrong baseline.
 
 ## Measured builds
 
 | variant  | build             | ALM    | M10K | slack  | TNS    | boots? |
 |----------|-------------------|--------|------|--------|--------|--------|
-| shipping | `61d1ddd3` CURRENT| 16,900 | 294  | -2.539 | -1,201 | YES |
+| shipping | 0.2.2 FX68K CURRENT| 16,347 | 286  | -1.021 | ?      | YES - hardware scored 2026-09-09 |
+| shipping | `61d1ddd3` (0.2.1)| 16,900 | 294  | -2.539 | -1,201 | YES |
 | shipping | remap (reverted)  | 16,900 | 294  | -2.539 | -1,201 | boots, but cell-room floor breaks - see PORT_PLAN |
 | shipping | 6-btn tied off    | 18,051 | 294  | -2.666 | -1,559 | YES |
 | cmdlog   | budget capture    | 18,117 | 308  | ?      | ?      | YES |
@@ -68,6 +70,8 @@ The ima1 sweep, one tree, four fitter seeds:
 before. So a single bad fit is not evidence that a change broke timing - at 98%
 occupancy the placement is the dominant term, and the critical paths it produces
 (VDP prescaler -> 68000, mcu_mem -> SDRAM address) are in logic nobody touched.
+(0.2.2: occupancy is now 88% and the 68000 endpoint of that first path is FX68K, not
+the Nuked netlist, so re-measure before reusing this spread as a gate.)
 
 Two consequences worth keeping:
 
@@ -223,7 +227,7 @@ form of the same fix lands at identity with 61d1ddd3, that is the copy to keep.
 Measured while trying to fit a stream-pointer read-back for the elevator
 corruption. The `paprium_nosfx` variant drops the whole SFX mixer:
 
-    shipping        ALM 18,194 (98%)  M10K 294 (95%)  setup -2.596
+    shipping (0.2.1) ALM 18,194 (98%)  M10K 294 (95%)  setup -2.596
     nosfx + readback ALM 16,588 (90%)  M10K 254 (82%)  setup -2.959
 
 **1,600 ALMs and 40 M10K freed, and setup did not improve.** So congestion is not

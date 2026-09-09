@@ -11,6 +11,10 @@ SD card instead of the original wave ROM.
 
 Lineage:
   Nuked-MD-FPGA .................... nukeykt
+                                     Copyright (C) 2022-2023 nukeykt
+                                     the chipset: VDP, arbiter, I/O, FM, Z80, board
+  FX68K (68000, from 0.2.2) ........ Jorge Cwik (ijor)
+                                     Copyright (c) 2018, 2021 Jorge Cwik
   MegaDrive_MiSTer ................. MiSTer-devel
   openFPGA-MegaDrive (Pocket port).. drizzt
   Paprium_MegaDrive_MiSTer ......... MisterPezz82
@@ -23,4 +27,10 @@ Assets go in /Assets/paprium/common/ :
                   then scripts/build_cdda_adpcm.py packs them into one
                   ~543 MB file. See the README, section "Music".
 
-Licensed under GPLv3.
+Source: https://github.com/thekoalakoa/paprium-pocket
+The complete corresponding source for this bitstream, including the vendored
+Nuked-MD-FPGA and FX68K, is in that repository at the tag matching the version
+above. A copy of the GNU General Public License v3 is in this folder (LICENSE).
+
+Licensed under GPLv3 or later. Nuked-MD-FPGA is GPLv2-or-later and FX68K is
+GPLv3-or-later; the combined work is GPLv3-or-later.
