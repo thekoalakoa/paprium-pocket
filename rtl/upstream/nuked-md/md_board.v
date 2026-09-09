@@ -522,7 +522,8 @@ module md_board
 	assign ext_ZCLK_o = ZCLK;
 `endif
 	
-	// fx68k-soak: USE_FX68K selects ijor/FX68K wrapper (fit/soak measurement only)
+	// paprium-pocket: USE_FX68K selects ijor/FX68K - the SHIPPING CPU from 0.2.2.
+	// The Nuked m68kcpu netlist below is retained and still builds with the macro undefined.
 	`ifdef USE_FX68K
 	fx68k_m68kcpu_wrap m68k
 	`else
