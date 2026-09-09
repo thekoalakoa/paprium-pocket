@@ -302,11 +302,12 @@ Expect it to play well, not to be cycle-accurate.
 
 | | |
 |---|---|
-| Nuked-MD-FPGA | nukeykt |
+| Nuked-MD-FPGA | nukeykt — the chipset: VDP, arbiter, I/O chip, FM, Z80, board |
+| FX68K (the 68000, from 0.2.2) | Jorge Cwik (ijor) |
 | MegaDrive_MiSTer | MiSTer-devel |
 | openFPGA-MegaDrive (Pocket port) | drizzt |
 | Paprium_MegaDrive_MiSTer | MisterPezz82 |
 | mega-ppm firmware | krikzz |
 | Pocket port | Koala_Koa |
 
-Licensed under GPLv3.
+Licensed under GPLv3 or later.

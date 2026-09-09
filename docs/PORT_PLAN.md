@@ -665,7 +665,7 @@ number as N seconds and count.
 Working on hardware: MCU boot, decompression, graphics streaming, saves,
 cartridge PCM sound effects, and music with correct per-scene track selection and
 one-shot behaviour. Standalone core packaged as `Koala_Koa.Paprium`, platform
-`paprium`, category Others. Fits at 98% ALM.
+`paprium`, category Others. Fits at 88% ALM (0.2.2; 98% before the FX68K swap).
 
 Everything needed to rebuild is committed. `docs/PORT_PLAN.md` (this file) is the
 whole history and reasoning.
@@ -2644,7 +2644,8 @@ That is documented in INSTALL.md rather than left for someone to discover.
 ### DEFERRED: the hardware-accurate implementation
 
 Not built, and deliberately so - it is new RTL on a core fitting at 98% ALM with
-4 ps of hold margin, for a checkbox whose purpose is to sound worse. Recorded in
+4 ps of hold margin (0.2.2: now 88% ALM, so re-cost this before assuming it is still
+out of reach), for a checkbox whose purpose is to sound worse. Recorded in
 full because **it becomes cheap on a larger FPGA**, and whoever ports this should
 not have to rediscover any of it.
 
@@ -4089,8 +4090,8 @@ earlier finding that GPGX's Paprium code carries no Mega CD or 32X references.
 
 ### Consequence for the Sega CD idea
 
-Implementing a Mega CD inside this core is not feasible - we are at 91% ALM
-(16,900/18,480) and 95% M10K (294/308), and a Mega CD needs a second 68000, gate
+Implementing a Mega CD inside this core is not feasible - we are at 88% ALM
+(16,347/18,480) and 93% M10K (286/308), and a Mega CD needs a second 68000, gate
 array, CD controller, RF5C164, plus 512K PRG RAM, 256K word RAM, 64K PCM RAM and a
 BIOS. Pocket Mega CD cores exist, but each spends the whole FPGA on that; ours
 already spends the whole FPGA on the Mega Drive plus Paprium's cartridge hardware.
@@ -7276,7 +7277,38 @@ with the card and can run in parallel.
 
 ### Experiment: swap nuked-md's 68000 for FX68K
 
-**Status: queued, and the measurement above says it will NOT fix timing.** Even a
+**RESOLVED — shipped in 0.2.2 (2026-09-09).** The swap happened. Everything below is
+left as written, because it was right about what mattered.
+
+*Right about the reason.* Area was the justification and it delivered: 98% to **88% ALM**
+(16,347/18,480), 95% to **93% M10K** (286/308). That is the headroom the 26-voice work
+needs.
+
+*Right about timing.* It did not improve, exactly as measured here — setup WNS −1.021 ns
+against the same inherited critical paths, which never touched the CPU. The note above
+that this must not "get resold as anything else later" was worth writing.
+
+*Right about the gamble, and this is the part that cost the time.* "A compatibility gamble
+on the one game the core exists to run" — it was. FX68K's own bus behaviour turned out to
+match the netlist to within one tick on every path measured, and nine separate mechanisms
+were closed proving it. The **wrapper** was the problem. It released the 68000's
+function-code pins as soon as the address strobe went inactive, but the board registers
+that strobe a cycle later, so for one cycle the arbiter saw the pin pattern that means
+*interrupt acknowledge* while the strobe still read active, and the VDP discarded whichever
+raster interrupt it was holding — roughly eleven thousand false acknowledgements a frame.
+With DMA in the frame the CPU acknowledged **one raster interrupt in fifty-three**. Because
+the game's raster chain reloads itself from each handler, a single loss threw every later
+split onto the wrong line: a whole plane displaced for a whole frame. Holding the function
+code one cycle longer closed it.
+
+*The identity rule above was followed.* New seed (5), hold positive (+0.041 ns), then
+hardware smoke: boot, character-select, elevator, ship bar in menu and levels, and the Tug
+room, all clean. The compatibility failure did appear; it was fixed rather than reverted
+because it was traced to the wrapper, not to FX68K.
+
+
+**Status: SHIPPED in 0.2.2 - see the resolution note above. (Original status: queued,
+and the measurement above says it will NOT fix timing.)** Even a
 zero-delay 68000 leaves the critical path at -2.549, because the worst paths never
 touch the CPU. It would free area - `nuked-md/68k.v` is 6,299 lines of gate-level
 Verilog against FX68K's far more compact microcoded design - but **area was
@@ -8059,7 +8091,7 @@ elevator has not been logged yet.
 **What would settle both the over-read and the pre-registered flat branch
 at once:** one more hook, in `vdp_ctrl.c`'s `vdp_dma_68k_ext` - source,
 VRAM destination, length per 68k-bus DMA. That is the "land/index"
-visibility the Pocket cannot afford at 98% ALM, for free, in the emulator.
+visibility the Pocket cannot afford at 98% ALM (0.2.2: 88%), for free, in the emulator.
 Proposed, not started.
 
 **Functional cut staged (14:55):** `apply_fpgio_slot5.py` (scratch) moves the
