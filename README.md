@@ -441,6 +441,15 @@ built. Several changes in this project's history looked right, passed every fit
 gate, and were wrong on the device. The minor version moves when the known-issues
 list actually shrinks.
 
+## Sponsor
+
+If this is useful to you, you can sponsor the work at
+[github.com/sponsors/thekoalakoa](https://github.com/sponsors/thekoalakoa).
+
+It changes nothing about the core: it is GPLv3, the source is all here, and none of
+it is or will be behind a sponsorship. It also cannot buy you the ROM or the
+soundtrack — see [What this is not](#what-this-is-not).
+
 ## Lineage
 
 Built on six projects. GPLv3 throughout, so all of it stays credited.
