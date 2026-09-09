@@ -1,14 +1,15 @@
 // fx68k-soak: pin-compatible wrapper around ijor/FX68K for paprium-pocket Nuked md_board.
 // Measurement / soak branch only - NOT a shipping CPU swap.
-// 2026-09-06 DATA_FC_AUDIT addr-data-fix soak (from addr-fix BC6E8519 blank):
-// - KEEP: ADDRESS=eab[23:1]; ADDRESS_z=~addrOe (CART_ADDR_AUDIT — Nuked-true)
-// - FIX:  DATA_o=oEdb, iEdb(DATA_i) — Nuked pin is TRUE (DATA_o=~data_io cancels
-//         internal ~load; cart_data/VD true; FX68K oEdb/iEdb true). Prior data-noinv
-//         499F99E6 kept ADDRESS=~eab — not a clean combo with addr-fix.
-// - FIX:  FC={FC2,FC1,FC0} (drop invert) — ym6045 fc00..fc11 decode true FC bits;
-//         Nuked FC=~w32x with inverted-sense regs → pin true; FX68K rFC true.
-// - KEEP: *n pass-through; BG=BGn; RW_z=eRWn&ASn; strobe_z=ASn; FC_z=ASn; DATA_z=ASn|eRWn
-// - KEEP: HALTn=1'b1; HALT_pull=~oHALTEDn; cold pwrUp; combo enPhi lead-1; MCLK/14 CLEAN
+// flicker A/B VCLK-enPhi on 0.2.1 (isolation: Nuked clean).
+// ONE VARIABLE vs lead-1 free-run A4DEABF0: enPhi from VCLK edge-detect (CLK=VCLK);
+// LOCKED pads 0298/AA50 unchanged. Prior VCLK 3D7CED75 was on 0.2.0 pre-animation-fix.
+// - KEEP: ADDRESS=eab[23:1]; ADDRESS_z=~addrOe
+// - KEEP: DATA_o=oEdb, iEdb(DATA_i); DATA_z=ASn|eRWn
+// - KEEP: FC={FC2,FC1,FC0}; FC_z=ASn
+// ALT1+VPA: BR/BGACK/VPA flopped on enPhi2 (vs ALT1 E98AAB3E)
+// Spec-GO 1-tick DTACK: MCLK-flop DTACK -> FX DTACKn (ONE VARIABLE vs ALT1+VPA)
+// - KEEP: *n pass-through except BRn/BGACKn=br_d/bgack_d, VPAn=vpa_d; BG=BGn; RW_z=eRWn&ASn; strobe_z=ASn
+// - KEEP: HALTn=1'b1; HALT_pull=~oHALTEDn; cold pwrUp; fx_reset
 `timescale 1ns / 1ns
 
 module fx68k_m68kcpu_wrap (
@@ -56,18 +57,35 @@ module fx68k_m68kcpu_wrap (
 	wire fx_reset = ~RESET_i | pwrUp;
 	wire fx_haltn = 1'b1;
 
-	reg [3:0] phiCnt;
-	always @(posedge MCLK) begin
-		if (fx_reset)
-			phiCnt <= 4'd0;
-		else if (phiCnt == 4'd13)
-			phiCnt <= 4'd0;
-		else
-			phiCnt <= phiCnt + 4'd1;
-	end
-	wire enPhi1 = ~fx_reset & (phiCnt == 4'd13);
-	wire enPhi2 = ~fx_reset & (phiCnt == 4'd6);
+	// VCLK-synced enPhi (CLK port = VCLK from md_board); mutually exclusive one-hots
+	reg clk_r;
+	always @(posedge MCLK) clk_r <= CLK;
+	wire rise = CLK & ~clk_r;
+	wire mid  = ~CLK & clk_r;
+	wire enPhi1 = ~fx_reset & rise;
+	wire enPhi2 = ~fx_reset & mid;
 
+
+	// ALT1+VPA: BR/BGACK/VPA enPhi2-register (stable at next enPhi1); ONE VARIABLE vs ALT1
+	reg br_d, bgack_d, vpa_d;
+	always @(posedge MCLK) begin
+		if (fx_reset) begin
+			br_d <= 1'b1;
+			bgack_d <= 1'b1;
+			vpa_d <= 1'b1;
+		end else if (enPhi2) begin
+			br_d <= BR;
+			bgack_d <= BGACK;
+			vpa_d <= VPA;
+		end
+	end
+
+	// Spec-GO 1-tick DTACK wrap: sample DTACK every MCLK; feed FX from flop
+	reg dtack_d;
+	always @(posedge MCLK) begin
+		if (fx_reset) dtack_d <= 1'b1;
+		else dtack_d <= DTACK;
+	end
 	wire ASn, LDSn, UDSn, eRWn, VMAn;
 	wire BGn, oRESETn, oHALTEDn;
 	wire FC0, FC1, FC2;
@@ -94,11 +112,11 @@ module fx68k_m68kcpu_wrap (
 		.BGn(BGn),
 		.oRESETn(oRESETn),
 		.oHALTEDn(oHALTEDn),
-		.DTACKn(DTACK),
-		.VPAn(VPA),
+		.DTACKn(dtack_d),
+		.VPAn(vpa_d),
 		.BERRn(BERR),
-		.BRn(BR),
-		.BGACKn(BGACK),
+		.BRn(br_d),
+		.BGACKn(bgack_d),
 		.IPL0n(IPL[0]),
 		.IPL1n(IPL[1]),
 		.IPL2n(IPL[2]),
@@ -119,7 +137,17 @@ module fx68k_m68kcpu_wrap (
 	assign RW_z = eRWn & ASn;
 	assign strobe_z = ASn;
 	assign FC = {FC2, FC1, FC0};
-	assign FC_z = ASn;
+	// FC HOLD: the real m68kcpu ties the FC tri-state to the same enable as AS/UDS/LDS
+	// (68k.v:2045/2235, :5683/5698/5713), so FC never floats while AS is asserted. FC_z = ASn
+	// floated it at every cycle end; md_board.v:837-838 ORs that into FC0/FC1 combinationally
+	// while md_board.v:784-786 still holds AS low for one MCLK2, ym6045.v:632-633/820 reads
+	// FC1&FC0 as an interrupt acknowledge with no AS term, and ym7101.v:2395/2582 clears the
+	// pending HINT/VINT. asn_d covers the boards AS-register lag so FC can only float once
+	// the boards AS has actually gone high; the BG/BGACK terms reproduce the netlists own
+	// tri-state states. Sim: 71 lost IRQs/frame -> 0; on a DMA frame 53 lost -> 0.
+	reg asn_d = 1'b1;
+	always @(posedge MCLK) asn_d <= ASn;
+	assign FC_z = ASn & asn_d & (~BGn | ~bgack_d | fx_reset);
 	assign BG = BGn;
 	assign RESET_pull = ~oRESETn;
 	assign HALT_pull = ~oHALTEDn;
