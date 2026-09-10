@@ -1967,10 +1967,10 @@ index b568843..2fe43f9 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..aea8647 100644
+index 06ccf59..acf2210 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,346 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,354 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -2136,7 +2136,15 @@ index 06ccf59..aea8647 100644
 +// weapons must settle into their ground idle AND the walk-in must keep walking.
 +// If the walk-in regresses, this goes back to 1 and the two cases need a real
 +// discriminator.
-+#define PPM_CHAIN_ONLY_AT_END   0
++// REVERTED TO 1 (2026-09-10, hardware): turning this off DOES fix the dropped
++// weapons - the user confirms 0xE0 pipe, 0xDC knife, 0xDE electric stick all
++// settle into their ground idle - but it REGRESSES the walk-in to moonwalking
++// (sliding in the standing pose). Both cases are cycle->cycle with reset == 0,
++// so neither the loop target, the queued animation's shape, nor the reset flag
++// separates them. The discriminator is still unknown; see the frame-word flag
++// bits 24-30, which differ between the two (weapons 01/02, characters 03/04/05)
++// and are ignored by GPGX.
++#define PPM_CHAIN_ONLY_AT_END   1
 +// obj_data+0x0A IS THE GAME'S ONE-SHOT RESTART FLAG, NOT OUR COUNTER (2026-09-10).
 +// This firmware called it animCounter and INCREMENTED it every drawn frame, in
 +// memory the 68000 owns and reads back. It is a flag, and the game writes 1 to
