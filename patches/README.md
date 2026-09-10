@@ -93,6 +93,37 @@ The row tick lives in `ppm_start()`'s loop, which runs far faster than 60 Hz, so
 at most one row advances per call and a carried millisecond remainder keeps the
 grid from drifting. `cmd_8D` parks the bars on stop.
 
+**`mame.c` / `mame.h` — pickup items spin forever instead of settling (ours).**
+`PPM_CHAIN_ONLY_AT_END` (0.2.1) refuses a queued follow-up whenever the CURRENT
+animation loops. Right for characters, wrong for dropped pickups: on hardware the
+electric stick, pipe and knife loop their fall and spin instead of taking their
+ground pose. The animation data at ROM `0x0C0000` (241 objects, 17,401
+animations, 2,846 of them ending on a non-zero loop target) separates the two
+cases with no timing heuristic at all:
+
+| | source anim | queued target |
+|---|---|---|
+| characters / enemies | loops | **loops** (a 37-frame idle) |
+| pickups `0x33`-`0x3D`, `0x97`-`0x9B` | loops | **terminal, 1 frame** (ground pose) |
+
+`0x33`-`0x3D` are eleven contiguous simple objects with exactly two animations
+each, a 1-frame terminal pose and a 31..97-frame looping one — a dropped weapon.
+So `PPM_CHAIN_TARGET_TERMINAL` takes a queued follow-up out of a looping
+animation **only when the queued animation is itself terminal**. A character's
+queued idle loops and is still refused, so 0.2.1 is untouched — including the
+walk-in capture where the game leaves the record alone for 295 frames and the
+retail cart keeps walking.
+
+**A frame clock was tried first and is wrong.** Waiting N frames for the game to
+set the animation itself fires on that same 295-frame walk-in and puts the
+character back into its sliding standing pose — the exact bug 0.2.1 fixed. The
+attempt is recorded here so it is not tried again.
+
+**Blast radius, checked against both winlog captures:** every `nextAnim` observed
+for every object present (`01`, `02`, `03`, `6B`, `DC`, `DE`, `E3`) points at a
+LOOPING animation, so the new arm never fires on any of them — no behaviour
+change on anything the captures exercise.
+
 ## Not yet re-applied
 
 - **Field-wise sprite attribute composition** — MisterPezz82's V.04/V.05 change,
