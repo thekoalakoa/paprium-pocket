@@ -9,7 +9,8 @@ for the other already caused a gate to be set on the wrong baseline.
 
 | variant  | build             | ALM    | M10K | slack  | TNS    | boots? |
 |----------|-------------------|--------|------|--------|--------|--------|
-| shipping | 0.2.2 FX68K CURRENT| 16,347 | 286  | -1.021 | ?      | YES - hardware scored 2026-09-09 |
+| shipping | 0.2.2 FX68K       | 16,347 | 286  | -1.021 | ?      | YES - hardware scored 2026-09-09 |
+| shipping | 0.2.3 CURRENT     | 16,491 | 281  | -1.565 | -34.7  | fit passes; NOT yet smoked on hardware |
 | shipping | `61d1ddd3` (0.2.1)| 16,900 | 294  | -2.539 | -1,201 | YES |
 | shipping | remap (reverted)  | 16,900 | 294  | -2.539 | -1,201 | boots, but cell-room floor breaks - see PORT_PLAN |
 | shipping | 6-btn tied off    | 18,051 | 294  | -2.666 | -1,559 | YES |
@@ -35,6 +36,33 @@ retired ALM as a gate.
 criterion identically to shipping and still broke the cell-room floor - because the
 fault was firmware placement, which timing cannot see. Smoke is a separate hurdle,
 never implied by the numbers.
+
+### 0.2.3 (2026-09-10): the shift-register revert only half worked
+
+Carried three changes on one fit: the Boom Box VU bars and the pickup-animation
+rule (both firmware, `mcu.txt` fd872d74 -> 1d2e1d01) and the two shift-register
+qsf lines. Fit 18:25, 0 errors, hold positive on every domain (worst +0.028).
+
+**M10K went 286 -> 281, not the predicted 279.** Five of the seven `ALTSHIFT_TAPS`
+blocks came back; two did not. Per instance:
+
+| synch_3 instance | width | result |
+|---|---|---|
+| `md_settings_sync` | 3 | in flops - fixed |
+| `arcorr_sync` | 2 | in flops - fixed |
+| `rd_chunk_synch` | 18 | **still block RAM**, 54 bits, 7 registers |
+| `cont2_sync` | 40 | **still block RAM**, 120 bits, 7 registers |
+
+So `AUTO_SHIFT_REGISTER_RECOGNITION AUTO` still infers the two WIDE crossings -
+exactly the two where the flop chain was most clearly gone (`cont2_sync` declares
+160 flops and has seven). **The CDC correctness goal is half met.** The original
+analysis preferred a per-instance `ramstyle`/`"logic"` attribute on `synch_3`'s
+stage registers over the global switch; this fit is the evidence that it was
+right, because the global switch cannot reach the wide instances. Finish it there.
+
+**Setup went -1.021 -> -1.565**, but do not read 0.54 ns into that: the measured
+seed spread on this tree is 1.19 ns, and the doc's own rule is to re-seed before
+concluding a change cost timing. It passes the gate either way.
 
 ## Install rule
 
