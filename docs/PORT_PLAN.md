@@ -10571,3 +10571,151 @@ Four bullets added for today: the ROM as the arbiter between the two ports (0x03
 ### README "What this port adds" (13:15)
 
 Firmware-fixes bullet carries the three 0.2.1 animation changes and the floor; diagnostics bullet adds the object-record logger and the save-block counters, and now states honestly that the counters are compiled into the release (PPM_SAT_SNAPSHOT 1, as in 0.2.0) while the loggers and crash recorder are off.
+
+## 2026-09-09 - checked the synth session before deleting it; one salvage, and one non-bug
+
+Everything the "Paprium Synth work" session (25-29 Aug) produced is committed and on
+`origin/master`, including the three commits it flagged as unpushed at the time (`450d2ad`,
+`799aa05`, `1f5b5fa` - all now ancestors of `origin/master`). Two items existed only in the
+transcript. One is a method note worth keeping. The other looked like a bug and is not one.
+
+### NOT A BUG: grunt names repeating
+
+During the August testing it was reported that every grunt of a type shares one name in our
+build while on original hardware each grunt differs, and a diagnostic was proposed (snapshot
+`obj_data[64]` around a spawn and compare two grunts of the same type). **That diagnostic
+should not be run.**
+
+**User, 2026-09-09: this is a MODE, disabled in the menu, that can be enabled to make the names
+different.** The port is behaving correctly; the earlier observation was a settings state, not a
+defect. Recorded here so the object-table snapshot is not built to chase it, and so the August
+note is not mistaken for an open item by anyone reading back.
+
+The command-stream capture taken at the time did produce a real result and it stands on its own:
+`0xB0 paprium_sprite_init`, a 112-byte clear of the DMA/sprite table, was firing at init and
+being discarded. That became the sixth firmware fix at `e7e48ed`.
+
+### Method note worth keeping: the command stream is deterministic
+
+Two runs of the same route were **byte-identical for the first 299 entries**; divergence after
+that was player input, not anything the game varies on its own. So the same route on two builds
+gives a comparable A/B and differences are real rather than noise. That applies to any future
+capture, not just the one it came from.
+
+### References used during the sound-effect work
+
+- Arcade playthrough on original hardware, the audio and visual reference:
+  `https://youtu.be/3L3nZ0m7VNM`
+- Written walkthrough, already cited elsewhere in this document: `https://wafflenet.com/paprium.html`
+
+## 2026-09-09 - salvaged from the Aug 25-29 session before deleting it
+
+An eight-way sweep of that transcript against the repo, git history and the persistent notes.
+Everything it produced was already committed; these are the items that existed only in the
+conversation. The grunt-name item recorded earlier today is NOT among them - it was a menu mode,
+not a bug, and is corrected in the section above.
+
+### The hardware captures are the only unrecoverable artefacts, and one is already gone
+
+Copied 2026-09-09 to `../hw-captures/` - **outside this repo on purpose**, since `.gitignore`
+blocks ROM/PCM/wave-bank data but not `.mp3`, and game-derived data stays local.
+
+- **Intercom (Direct Capture) - Nickology**, 208 s. Album track04 "Asian Chill", chroma 0.936,
+  tempo 123.0 vs 123.0. **This one file is the sole basis for the retraction that restored the
+  released album as a valid ground-truth reference.** Losing it reopens a closed question.
+- **Mid Level Block 888 (Direct Capture)**, 104 s, 71.8 BPM, still unlabelled - the target of a
+  future `0x8C` command-log run.
+- **Arcade Mode Longplay**, 49 MB, kept for the same labelling purpose.
+
+`hw-test/paprium/03 Bone Crusher.mp3` in this tree is the ALBUM track, not a capture. The original
+Bone Crusher hardware capture - a 34-second phone recording, the 52/52 refutation - **has already
+been lost**: it lived in a cloud-synced documents folder that is now empty. That is the precedent for
+treating the rest as at-risk, and the reason the survivors were copied somewhere deliberate.
+
+### The cart's MAX 10 is far too small to hold the synth
+
+The cartridge part is a **10M02SCU169C8G** (verified on disk at `repos/paprium-dump/README.md:156`,
+not merely a transcript claim): 2,000 logic elements, ~108 Kbit of block RAM. The
+Pocket's Cyclone V is 18,480 ALMs, 20-25x larger, and is already 88-91% full with a Mega Drive, an
+SDRAM controller, a NEORV32 and an 8-channel PCM mixer. 2,000 LEs is bus glue and flash sequencing,
+not a 32-voice synth plus a graphics decompressor plus 16 PCM channels. Two consequences:
+
+- **Dumping the MAX 10 bitstream would not yield the music synth.** The STM32F446 did the
+  synthesis, which is also why krikzz's reimplementation is C on a soft core.
+- **A software mixer ported into our MCU firmware cannot run in real time.** The NEORV32 is
+  53.7 MHz rv32im with no cache, roughly 10-20x slower than the chip whose software would be copied.
+
+So if the synth is ever built here, it must be RTL. Caveat as stated at the time: nobody has dumped
+that MAX 10; its role is inferred from its size.
+
+### The four compressed regions before the wave bank are ordinary tile assets
+
+Asked whether the 476 bytes before the wave bank are a boot-time validation check. They are not.
+
+| offset | size | entropy | first bytes |
+|---|---|---|---|
+| 0x19F5C4 | 676 | 5.90 | 80 FE FE C4 |
+| 0x19F868 | 832 | 5.63 | 80 C5 01 11 |
+| 0x19FBA8 | 652 | 5.54 | 80 FE C4 44 |
+| 0x19FE34 | 476 | 5.44 | 80 FE C2 43 |
+
+All four start with type byte `0x80` (LZ-RLE). Decompressed with our own `0x80` decoder using
+**plain file byte reads (no `^1`)**, all four expand to exactly **2048 bytes** and each ends
+precisely at the next region's start - no over-run. 2048 bytes is 64 Mega Drive 4bpp tiles, and the
+content is sparse nibble palette indices with alternating full and empty rows, i.e. a font or UI
+set. Read instead as 16-byte program records, **zero of the 128 candidates has a valid type field**.
+
+So: not boot validation, and **not the missing music program table**. Byte order settled empirically
+here - the `^1` order makes the decoder over-run region boundaries, so plain reads are correct for
+these four.
+
+### Intro single-pixel flicker: hypothesis, and a ten-minute diagnostic never run
+
+Reported symptom: "sometimes a pixel will be missing randomly during the intro sequence, corrects
+itself by the next screen or refresh."
+
+**Ruled out - a stream-pointer desync.** That corrupts whole 8x8 tiles at minimum, never one pixel,
+and would not self-correct: corruption persists until the MCU rewrites the pointer.
+
+**Working hypothesis - a marginal setup path into the VDP line buffer.** CORRECTED 2026-09-09
+against the actual report: the salvaged note cited `linebuffer_out_1[47]` and `sat_out_1[18]`, and
+**neither exists in the STA**. The real endpoints are `linebuffer_out[21]` at **-1.873** and
+`linebuffer_out_1[21]` at **-1.871** - the worst failing paths that involve neither CPU, and the
+VDP's per-line pixel output. The hypothesis survives the correction; the bit indices did not. A path that occasionally misses setup captures a stale value for one pixel and the next line
+recomputes it, which matches the note at `target/pocket/core_constraints.sdc:45-46`. Evidence it is
+inherited rather than ours: the untouched baseline fails these exact paths *worse* than our builds,
+-2.612 against -2.135 on `paprium_nosfx`.
+
+**The diagnostic, never run, about ten minutes:** put the stock unmodified drizzt MegaDrive NTSC
+bitstream on the card and run any ordinary Mega Drive game with a busy intro. Same dropped pixel
+means the defect is the base core's. Pixel-perfect means something in our build aggravates it, and
+the next place to look is the stream acknowledge's 107.39 to 53.69 MHz crossing.
+
+### The first two bosses legitimately do not play the big-enemy death cue
+
+From play: the first two bosses are **not** supposed to make the distinctive death noise. The
+encounter that should produce it is a large enemy early in level 1. So in any command-log capture the
+absence of `0x1C` around the first two boss kills is expected, not evidence of the bug, and a tester
+should not fight them expecting it. This is the missing negative half of the note at `PORT_PLAN`
+"the big enemy (the fourth)" and the `0x1C` entry in `SFX_CATALOGUE.md`. Re-establishable only by
+replaying the game.
+
+### Pocket persisted core-menu settings, and the folder not to delete
+
+Saved menu values live on the card at `/Settings/Koala_Koa.Paprium/Interact/interact_persist.json`,
+matched **by variable ID** - removed IDs simply do not load. After the menu was slimmed, a card still
+carried stale entries for ids 3, 4, 6 and 7; those were pruned by hand while id 2 (Region) = 1 (Japan)
+was kept deliberately.
+
+**Do not delete the whole `/Settings/<core>/` folder to reset the menu** - it also holds input remaps
+and video preferences. Game saves are in `/Assets/` and are unaffected. For the record, the
+stale-menu symptom in that session traced to a stale `interact.json` on the card rather than to this
+file, but the persist file did genuinely hold dead ids.
+
+### Chip32 VM file operations are load-time only
+
+The `core.json` `chip32_vm` loader can do file operations, but only at core or cartridge load time,
+so it cannot repoint or switch a music file during play. That is why it was rejected. This repo uses
+chip32_vm only for cartridge-serial bitstream selection. Relevant if anyone later wants per-file
+music again - dropping in a punk-TV track or user-supplied music without rebuilding the blob - and
+reaches for the Chip32 VM.

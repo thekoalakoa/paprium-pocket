@@ -239,3 +239,77 @@ not work - it spends real capability for nothing. That refuted a planned
 Use this before proposing any "strip X to make room" build. The lever that does
 move timing on this device is the **fitter seed** (1.19 ns spread), and even that
 could not rescue the read-back - see `docs/attempts/`.
+
+## Seven M10K, and four CDC synchronisers, lost to two qsf lines (2026-09-09)
+
+Found while answering a headroom question, not from any symptom. **Nothing observed
+traces to this.** Planned for 0.2.3; docs only until then.
+
+`projects/megadrive_pocket.qsf:53-54` carry, unmodified from the drizzt baseline
+(b2b1dc8):
+
+    set_global_assignment -name ALLOW_ANY_SHIFT_REGISTER_SIZE_FOR_RECOGNITION ON
+    set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION ALWAYS
+
+The result, measured in the 0.2.1 fit: **seven `ALTSHIFT_TAPS` instances each occupy a
+whole M10K to store a handful of bits.**
+
+    synch_3:cont2_sync        120 bits   1 M10K   2.8 ALM
+    synch_3:rd_chunk_synch     54 bits   1 M10K   2.4 ALM
+    ym_delaychain:d7           12 bits   1 M10K   4.3 ALM
+    synch_3:md_settings_sync    9 bits   1 M10K   2.9 ALM
+    altshift_taps:dclk_l4       8 bits   1 M10K   2.1 ALM
+    synch_3:arcorr_sync         6 bits   1 M10K   2.3 ALM
+    neorv32 rstn_gen            3 bits   1 M10K   4.0 ALM
+    -------------------------------------------------------
+    total                     212 bits   7 M10K  20.8 ALM
+
+fit.rpt:3347, 4734, 4913, 6636, 6643, 6650, 6655. Seven blocks is **a third of the free
+pool** - 22 free becomes 29.
+
+### The part that is not about area
+
+Four of the seven are `synch_3`, the three-stage clock-domain-crossing synchroniser at
+`platform/pocket/common.v:62-79`. A WIDTH-bit instance should cost 4 x WIDTH flops. What
+the fitter produced:
+
+    instance            stored   implied   flops asked   flops fitted
+    cont2_sync          120 b    W=40      160           5
+    rd_chunk_synch       54 b    W=18       72           4
+    md_settings_sync      9 b    W=3        12           4
+    arcorr_sync           6 b    W=2         8           4
+
+Stored bits are exactly 3 x WIDTH in every row, so all three stages went to RAM; the 4-5
+remaining registers are address counters. **The 40-bit case asks for 160 flops and has
+five.** What survives is roughly one register stage - the M10K's own input register - then
+RAM storage. Synchroniser MTBF figures are published for flops and do not transfer to RAM
+cells.
+
+**The RTL is not at fault.** Both multi-bit crossings are correctly gray-coded
+(`paprium_cdda_fetch.sv:174`, `paprium_cdda_buf.sv:99` with `gray2bin` on the far side).
+Somebody got these right and a global synthesis setting undid the part that lives in flops.
+
+### The change, and what NOT to touch
+
+Two lines only:
+
+    ALLOW_ANY_SHIFT_REGISTER_SIZE_FOR_RECOGNITION   ON     -> OFF
+    AUTO_SHIFT_REGISTER_RECOGNITION                 ALWAYS -> AUTO
+
+**Leave the four lines above them alone** - `AUTO_RAM_RECOGNITION`, `AUTO_ROM_RECOGNITION`,
+`ALLOW_ANY_RAM_SIZE_FOR_RECOGNITION`, `ALLOW_ANY_ROM_SIZE_FOR_RECOGNITION`. The comment at
+`qsf:40-42` says the recognition settings are the difference between fitting and not on a
+5CEBA4, and that is those four: they push microcode and VDP state into M10K. The two
+shift-register lines are a separate mechanism and only affect `ALTSHIFT_TAPS` inference.
+
+Cost: **+50 to +90 ALM** if all seven go back to flops, near zero if the three non-CDC
+instances are retargeted to MLAB instead. Against ~2,133 free either is noise.
+
+**Gate it normally: fit, STA, title gate, then card.** Placement will shift. Do not assume
+the freed M10K buys slack - the `nosfx` section above measured 1,600 ALM and 40 M10K freed
+with setup getting *worse*.
+
+Everything else on the M10K list is a hard floor: `ram_68k` 64, `vram1` 64, echo RAM 32,
+`mcu_irom` 32, `paprium_wram` 32, cdda ring 16, `ram_z80` 8. Second-cheapest lever if more
+is ever needed is the eight `sfx_chan` PCM FIFOs, each holding 4,096 bits in an 8,192-bit
+block; merging them recovers another 7. That is RTL surgery on shipping audio, not a setting.
