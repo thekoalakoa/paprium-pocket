@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..50066b7 100644
+index b568843..2fe43f9 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -1651,17 +1651,27 @@ index b568843..50066b7 100644
  
      //	printf("Slot 0x%02x (ID 0x%04x): ", obj_slot, intf_obj->objID);
  
-@@ -363,6 +1832,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -363,6 +1832,19 @@ void ppm_obj_render(uint16_t obj_slot) {
          handle->anim_offset = offset;
          handle->crtAnim = intf_obj->anim;
          handle->counter = intf_obj->animCounter;
++#if PPM_ANIM_FLAG_SEMANTICS
++        // The animation has just been (re)loaded from its first frame, which is
++        // exactly what a restart request asks for - so acknowledge it by writing
++        // 0 back, as GPGX does. Without this the field never returns to 0 and the
++        // game can never issue a second request.
++        if (intf_obj->animCounter == 1) {
++            intf_obj->animCounter = 0;
++            handle->counter = 0;
++        }
++#endif
 +#if PPM_STICKY_SWITCH
 +        switched = true;
 +#endif
      } else {
          // move to next frame
  
-@@ -377,11 +1849,19 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -377,11 +1859,19 @@ void ppm_obj_render(uint16_t obj_slot) {
              offset += 4;
          } else {
              // anim is over, do we have fallback anim?
@@ -1681,7 +1691,20 @@ index b568843..50066b7 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -402,6 +1882,10 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -395,13 +1885,23 @@ void ppm_obj_render(uint16_t obj_slot) {
+         }
+ 
+         data_offset = ppm_anim_data[offset >> 2] & 0xffffffu;
++#if PPM_ANIM_FLAG_SEMANTICS
++        // Do NOT write the game's flag. Mirror it instead, so the switch test
++        // above still fires when the GAME writes it and never on our own account.
++        handle->counter = intf_obj->animCounter;
++#else
+         intf_obj->animCounter++;
+         handle->counter++;
++#endif
+     }
+ 
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
@@ -1692,7 +1715,7 @@ index b568843..50066b7 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1894,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1910,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1704,7 +1727,7 @@ index b568843..50066b7 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,26 +1910,64 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,26 +1926,69 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1734,10 +1757,15 @@ index b568843..50066b7 100644
              // restore offset/counter
              handle->anim_offset = previous_offset;
              handle->counter = previous_counter;
++#if PPM_ANIM_FLAG_SEMANTICS
++            // Nothing to rewind: this firmware no longer writes the field at all.
++            (void) previous_counter;
++#else
 +#if PPM_STICKY_SWITCH
 +            if (!switched)      // a refused ADVANCE rewinds the counter too; a refused switch leaves the game's reset in place
 +#endif
              intf_obj->animCounter = previous_counter;
++#endif
              data_offset = ppm_anim_data[previous_offset >> 2] & 0xffffff;
              spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
 +#if PPM_PIN_FALLBACK
@@ -1769,7 +1797,7 @@ index b568843..50066b7 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +1988,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +2009,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1814,7 +1842,7 @@ index b568843..50066b7 100644
          satEntry++;
      }
  
-@@ -482,12 +2046,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +2067,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1850,7 +1878,7 @@ index b568843..50066b7 100644
          return 0;
      }
  
-@@ -505,24 +2091,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,24 +2112,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1920,7 +1948,7 @@ index b568843..50066b7 100644
      dma_entry->srcH = 0x9700;
      dma_entry->srcM = 0x9660;
      dma_entry->srcL = 0x9500; // 0xc000 source
-@@ -536,6 +2166,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2187,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1928,7 +1956,7 @@ index b568843..50066b7 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2180,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2201,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1939,10 +1967,10 @@ index b568843..50066b7 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..fad0959 100644
+index 06ccf59..ef4cfca 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,308 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,330 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -2093,6 +2121,28 @@ index 06ccf59..fad0959 100644
 +// only when the animation reaches a terminal end (loop target 0), where the
 +// stock code would otherwise stop drawing the object.
 +#define PPM_CHAIN_ONLY_AT_END   1
++// obj_data+0x0A IS THE GAME'S ONE-SHOT RESTART FLAG, NOT OUR COUNTER (2026-09-10).
++// This firmware called it animCounter and INCREMENTED it every drawn frame, in
++// memory the 68000 owns and reads back. It is a flag, and the game writes 1 to
++// mean "restart this animation from frame 0".
++//
++// MEASURED, both sides:
++//   emulator, 156,868 object records across three winlog captures: the field
++//     holds ONLY 0 or 1. Never any other value.
++//   this port, on hardware, one capture with a pickup left spinning on screen:
++//     93, 137, 233, 440, 659, 900 - climbing with every frame drawn.
++// GPGX acts on the 1 and writes 0 BACK so the game can ask again
++// (gpgx-build/core/cart_hw/paprium.h:1242, inside `reload:`); this firmware never
++// zeroes it, so the game's restart request can be honoured at most ONCE and can
++// never be re-issued. The pickups sit at anim 0x01 with nextAnim 0xFFFF for their
++// whole life - no chain is ever queued, which is why every chain-based fix missed.
++// The 0.2.1 sticky-switch comment already half-named this: "a refused switch
++// leaves the game's reset in place".
++//
++// With this on: never WRITE the field; mirror it into handle->counter so the
++// switch test still detects a game write; and consume a 1 by writing 0 back, as
++// GPGX does. 0 = the shipping 0.2.2/0.2.3 behaviour.
++#define PPM_ANIM_FLAG_SEMANTICS 1
 +// COMPACT OBJECT-TABLE DUMP (2026-09-10). The full 1024-byte obj_data dump was
 +// reclaimed from the SAT snapshot for want of a question; the pickup-spin bug is
 +// that question. Items keep looping their fall instead of taking their ground
