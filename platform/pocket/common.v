@@ -59,6 +59,20 @@ endmodule
 //
 // 3-stage synchronizer
 //
+// paprium-pocket: this is a clock-domain-crossing synchroniser, and the whole
+// point of it is that the value settles through a chain of FLOPS. Quartus was
+// inferring the chain into an ALTSHIFT_TAPS block RAM instead, which costs a
+// whole M10K each AND throws the metastability hardening away - MTBF figures
+// are published for flops and do not transfer to RAM cells. Measured on the
+// 0.2.1 fit: the 40-bit cont2_sync asks for 160 flops and had five.
+//
+// The two qsf shift-register lines were reverted first (0.2.3) and only got the
+// NARROW instances back: on that fit md_settings_sync (3) and arcorr_sync (2)
+// became flops while rd_chunk_synch (18) and cont2_sync (40) stayed in block
+// RAM, because AUTO still judges a wide chain worth inferring. So the control
+// belongs here, on the entity, where it reaches every instance regardless of
+// width and travels with the module.
+(* altera_attribute = "-name AUTO_SHIFT_REGISTER_RECOGNITION OFF" *)
 module synch_3 #(parameter WIDTH = 1) (
    input  wire [WIDTH-1:0] i,     // input signal
    output reg  [WIDTH-1:0] o,     // synchronized output
