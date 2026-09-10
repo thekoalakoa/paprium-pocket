@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..313718b 100644
+index b568843..1ba1bbb 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -1572,7 +1572,7 @@ index b568843..313718b 100644
  }
  
  void ppm_close_sprite_table() {
-@@ -333,6 +1743,21 @@ void ppm_close_sprite_table() {
+@@ -333,6 +1743,43 @@ void ppm_close_sprite_table() {
      dma_entry->cmdL = 0x0083;
  }
  
@@ -1591,10 +1591,32 @@ index b568843..313718b 100644
 +}
 +#endif
 +
++#if PPM_CHAIN_TARGET_TERMINAL
++// Does animation `a` of object `id` end TERMINALLY (loop target 0)? Same walk
++// ppm_obj_render does: the object's anim list is at ppm_anim_data[id + 1], the
++// animation's frame list at that + a, frames run while bit 31 is set, and the
++// word after the last frame is the loop target. Only called at a cycle end, so
++// the walk costs nothing measurable.
++static bool ppm_anim_is_terminal(uint16_t id, uint16_t a) {
++
++    if (a > ppm_anim_max_index[id]) return false;
++
++    uint32_t off = ppm_anim_data[(ppm_anim_data[id + 1] >> 2) + a];
++    if (!off) return false;
++
++    for (int k = 0; k < 512; k++) {
++        uint32_t v = ppm_anim_data[(off >> 2) + k];
++        if (!(v & 0x80000000u))
++            return (ppm_anim_data[(off >> 2) + k + 1] & 0xffffffu) == 0;
++    }
++    return false;
++}
++#endif
++
  void ppm_obj_render(uint16_t obj_slot) {
  
      ppm_intf_obj *intf_obj = &ppmio.ramdp->obj_data[obj_slot]; // interface obj
-@@ -340,12 +1765,23 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,12 +1787,23 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1618,7 +1640,7 @@ index b568843..313718b 100644
  
      //	printf("Slot 0x%02x (ID 0x%04x): ", obj_slot, intf_obj->objID);
  
-@@ -363,6 +1799,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -363,6 +1821,9 @@ void ppm_obj_render(uint16_t obj_slot) {
          handle->anim_offset = offset;
          handle->crtAnim = intf_obj->anim;
          handle->counter = intf_obj->animCounter;
@@ -1628,15 +1650,24 @@ index b568843..313718b 100644
      } else {
          // move to next frame
  
-@@ -377,11 +1816,19 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -377,11 +1838,28 @@ void ppm_obj_render(uint16_t obj_slot) {
              offset += 4;
          } else {
              // anim is over, do we have fallback anim?
 +#if PPM_CHAIN_ONLY_AT_END
 +            // See PPM_CHAIN_ONLY_AT_END in mame.h: a looping animation ignores the
 +            // queued follow-up; only a terminal end (loop target 0) takes it.
++            // PPM_CHAIN_TARGET_TERMINAL adds the one case that must still chain
++            // out of a looping animation - a dropped pickup, whose queued ground
++            // pose is itself terminal. A character's queued idle loops, so it is
++            // still refused.
 +            if (intf_obj->nextAnim != 0xffff &&
-+                (ppm_anim_data[(offset + 4) >> 2] & 0xffffffu) == 0) {
++                ((ppm_anim_data[(offset + 4) >> 2] & 0xffffffu) == 0
++#if PPM_CHAIN_TARGET_TERMINAL
++                 || ppm_anim_is_terminal((uint16_t) (intf_obj->objID & 0xff),
++                                         (uint16_t) (intf_obj->nextAnim & 0xff))
++#endif
++                )) {
 +#else
              if (intf_obj->nextAnim != 0xffff) {
 +#endif
@@ -1648,7 +1679,7 @@ index b568843..313718b 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -402,6 +1849,10 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -402,6 +1880,10 @@ void ppm_obj_render(uint16_t obj_slot) {
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
      ppm_spr_data_hdr *spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
@@ -1659,7 +1690,7 @@ index b568843..313718b 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1861,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1892,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1671,7 +1702,7 @@ index b568843..313718b 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,26 +1877,64 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,26 +1908,64 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1736,7 +1767,7 @@ index b568843..313718b 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +1955,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +1986,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1781,7 +1812,7 @@ index b568843..313718b 100644
          satEntry++;
      }
  
-@@ -482,12 +2013,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +2044,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1817,7 +1848,7 @@ index b568843..313718b 100644
          return 0;
      }
  
-@@ -505,24 +2058,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,24 +2089,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1887,7 +1918,7 @@ index b568843..313718b 100644
      dma_entry->srcH = 0x9700;
      dma_entry->srcM = 0x9660;
      dma_entry->srcL = 0x9500; // 0xc000 source
-@@ -536,6 +2133,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2164,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1895,7 +1926,7 @@ index b568843..313718b 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2147,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2178,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1906,10 +1937,10 @@ index b568843..313718b 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..fd5046e 100644
+index 06ccf59..a6a7b42 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -152,9 +152,289 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +152,318 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -2060,6 +2091,35 @@ index 06ccf59..fd5046e 100644
 +// only when the animation reaches a terminal end (loop target 0), where the
 +// stock code would otherwise stop drawing the object.
 +#define PPM_CHAIN_ONLY_AT_END   1
++// TAKE A QUEUED FOLLOW-UP THAT IS ITSELF TERMINAL (2026-09-10). The rule above
++// refuses a queued follow-up whenever the CURRENT animation loops. That is right
++// for characters and wrong for dropped pickups: the user reports the electric
++// stick, pipe and knife spinning forever on hardware instead of settling into
++// their ground pose.
++//
++// The animation data separates the two cases cleanly, with no timing heuristic.
++// From ROM 0x0C0000 (241 objects, 17,401 animations; 2,846 of them - 16.4% - end
++// on a non-zero loop target):
++//
++//   characters / enemies   looping anim  ->  queued target LOOPS (a 37-frame idle)
++//   pickups 0x33-0x3D,     looping spin  ->  queued target is TERMINAL, 1 frame
++//           0x97-0x9B                        (the rest pose on the ground)
++//
++// objIDs 0x33-0x3D are eleven CONTIGUOUS simple objects with exactly two
++// animations each, a 1-frame terminal pose and a 31..97-frame looping one. That
++// is a dropped weapon. So: at a looping cycle end with a follow-up queued, take
++// the follow-up only when the QUEUED animation is itself terminal. A character's
++// queued idle loops, so it is still refused and 0.2.1's behaviour is untouched -
++// including the walk-in capture where the game leaves the record alone for 295
++// frames and the retail cart keeps walking. A pickup's queued ground pose is
++// terminal, so it settles at the end of its spin.
++//
++// A FRAME CLOCK WAS TRIED FIRST AND IS WRONG: waiting N frames for the game to
++// set the animation itself fires on that same 295-frame walk-in and puts the
++// character back into its sliding standing pose - the exact bug 0.2.1 fixed.
++//
++// 0 = strict PPM_CHAIN_ONLY_AT_END, i.e. the shipping 0.2.2 behaviour.
++#define PPM_CHAIN_TARGET_TERMINAL 1
 +// Crash-context heartbeat: a 40-byte record in battery RAM (bram 0xF70..0xF97,
 +// the free gap between the onset ring's meta and the dispatch block) rewritten
 +// at every command entry/exit, per object, per walked sprite, per stream DMA,
