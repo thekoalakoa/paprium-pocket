@@ -14,11 +14,11 @@
 # volume) lands on a dead channel. The fix is two lines in sfx_loop. It is
 # firmware, so it cannot be done in RTL.
 #
-# NOTE ON SIZE: our shipping mcu.txt is 15,848 bytes against a 16 KB IMEM - 536
-# bytes spare. That limit is imposed by rtl/PAPRIUM/mcu_core.sv (`rom[16384/4]`
-# and `addr[13:2]`), NOT by the linker, whose script already allows 256 KB. If a
-# rebuild overflows, growing the IMEM is cheap: 32 KB costs ~13 more M10K against
-# 62 free. Try -Os first; grow the RAM if that is not enough.
+# NOTE ON SIZE: the IMEM was since grown to 32 KB in rtl/PAPRIUM/mcu_core.sv, so
+# the old "16 KB, 536 bytes spare" warning no longer applies - the script prints
+# the real figures every run. The limit is imposed by mcu_core.sv, NOT by the
+# linker, whose script already allows 256 KB. If a rebuild ever overflows 32 KB,
+# try -Os first; growing the IMEM again is cheap in M10K.
 
 set -euo pipefail
 

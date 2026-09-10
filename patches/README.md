@@ -69,6 +69,30 @@ GPGX's byte indices transcribe verbatim, which is correct rather than lucky:
 `ramdp_io.sv` places a 68000 byte at address A into MCU byte `A^1`, and GPGX's
 `ram[]` carries the same relationship, so the two agree.
 
+**`paprium.c` — Boom Box VU bars (ours).**
+Cart RAM `0x1B98..0x1BFF` is a per-voice stereo level feed: 26 voices of
+`{u16 L, u16 R}` = 104 bytes, ending exactly at `0x1C00`. On hardware the
+cartridge's music engine rewrites it every row with "does this voice have a
+pattern this row" — GPGX's interpreter does the same at `paprium.h:472-473`
+(`index ? 0xE0 : 0`) — and the Boom Box draws its 26-bar graph straight from it,
+one bar per voice. Confirmed against a hardware capture: the graph has 26 bars.
+
+This core substitutes CDDA and never sequences the module, so **nothing wrote
+that window at all** and the game drew its bars out of uninitialised cart RAM —
+they sat permanently lit. The neighbouring `0x1802..0x19FF` fill in
+`cmd_88_audio_cfg` stops at `0x1A00` and never reached it.
+
+Rather than smear one playback level across 26 identical columns, the bars are
+driven from the module `cmd_8C_bgm_play` **already unpacks and then discards**,
+so they show the real per-voice arrangement at the module's own tempo, and cost
+no RTL. MWMM header `0x07` is frames per row (1..6 across the 52 modules), so a
+row lasts `0x07/60` s; verified on hardware — Stage Clear is 105 rows with
+`0x07`=3, giving 5.25 s, matching a Boom Box capture exactly.
+
+The row tick lives in `ppm_start()`'s loop, which runs far faster than 60 Hz, so
+at most one row advances per call and a carried millisecond remainder keeps the
+grid from drifting. `cmd_8D` parks the bars on stop.
+
 ## Not yet re-applied
 
 - **Field-wise sprite attribute composition** — MisterPezz82's V.04/V.05 change,
