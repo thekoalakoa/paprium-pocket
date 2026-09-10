@@ -9,8 +9,8 @@
       "description": "Sega Mega Drive / Genesis (Nuked-MD)",
       "author": "drizzt",
       "url": "https://github.com/drizzt/openFPGA-MegaDrive",
-      "version": "0.2.2",
-      "date_release": "2026-09-09"
+      "version": "0.2.3",
+      "date_release": "2026-09-10"
     },
     "framework": {
       "target_product": "Analogue Pocket",

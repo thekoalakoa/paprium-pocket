@@ -9,8 +9,8 @@
       "description": "Paprium (WaterMelon) - single-game core",
       "author": "Koala_Koa",
       "url": "https://github.com/thekoalakoa",
-      "version": "0.2.2",
-      "date_release": "2026-09-09"
+      "version": "0.2.3",
+      "date_release": "2026-09-10"
     },
     "framework": {
       "target_product": "Analogue Pocket",

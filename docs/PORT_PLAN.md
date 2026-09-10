@@ -10719,3 +10719,52 @@ so it cannot repoint or switch a music file during play. That is why it was reje
 chip32_vm only for cartridge-serial bitstream selection. Relevant if anyone later wants per-file
 music again - dropping in a punk-TV track or user-supplied music without rebuilding the blob - and
 reaches for the Chip32 VM.
+
+## 0.2.3 (2026-09-10)
+
+Three fixes and one bug characterised but not closed.
+
+**Boom Box level meter.** Cart RAM `0x1B98-0x1BFF` is a per-voice stereo level feed - 26 voices of
+`{u16 L, u16 R}` = 104 bytes, ending exactly at `0x1C00` - which the cartridge's music engine
+rewrites every row and the Boom Box draws its 26 bars from. GPGX's interpreter does the same at
+`paprium.h:472-473` (`index ? 0xE0 : 0`). This port substitutes CDDA and never sequences the module,
+so nothing wrote that window and the game drew bars from uninitialised RAM; the neighbouring
+`0x1802-0x19FF` fill in `cmd_88_audio_cfg` stops at `0x1A00` and never reached it. Now driven from
+the module `cmd_8C_bgm_play` already unpacks and discards, at the module's own tempo. That tempo is
+header byte `0x07`, **frames per row** - verified on hardware, Stage Clear being 105 rows at
+`0x07`=3 (20 rows/s, 5.250 s) against a Boom Box capture measuring 5.25 s. GPGX hardcodes 4, which
+is merely the modal value across the 52 modules.
+
+**CDC synchronisers back in flops.** Two qsf lines were inferring `synch_3` chains into `ALTSHIFT_TAPS`
+block RAM, costing an M10K each AND discarding the metastability hardening - MTBF figures are
+published for flops and do not transfer to RAM cells. Reverting the qsf lines only reached the narrow
+instances; the wide ones (18-bit `rd_chunk_synch`, 40-bit `cont2_sync`) stayed in RAM because `AUTO`
+still judged them worth inferring. Fixed on the entity instead, with an `altera_attribute` on
+`synch_3` itself, which reaches every instance regardless of width. **All twenty instances now report
+zero block RAM.** M10K 286 -> 279, ALM 16,347 -> 16,410.
+
+**A field this firmware was corrupting.** `obj_data+0x0A` is the game's one-shot *restart* flag, not
+a frame counter. Across 147,283 object records in three emulator captures it holds only 0 or 1; the
+68000 writes exactly two values into it, `move.w #1` at ROM `0x031058` and `clr.w` at twenty spawn
+sites. This firmware incremented it every drawn frame - a hardware capture read 93, 137, 233, 440,
+659, 900 - in memory the 68000 owns. GPGX acts on the 1 and writes 0 back so the game can ask again.
+Now behind `PPM_ANIM_FLAG_SEMANTICS`.
+
+**Open: dropped weapons spin instead of settling.** The weapons are objects `0xDC-0xE1` - identified
+by RENDERING them from ROM, after three wrong guesses from structure alone. Each carries anim 8, a
+25-frame cycle (the drop) and anim 1, an 85-frame cycle of 6 mostly-held poses (the ground idle).
+A hardware capture caught `0xDE` playing anim 8 with anim 1 queued. `PPM_CHAIN_ONLY_AT_END` refuses
+that chain because anim 8 has a non-zero loop target. Turning it off fixes the weapons and regresses
+the walk-in to moonwalking - both confirmed on hardware - so the rule is load-bearing for both cases.
+They are identical in every field the firmware reads: cycle -> cycle, `reset == 0`, queued animation
+also a cycle. The remaining lead is frame-word bits 24-30, which **neither** mame.c nor GPGX reads
+(`& 0x80000000` / `& 0xffffff`; `animFlags < 0x80`) and which differ between them - weapons use flag
+values 0/1/2, characters 3-7 and 32-38.
+
+**Object rendering, for whoever needs it next.** The graphics block bank is ROM `0x2E5BD0` (container
+`0x170000` entry 479; entry 0 = count 12,327; every block unpacks with the type-0x80 codec to exactly
+512 bytes = 16 tiles). Sprite records in the animation blob, natural byte order:
+`+0 posX +1 posY +2 size +3 flipPosX +4..5 blockNum (BE16) +6 attrs +7 offset`, header
+`+0 count +1 flags`. Tiles are 32 bytes, 4bpp, high nibble = left pixel, column-major. Confirmed by
+three invariants over 28,871 records. Identifying an object by eye takes minutes; inferring it from
+animation shape cost most of a day and was wrong three times.
