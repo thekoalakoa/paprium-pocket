@@ -2235,7 +2235,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..eb1d1ea 100644
+index 1a1de1d..b887d97 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -2249,7 +2249,7 @@ index 1a1de1d..eb1d1ea 100644
  
  void ppm_reset();
  void ppm_md_rst(u8 rst);
-@@ -11,6 +15,8 @@ void cmd_unknown_muted();
+@@ -11,8 +15,13 @@ void cmd_unknown_muted();
  void cmd_00();
  void cmd_81_init();
  void cmd_84_sdram_off();
@@ -2257,10 +2257,17 @@ index 1a1de1d..eb1d1ea 100644
 +void cmd_88_audio_cfg();
  void cmd_8C_bgm_play();
  void cmd_8D_bgm_cfg();
++void ppm_music_vu_start(u32 mod_addr);
++void ppm_music_vu_stop();
++void ppm_music_vu_update();
  void cmd_AD_obj_add();
-@@ -53,8 +59,10 @@ void ppm_start() {
+ void cmd_AE_frame_start();
+ void cmd_AF_frame_end();
+@@ -52,9 +61,12 @@ void ppm_start() {
+ 
          ppm_cmd_handler();
          sfx_player_update();
++        ppm_music_vu_update();
          tick_ctr++;
 +        ppm_hb_idle();
  
@@ -2269,7 +2276,7 @@ index 1a1de1d..eb1d1ea 100644
              return;
          }
      }
-@@ -64,7 +72,15 @@ void ppm_reset() {
+@@ -64,7 +76,15 @@ void ppm_reset() {
  
      ppm_md_rst(1);
      FPGAIO->ctrl.sdram_en = 1;
@@ -2286,7 +2293,7 @@ index 1a1de1d..eb1d1ea 100644
  
      printf("ppm init...\n");
  
-@@ -77,7 +93,11 @@ void ppm_reset() {
+@@ -77,7 +97,11 @@ void ppm_reset() {
      memcpy(ppmio.ramdp, ppmio.flash, 8192);
  
      ppmio.ramdp->reg_cmd = 0;
@@ -2298,7 +2305,7 @@ index 1a1de1d..eb1d1ea 100644
      ppmio.ramdp->reg_status_2.word = 0;
      ppmio.ramdp->reg_status_2.bits.mwire_status = 7; // let's pretend MW is plugged & connected
  
-@@ -133,7 +153,7 @@ void ppm_init_cmd_ptr() {
+@@ -133,7 +157,7 @@ void ppm_init_cmd_ptr() {
      }
  
      cmp_ptr[0x83] = cmd_unknown_muted; // unk startup thing
@@ -2307,7 +2314,7 @@ index 1a1de1d..eb1d1ea 100644
      cmp_ptr[0x95] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0x96] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0xA4] = cmd_unknown_muted; // megawire settings
-@@ -142,7 +162,7 @@ void ppm_init_cmd_ptr() {
+@@ -142,7 +166,7 @@ void ppm_init_cmd_ptr() {
      cmp_ptr[0xD6] = cmd_unknown_muted; //???
  
      //unknown stuff
@@ -2316,7 +2323,7 @@ index 1a1de1d..eb1d1ea 100644
      cmp_ptr[0xD0] = cmd_unknown_muted;
  
      cmp_ptr[0x00] = cmd_00;
-@@ -161,6 +181,12 @@ void ppm_init_cmd_ptr() {
+@@ -161,6 +185,12 @@ void ppm_init_cmd_ptr() {
      cmp_ptr[0xE0] = cmd_E0_eep_wr;
      cmp_ptr[0xE7] = cmd_E7_mwire;
      cmp_ptr[0xEC] = cmd_EC_vram_budget;
@@ -2329,7 +2336,7 @@ index 1a1de1d..eb1d1ea 100644
      cmp_ptr[0xF2] = cmd_F2_unpack;
      cmp_ptr[0xF4] = cmd_F4_unpack_scal;
      cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
-@@ -185,16 +211,62 @@ void ppm_cmd_handler() {
+@@ -185,16 +215,62 @@ void ppm_cmd_handler() {
      ppmio.ramdp->reg_status_1 |= 0x0004;
      ppmio.ramdp->reg_status_2.bits.busy = 1;
  
@@ -2394,7 +2401,7 @@ index 1a1de1d..eb1d1ea 100644
  }
  
  void cmd_unknown() {
-@@ -233,18 +305,31 @@ void cmd_84_sdram_off() {
+@@ -233,18 +309,31 @@ void cmd_84_sdram_off() {
  
  void cmd_AD_obj_add() {
  
@@ -2426,7 +2433,7 @@ index 1a1de1d..eb1d1ea 100644
      // frame finish
      // af01: no scaling ongoing
      // af02: must reserve bandwith for scaling buffer?
-@@ -261,6 +346,10 @@ void cmd_B1_sprite_pause() {
+@@ -261,6 +350,10 @@ void cmd_B1_sprite_pause() {
  
  void cmd_C6_setup_data() {
  
@@ -2437,7 +2444,7 @@ index 1a1de1d..eb1d1ea 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -290,13 +379,76 @@ void cmd_DA_unpack() {
+@@ -290,13 +383,76 @@ void cmd_DA_unpack() {
      u32 src = (ppmio.ramdp->cmd_args[1] << 16) + ppmio.ramdp->cmd_args[2];
      u32 dst = ppmio.ramdp->cmd_args[0];
  
@@ -2517,7 +2524,7 @@ index 1a1de1d..eb1d1ea 100644
  }
  
  void cmd_DF_eep_rd() {
-@@ -375,10 +527,18 @@ void cmd_F2_unpack() {
+@@ -375,10 +531,18 @@ void cmd_F2_unpack() {
      // todF2o: check block range
      //used in sprites test menu
  
@@ -2540,7 +2547,7 @@ index 1a1de1d..eb1d1ea 100644
  }
  
  void cmd_F4_unpack_scal() {
-@@ -390,16 +550,91 @@ void cmd_F5_stamp_rescale() {
+@@ -390,16 +554,195 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -2609,6 +2616,109 @@ index 1a1de1d..eb1d1ea 100644
 +#endif
 +}
 +
++// ---------------------------------------------------------------------------
++// paprium-pocket: Boom Box VU bars.
++//
++// Cart RAM 0x1B98..0x1BFF is a per-voice stereo level feed - 26 voices of
++// {u16 L, u16 R} = 104 bytes, ending exactly at 0x1C00. On real hardware the
++// cartridge's music engine rewrites it every row with "does this voice have a
++// pattern this row"; GPGX's interpreter does the same (paprium.h:472-473,
++// `index ? 0xE0 : 0`). The Boom Box's 26-bar graph is drawn straight from it,
++// one bar per voice.
++//
++// This port substitutes CDDA and never sequences the module, so nothing wrote
++// that window at all and the game rendered its bars out of uninitialised cart
++// RAM - they sat permanently lit. Note the neighbouring 0x1802..0x19FF fill in
++// cmd_88_audio_cfg stops at 0x1A00 and never reached this.
++//
++// Rather than smear one playback level across 26 identical columns, drive the
++// bars from the module we ALREADY unpack in cmd_8C_bgm_play and then discard.
++// That is the real per-voice arrangement, at the module's own tempo, and costs
++// no RTL.
++//
++// Tempo: MWMM header 0x07 is FRAMES PER ROW (1..6 across the 52 modules), so a
++// row lasts frames_per_row/60 s. Confirmed on hardware - Stage Clear is 105
++// rows with 0x07=3, giving 5.25 s, which matches a Boom Box capture exactly.
++// ---------------------------------------------------------------------------
++#define PPM_VU_BASE     0x1B98      // 68000 address of voice 0's L word
++#define PPM_VU_VOICES   26
++#define PPM_VU_ON       0x00E0      // level the cart writes for a sounding voice
++
++static u32 vu_mod   = 0;            // SDRAM address of the unpacked module
++static u16 vu_secs  = 0;
++static u16 vu_bars  = 0;
++static u16 vu_seg   = 0;
++static u16 vu_row   = 0;
++static u32 vu_due   = 0;            // ms tick the next row falls on
++static u16 vu_rem   = 0;            // ms remainder, keeps the grid drift-free
++static u8  vu_fpr   = 4;            // frames per row
++static u8  vu_on    = 0;
++
++// ppm_unpack writes through ppmio.sdram with ^1 on every byte, so read it back
++// the same way.
++static u8 vu_mb(u32 off) {
++    return ppmio.sdram[(vu_mod + off) ^ 1];
++}
++
++// ramdp is indexed MCU-side as (68000 address ^ 1), so a big-endian word at
++// 68000 address `a` splits as ram[a+1] = high byte, ram[a] = low byte.
++static void vu_put(u32 a, u16 v) {
++    vu8 *ram = (vu8 *) ppmio.ramdp;
++    ram[a + 1] = (u8) (v >> 8);
++    ram[a] = (u8) v;
++}
++
++static void vu_all(u16 v) {
++    for (int ch = 0; ch < PPM_VU_VOICES; ch++) {
++        vu_put(PPM_VU_BASE + ch * 4, v);
++        vu_put(PPM_VU_BASE + ch * 4 + 2, v);
++    }
++}
++
++void ppm_music_vu_start(u32 mod_addr) {
++    vu_mod = mod_addr;
++    vu_fpr = vu_mb(0x07) ? vu_mb(0x07) : 4;
++    vu_secs = vu_mb(0x08);
++    vu_bars = (vu_mb(0x0A) ? vu_mb(0x0A) : 0x100) + 8;
++    vu_seg = 0;
++    vu_row = 0;
++    vu_rem = 0;
++    vu_due = FPGAIO->time;
++    vu_on = (vu_secs != 0);
++    if (!vu_on) vu_all(0);
++}
++
++void ppm_music_vu_stop() {
++    vu_on = 0;
++    vu_all(0);
++}
++
++// Called from ppm_start()'s loop, which runs far faster than 60 Hz, so at most
++// one row is advanced per call and the grid stays accurate.
++void ppm_music_vu_update() {
++
++    if (!vu_on) return;
++    if ((s32) (FPGAIO->time - vu_due) < 0) return;
++
++    // a row is vu_fpr frames at 60 Hz; carry the remainder so it does not drift
++    u32 num = (u32) vu_fpr * 1000 + vu_rem;
++    vu_due += num / 60;
++    vu_rem = num % 60;
++
++    for (int ch = 0; ch < PPM_VU_VOICES; ch++) {
++        u32 po = 0xD8 + ((u32) ch * vu_secs + vu_seg) * 2;
++        u32 ptr = ((u32) vu_mb(po) << 8) | vu_mb(po + 1);
++        u16 lvl = vu_mb(ptr + vu_row) ? PPM_VU_ON : 0;
++        vu_put(PPM_VU_BASE + ch * 4, lvl);
++        vu_put(PPM_VU_BASE + ch * 4 + 2, lvl);
++    }
++
++    if (++vu_row >= vu_bars) {
++        vu_row = 0;
++        if (++vu_seg >= vu_secs) vu_seg = 0;
++    }
++}
++
  void cmd_8C_bgm_play() {
  
      // bgm play, check & 0x80
@@ -2619,6 +2729,7 @@ index 1a1de1d..eb1d1ea 100644
 +        u32 bl = ppm_unpack(ppm_bgm_addr(arg & 0x7f), ppm_bgm_unpack_addr);
 +        hb_w32(32, bl);
 +        if (ppm_bgm_unpack_addr + bl > PPM_SCRATCH_BASE) snap_bgm_over++;   // module reached the MCU scratch (counted, no UART on the Pocket)
++        ppm_music_vu_start(ppm_bgm_unpack_addr);   // paprium-pocket: Boom Box bars
 +    }
  
      if ((arg & 0x80)) {
@@ -2631,6 +2742,14 @@ index 1a1de1d..eb1d1ea 100644
 +        // Captured on hardware: cmd_8C track 0x35 (53), bit 7 clear, at the end
 +        // of a stage - and 53 is one of the tracks the cue sheet marks NOLOOP.
 +        mdp_play_once(arg & 0x7f);
+     }
+ }
+ 
+@@ -409,6 +752,7 @@ void cmd_8D_bgm_cfg() {
+ 
+     if (arg == 0 || arg == 8) {
+         mdp_stop();
++        ppm_music_vu_stop();   // paprium-pocket: park the Boom Box bars
      }
  }
  
