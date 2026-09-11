@@ -10834,6 +10834,10 @@ rule with no hardware and no player. It refuted the spawn-animation rule in a si
 
 ## 0.2.5 (2026-09-11) — a prop is not an actor
 
+**Validated on hardware** (firmware `c62e2175`, bitstream `61b8d42f`, the build in the 0.2.5 zip):
+weapons dropped when the player is knocked down settle; the character walk-in keeps its walk
+animation; enemy drops unchanged; no other prop misbehaved. All four checks passed before release.
+
 0.2.4 shipped and users came back with the same symptom on a different path: knives `0xDC`, chains
 `0xDD`, neon sticks `0xDE` and pipes `0xE0` still spin when the **player** is knocked down. No
 capture in the archive contains that path — attract mode never picks a weapon up — so the first fix

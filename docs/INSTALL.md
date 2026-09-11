@@ -235,14 +235,14 @@ missing file.
 
 ## Known issues
 
-Honest list, current as of 0.2.0. All of these pre-date this port and are present
-on other Paprium setups running the same replacement firmware — several are open
-issues on the MiSTer port too.
+There is one maintained list and this is not it: see
+[Known issues](../README.md#known-issues) in the README for what is open today, and
+[Fixed here](../README.md#fixed-here) for what has been closed since. As of 0.2.5 the
+open list is two items, both on the audio side. Everything below is the per-release
+history this guide was written alongside, and is kept for that.
 
-| Issue | Status |
-|---|---|
-| Characters sliding without their walk animation, worse with more enemies on screen | **Much improved, not eliminated.** Two separate causes were fixed; a per-frame graphics-streaming ceiling remains |
-| Occasional single-pixel flicker in the intro | Cosmetic, self-corrects |
+(This section used to carry its own copy of the open list, which fell five releases
+behind and ended up advertising fixed bugs as open. One list only.)
 
 ### Fixed in 0.2.0
 
