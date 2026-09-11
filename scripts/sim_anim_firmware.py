@@ -30,23 +30,28 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import anim_data
 import winlog_objects
 
-WINDOW = int(os.environ.get('WINDOW', '1'))     # PPM_CHAIN_FRESH_WINDOW
-WEAPONS = {0xDC, 0xDD, 0xDE, 0xDF, 0xE0, 0xE1}  # knife, electric stick, pipe
+WINDOW = int(os.environ.get('WINDOW', '1'))      # PPM_CHAIN_FRESH_WINDOW
+AT_LOAD = int(os.environ.get('AT_LOAD', '1'))   # PPM_CHAIN_QUEUE_AT_LOAD
+STALE = int(os.environ.get('STALE', '64'))      # PPM_CHAIN_STALE_QUEUE, 0 = off
+# knife, chain, neon stick, pipe (each as a pair), and 0xE3, the spinning disc
+WEAPONS = {0xDC, 0xDD, 0xDE, 0xDF, 0xE0, 0xE1, 0xE3}
 WALK = 0x09                                     # the walk-in animation to guard
 PLAYERS = (0x01, 0x02, 0x03)
 
 
 def sim(w, rows, obj):
-    """First chain this firmware would take: (frame, from anim, to anim, age)."""
+    """First chain this firmware would take: (frame, from anim, to anim, why)."""
     anim_off = None
     crt = None
     prev_next = 0xFFFF
     age = 0xFF
+    at_load = 0
     first = True
     for t in rows:
         nxt = t['nxt']
         if nxt == 0xFFFF:
             age = 0xFF
+            at_load = 0
         elif prev_next == 0xFFFF:
             age = 0
         elif age < 0xFF:
@@ -63,6 +68,7 @@ def sim(w, rows, obj):
             except Exception:
                 anim_off = None
             crt = t['anim']
+            at_load = 1 if age == 0 else 0      # setAnim and the queue in one call
             continue
         if anim_off is None:
             continue
@@ -74,8 +80,11 @@ def sim(w, rows, obj):
             anim_off += 4                       # not the last frame; advance
             continue
         loop = w[(anim_off + 4) >> 2] & 0xFFFFFF
-        if nxt != 0xFFFF and (loop == 0 or age <= WINDOW):
-            return (t['f'], crt, nxt, age)
+        if nxt != 0xFFFF:
+            if loop == 0:                       return (t['f'], crt, nxt, 'terminal')
+            if age <= WINDOW:                   return (t['f'], crt, nxt, 'at-end')
+            if AT_LOAD and at_load:             return (t['f'], crt, nxt, 'at-load')
+            if STALE and age >= STALE:          return (t['f'], crt, nxt, 'stale')
         anim_off = loop
         if not anim_off:                        # terminal end: stop drawing
             return None
@@ -108,7 +117,9 @@ def main():
     if not caps:
         raise SystemExit(__doc__)
     w = anim_data.load()
-    print('PPM_CHAIN_FRESH_WINDOW = %d\n' % WINDOW)
+    print('FRESH_WINDOW = %d   QUEUE_AT_LOAD = %d   STALE_QUEUE = %d'
+          % (WINDOW, AT_LOAD, STALE))
+    print('')
     tot = defaultdict(int)
     n_eps = 0
     for cap in caps:
@@ -121,16 +132,17 @@ def main():
         fired = [(o, r) for o, r in fired if r]
         print('%-40s %5d episodes, %4d chain' % (os.path.basename(cap), len(eps), len(fired)))
         for o, r in fired:
-            tot[(o, r[1], r[2])] += 1
+            tot[(o, r[1], r[2], r[3])] += 1
 
     print('\nWHAT CHAINED')
     print('%-6s %-8s %-8s %-8s %s' % ('obj', 'from', 'to', 'count', 'note'))
-    for (o, a, b), c in sorted(tot.items(), key=lambda x: -x[1]):
-        note = 'WEAPON' if o in WEAPONS else ('PLAYER' if o in PLAYERS else '')
-        print('%-6s %-8s %-8s %-8d %s' % ('%02X' % o, '%02X' % a, '%04X' % b, c, note))
+    for (o, a, b, why), c in sorted(tot.items(), key=lambda x: -x[1]):
+        note = 'WEAPON/ITEM' if o in WEAPONS else ('PLAYER' if o in PLAYERS else '')
+        print('%-6s %-8s %-8s %-10s %-8d %s' % ('%02X' % o, '%02X' % a, '%04X' % b, why, c, note))
 
-    weap = sum(c for (o, _a, _b), c in tot.items() if o in WEAPONS)
-    walk = any(o in PLAYERS and a == WALK for (o, a, _b) in tot)
+    weap = sum(c for (o, _a, _b, _w), c in tot.items() if o in WEAPONS)
+    walk = any(o in PLAYERS and a == WALK and w != 'at-end'
+               for (o, a, _b, w) in tot)
     print('\n%d episodes replayed' % n_eps)
     print('weapon chains fired : %d' % weap)
     print('walk-in guard       : %s' % (
