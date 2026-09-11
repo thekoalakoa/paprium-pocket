@@ -761,11 +761,49 @@ scene from a real cartridge": a real cartridge has no music module there either.
 | Diagnostic reports | Meaning | Action |
 |---|---|---|
 | one of the 52 live indices | mapping or ordering bug; the music exists | trivial fix |
-| one of the 10 null indices | the game has no music there, hardware included | close it - silence is correct |
+| one of the 10 null indices | the game has no music module there | see below - silence is NOT what hardware does |
 
 The first is now the likelier outcome, because shipping a request for a
 null-pointer track would have real hardware decode its own pointer table as a
 module. That is a real prediction the diagnostic will confirm or refute.
+
+#### The prediction was wrong: a null slot is not silent
+
+Reported from the boombox on original hardware, 2026-09-11: selecting one of the
+ten blank entries does **not** go quiet. There is a faint tone on some and a hum
+on others, and they do not all sound alike.
+
+The request path says why, and it is not "decode the pointer table as a module".
+`paprium_music()` has no null check - `case 0x8C` hands the track straight
+through, `ptr` comes out 0, and `paprium_decoder_type(paprium_music_ptr + 0, ...)`
+reads its type byte from the table's own first byte, which is `0x00`. That is
+neither `0x80` nor `0x81`, so the dispatcher falls into an **empty else** and
+writes nothing. `music_ram` is never cleared, so it still holds the *previous*
+track's decompressed module. Execution then continues unconditionally:
+
+    music_section = 0; music_segment = 0; audio_tick = 0;   // rewind
+    memset(music, 0, ...);                                  // 26 voices
+    voice->program = music_ram[(0x2A + ch) ^ 1];             // from the STALE module
+
+So the documented behaviour of a blank slot is: **re-arm the previous module's
+voices and restart its sequence from the top.** Nothing about it is silence, and
+nothing about it is the pointer table.
+
+That makes the audible residue a property of **what played before**, not of which
+blank slot was chosen - which is exactly the shape of "each one sounds slightly
+different" when the slots are swept in order and each blank follows a different
+track. It also makes two sharp predictions, both testable on captures already in
+hand, because blanks 8/9/10 all follow live track 7 and blanks 44/45 both follow
+live track 43:
+
+- 8, 9 and 10 should be **indistinguishable from each other**; so should 44 and 45.
+- Reaching the *same* blank from two different tracks should give two different
+  sounds.
+
+If both hold, a blank slot is the cleanest probe into the synth we have: 26 voices
+at a known program, volume `0x80`, pan `0x80`, with no sequencer driving them. If
+they fail, the real DATENMEISTER firmware null-checks where this reconstruction
+does not, and that is worth knowing on its own.
 
 ### The SFX bank is readable, and is where a non-music cue would live
 
