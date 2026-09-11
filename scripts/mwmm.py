@@ -76,7 +76,7 @@ class Mod:
         assert len(self.order) % 26 == 0
         self.pts  = sorted(set(self.order))
         self.ends = self.pts[1:] + [len(d)]
-        self.G    = self._solve_G()
+        self.G    = d[0x0A] or 256          # header is authoritative; see _solve_G
         self.rowsperbar = d[0x0B]
         self.pat = {}                              # offset -> (grid, [events])
         for a, b in zip(self.pts, self.ends):
@@ -87,6 +87,12 @@ class Mod:
             self.pat[a] = (g, ev)
 
     def _solve_G(self):
+        """Heuristic G, kept only as a cross-check on the header byte.
+
+        It agrees with +0x0A on 51 of 52 modules. The exception is track 53,
+        where the header says 97 and this says 96 and BOTH parse cleanly - so
+        the heuristic is the weaker evidence and the header wins.
+        """
         from collections import Counter
         c = Counter()
         for a, b in zip(self.pts, self.ends):
