@@ -19,9 +19,14 @@ can be re-derived rather than trusted. It prints three reports:
              GONE (it never came back - the handover a dropped item gets).
 
   ENDS       every animation end reached with a queue standing, attributed to
-             the branch that fires on it. The last line is the one that sets
-             PPM_CHAIN_STALE_QUEUE: the oldest queue a CHARACTER ever carries
-             into an end. Keep the threshold comfortably above it.
+             the branch that fires on it. AT_LOAD and STALE are kept as analysis
+             knobs because they are the history: both were tried on hardware and
+             both moonwalked the walk-in, because both reach obj 01 anim 02.
+
+  POPULATION the animation count per object, which is what the shipped rule
+             actually keys on (PPM_CHAIN_PROP_ANIMS). Props and actors separate
+             with a gap and no overlap, and the firmware already keeps this
+             number: ppm_anim_max_index.
 
 The replay never chains - it follows the recording - so every end is visible,
 including the ones a chain would have hidden.
@@ -34,8 +39,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import anim_data
 import winlog_objects
 
-STALE = int(os.environ.get('STALE', '64'))      # PPM_CHAIN_STALE_QUEUE
+STALE = int(os.environ.get('STALE', '64'))      # tried and reverted; see above
 WINDOW = int(os.environ.get('WINDOW', '1'))     # PPM_CHAIN_FRESH_WINDOW
+AT_LOAD = int(os.environ.get('AT_LOAD', '1'))   # tried and reverted; see above
+PROP = int(os.environ.get('PROP', '32'))        # PPM_CHAIN_PROP_ANIMS
 CHARS = (0x01, 0x02, 0x03)                      # the three playable characters
 
 
@@ -135,7 +142,8 @@ def walk(w, rows, obj, arm, firstend, life, ends):
         loop = w[(off + 4) >> 2] & 0xFFFFFF
         if nxt != 0xFFFF:
             why = ('terminal' if loop == 0 else 'at-end' if age <= WINDOW
-                   else 'at-load' if at_load else 'stale' if age >= STALE else 'none')
+                   else 'at-load' if (AT_LOAD and at_load)
+                   else 'stale' if (STALE and age >= STALE) else 'none')
             ends[(obj, crt, why)].append(age)
             if pend:
                 firstend[(obj, pend[0], pend[1])].append(age)
@@ -207,10 +215,28 @@ def main():
         age, k = max(worst)
         print('\n  oldest queue a character carries into an end: %d draws '
               '(obj %02X anim %02X)' % (age, k[0], k[1]))
-        print('  PPM_CHAIN_STALE_QUEUE must stay well above that.')
+        print('  A stale-queue rule has to clear that - and 0.2.5a shows clearing')
+        print('  it is not enough, because obj 01 anim 02 goes far past it.')
     bad = sum(len(v) for k, v in ends.items() if k[0] in CHARS and k[2] == 'stale')
     print('  character ends the stale branch would fire on: %d%s' % (
         bad, '   <== THRESHOLD TOO LOW' if bad else ''))
+
+    print('')
+    print('POPULATION  (PPM_CHAIN_PROP_ANIMS = %d)' % PROP)
+    props, actors = [], []
+    for obj in sorted(set(k[0] for k in ends) | set(k[0] for k in arm)):
+        try:
+            na = anim_data.n_anims(w, obj)
+        except Exception:
+            na = 999
+        (props if na <= PROP else actors).append((obj, na))
+    print('  props  (chain at any looping end): %s' % ' '.join(
+        '%02X/%d' % x for x in props))
+    print('  actors (0.2.4 rule unchanged)   : %s' % ' '.join(
+        '%02X/%d' % (o, n if n < 999 else -1) for o, n in actors))
+    if props and actors:
+        print('  gap: largest prop %d animations, smallest actor %d' % (
+            max(n for _o, n in props), min(n for _o, n in actors)))
 
 
 if __name__ == '__main__':
