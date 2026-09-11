@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/platform-banner.png" alt="Paprium" />
+</p>
+
 # Paprium for Analogue Pocket
 
 A standalone openFPGA core for **Paprium** (WaterMelon, 2020), running on the
