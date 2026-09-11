@@ -824,6 +824,61 @@ The remaining free prediction: blanks 8/9/10 all follow live track 7 and blanks
 44/45 both follow live track 43, so within each group they should be
 indistinguishable.
 
+### The boombox's own name table, and what the blank slots display
+
+Found 2026-09-11 while testing a theory about track 51. The boombox does not show
+the modules' internal titles - module 3 and module 51 both carry the placeholder
+title "I am a new music module !" and the composer "I am !", yet the boombox names
+them properly. There is a separate display-name table in ROM:
+
+    ROM 0x1001C  ->  0x00117F48     64 entries x 16 bytes, XOR 0xAA
+    ROM 0x10054  ->  0x001400B0     the BGM pointer table, for comparison
+
+Entry 0 is `----------------`; entries 1..62 are the track names, 1-based, the
+same convention as the pointer table.
+
+**The XOR key is not global.** Module titles and composers are XOR `0xA5`; this
+table is XOR `0xAA`. An earlier note in `scripts/dump_music.py` generalised 0xA5
+to "game text" and that is too broad - a string search under the wrong key finds
+nothing and proves nothing.
+
+**The ten blank slots are deliberate.** Entries 8, 9, 10, 13, 26, 31, 41, 44, 45
+and 48 all read `???`, and they are the only entries in 1..62 that do - a 10/10
+match against the ten null BGM pointers, derived independently. Entry 63 is `???`
+too, as slack past the count of 62. So the cartridge ships a UI placeholder for
+each blank: the game knows those slots are empty and says so on screen.
+
+Track 51 reads `SMOOTH COORDS`, literally - `f9 e7 e5 e5 fe e2 8a e9 e5 e5 f8 ee
+f9`, where `0xE9 0xE5` is `CO`, and the `H` glyph `0xE2` occurs in `SMOOTH` in
+the same string, so no display-time remapping could produce `CHORDS`. Neither
+`CHORD` nor `CHORDS` appears anywhere in the 8 MB ROM under any of the 256
+possible keys. That said, the table misspells elsewhere - `TRANSE` for a module
+titled "Trance Bonus", `INDIE` for "Indian", `HARDCORE BP2` for a module whose
+internal title is "Hardcore Boss Part 3" - so the ROM records the spelling, not
+the intent.
+
+### The module format above the header: order list and patterns
+
+`scripts/mwmm.py`. What `dump_music.py` called "sequence data" at `+0xB8` is
+really a 32-byte **comment** field, XOR 0xA5, and the music starts at `+0xD8`:
+
+    +0xB8  32 bytes  COMMENT, XOR 0xA5
+    +0xD8  order list - u16 big-endian ABSOLUTE file offsets, VOICE-MAJOR,
+           26 voices x npos positions, npos at header +0x08
+    then   the patterns. A pattern is G one-byte rows, each an INDEX into that
+           pattern's own event table, followed by the table at 8 bytes per
+           record, index 0 reserved as the null event.
+
+G is constant within a module and is one of 48, 64, 96, 128, 256. It is solved
+per module, then checked exhaustively: no pattern may carry an index past the end
+of its own event table. Across all 52 modules that parses **2,525 patterns with
+zero out-of-range indices**, and perturbing G, the stride or the base breaks it
+immediately. The event record's meaning is still open - that remains the synth
+problem - but the container around it is now addressable.
+
+The comment field holds the composers' notes, rotating over about fifteen jokes,
+and one names the tracker: "Pushing Wavemelon To The Limit".
+
 ### The SFX bank is readable, and is where a non-music cue would live
 
 If the punk-TV audio exists on original hardware - and it is reported to - then
