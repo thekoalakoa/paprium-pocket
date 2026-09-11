@@ -28,12 +28,15 @@ Header, as far as it is understood:
     +0x5E  26 bytes  per-voice array D - pan, 0x80 (centre) in every module
     +0x78  32 bytes  TITLE,    XOR 0xA5
     +0x98  32 bytes  COMPOSER, XOR 0xA5
-    +0xB8  sequence data
+    +0xB8  32 bytes  COMMENT,  XOR 0xA5
+    +0xD8  order list, then the patterns - see scripts/mwmm.py
 
 26 is the voice count in GPGX's synth loop, which is what identifies those arrays.
 
-TEXT IS XOR 0xA5. 0x85^0xA5 = space, 0xA5^0xA5 = NUL padding. That is why an ASCII
-search of the ROM finds nothing - it applies to game text generally, not just here.
+TEXT IS XOR 0xA5 *in the module*. 0x85^0xA5 = space, 0xA5^0xA5 = NUL padding.
+That is why an ASCII search finds nothing. But the key is NOT global: the game's
+UI string tables in ROM - including the boombox's own track-name table at
+0x00117F48 - are XOR 0xAA. Check the key before concluding a string is absent.
 
 Output is derived from a commercial ROM. Keep it local; gitignored.
 """
