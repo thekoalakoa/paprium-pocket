@@ -41,7 +41,7 @@ Boot, decompression, graphics streaming, saves, the cartridge's own sound effect
 and music — with correct per-scene track selection and one-shot cues that stop
 rather than loop.
 
-Fits a Cyclone V `5CEBA4F23C8` at **88% ALM and 93% M10K**, on a device with less
+Fits a Cyclone V `5CEBA4F23C8` at **89% ALM and 91% M10K**, on a device with less
 than half the logic of the MiSTer board this was ported from. From 0.2.2 the 68000
 is [FX68K](https://github.com/ijor/fx68k) rather than the gate-level netlist, which
 is what freed the ten points of ALM the cartridge synthesiser will need. There is
@@ -378,7 +378,8 @@ output into `rtl/PAPRIUM/mcu.txt` — the bitstream picks it up from there, so a
 firmware change that was not installed will silently rebuild the previous one.
 
 Variants: `paprium`, `paprium_nosfx`, `paprium_cddadbg`, `paprium_cmdlog`. Tell
-them apart by **M10K**, not ALM: shipping is 294, `cmdlog` is 308.
+them apart by **M10K**, not ALM: `cmdlog` is always 308, shipping is below it and drifts
+per release (279 at 0.2.5).
 
 > Always check the fit summary **timestamp** and the `.rbf` **size** before
 > flashing. Quartus can fail and leave stale artifacts, which produce believable
@@ -522,8 +523,10 @@ did not exist upstream — plus changes throughout the rest:
   loggers and the crash recorder sit behind switches and are off in the
   release; the save-block counters are compiled in, cost nothing, and are how
   the 0.2.1 numbers were read from the shipping card. The shipped firmware is
-  0.1.0's configuration plus the two elevator fixes (0.2.0) and the three
-  animation fixes with the floor (0.2.1). The savestate tooling is how the
+  0.1.0's configuration plus the two elevator fixes (0.2.0), the three
+  animation fixes with the floor (0.2.1), the Boom Box level feed and the
+  restart-flag fix (0.2.3), and the dropped-weapon chain rule (0.2.4, rewritten
+  in 0.2.5). The savestate tooling is how the
   VRAM map was settled: the planes and the sprites use strictly separate tile
   ranges —
 

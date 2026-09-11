@@ -12,8 +12,12 @@ How a log is produced (from the repo root, Git Bash):
 PATH=/c/intelFPGA_lite/21.1/quartus/bin64:$PATH nohup quartus_sh -t generate.tcl paprium 5 > build-logs/build-<name>.log 2>&1
 ```
 
-Reading one: the gate is the **first** "Worst-case setup slack" / "Worst-case hold slack"
-pair in the file (slow 1100 mV 85 °C corner). The later pairs are the other corners. ALM
+Reading one: each log holds four "Worst-case setup slack" / "Worst-case hold slack"
+pairs, one per corner, the first being slow 1100 mV 85 °C. Rows up to `build-chainend.log`
+quote that first pair. Rows from 0.2.5 on quote the **design-wide worst across all four**,
+which is what `docs/BUILD_REFERENCE.md` requires — hold fails in the FAST corner while
+passing in the slow one, so the slow pair flatters it. In `build-propgate.log` the slow
+corner reads 0.296 and the fast one 0.052; the table and the release notes say 0.052. ALM
 usage is not in the log; it is in `projects/output_files/megadrive_pocket.fit.summary`
 after the run, and in the PORT_PLAN entry for each card.
 

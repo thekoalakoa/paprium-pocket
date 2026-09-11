@@ -103,10 +103,16 @@ Re-run those checks if history is ever rewritten:
 
     git rev-list --objects --all | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' | awk '$1=="blob" {print $3, $4}' | sort -rn | head
 
-One item was a judgement call rather than a check, and it has been decided:
-`pkg/pocket/Platforms/_images/paprium.bin` is the core's platform artwork, derived
-from WaterMelon key art. The full-resolution source was deliberately removed from
-the repository on the same principle that keeps the ROM out; the downscaled
-platform image is **kept** - decided 2026-08-31 - because the core needs it to
-display and it is the artwork in its functional form rather than a redistributable
-copy of the original.
+One item was a judgement call rather than a check, and it has since been overtaken
+by a better answer. `pkg/pocket/Platforms/_images/paprium.bin` was originally
+generated from WaterMelon key art: the full-resolution source was deliberately kept
+out of the repository on the same principle that keeps the ROM out, and the
+downscaled platform image was **kept** - decided 2026-08-31 - as the artwork in its
+functional form rather than a redistributable copy.
+
+**That no longer describes the shipped file.** Since `dc8daec` the platform image
+has been original artwork drawn for this core by LemonGrwab, replaced again at
+0.2.5 (`fdc1c5a`) with their updated banner. So the repository carries no
+game-derived artwork at all, and the judgement above now applies only to the
+history. `scripts/make_platform_logo.py`, which produced the key-art version,
+remains in the tree and its output is not shipped.
