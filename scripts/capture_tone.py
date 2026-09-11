@@ -102,7 +102,40 @@ def db(v):
     return -999.0 if v <= 0 else 20.0 * np.log10(v)
 
 
-def analyse(path, start, dur, top):
+def envelope(x, hop_ms=10.0, bars=64):
+    """Short-frame RMS in dB, plus the shape numbers that matter here.
+
+    A note-on RISES from zero - there is an attack.  A ring-out is already at
+    level when the window opens and only ever falls.  That is the whole
+    difference between the sequencer restarting and the voices being stopped,
+    and it is visible without knowing anything about the synth.
+    """
+    hop = max(int(SR * hop_ms / 1000.0), 1)
+    n = len(x) // hop
+    e = np.array([np.sqrt((x[i * hop:(i + 1) * hop] ** 2).mean())
+                  for i in range(n)])
+    if not n:
+        return None
+    edb = np.array([db(v) for v in e])
+    k = int(np.argmax(edb))
+    peak = edb[k]
+    t = lambda i: i * hop / SR
+    # how far the level climbs from the first frame to the peak
+    rise = peak - edb[0]
+    # time from the peak to 20 dB below it
+    below = np.where(edb[k:] <= peak - 20.0)[0]
+    decay = t(below[0]) if len(below) else float('nan')
+    step = max(n // bars, 1)
+    coarse = edb[:step * min(bars, n // step)].reshape(-1, step).max(axis=1)
+    lo, hi = peak - 60.0, peak
+    ramp = " .:-=+*#%@"
+    spark = "".join(ramp[min(int((v - lo) / (hi - lo) * (len(ramp) - 1)), len(ramp) - 1)]
+                    if v > lo else " " for v in coarse)
+    return dict(peak=peak, t_peak=t(k), rise=rise, decay=decay,
+                first=edb[0], last=edb[-1], spark=spark, frames=n)
+
+
+def analyse(path, start, dur, top, env=False):
     a = decode(path, start, dur)
     if len(a) == 0:
         print("%-28s  no audio in window" % os.path.basename(path)[:28])
@@ -126,6 +159,13 @@ def analyse(path, start, dur, top):
                  100 * mains_share(freqs, p, 60.0)))
         print("     peaks  " + "  ".join("%8.2f Hz (%4.1f%%)" % (f, 100 * s)
                                           for f, s in pk))
+        if env:
+            ev = envelope(x)
+            if ev:
+                print("     env    peak %.1f dBFS at %.2fs   rise from first frame "
+                      "%+.1f dB   -20 dB after %.2fs"
+                      % (ev["peak"], ev["t_peak"], ev["rise"], ev["decay"]))
+                print("     shape  |%s|" % ev["spark"])
 
 
 def main():
@@ -134,11 +174,14 @@ def main():
     ap.add_argument("--start", type=float, default=0.0, help="window start, seconds")
     ap.add_argument("--dur", type=float, default=3.0, help="window length, seconds")
     ap.add_argument("--top", type=int, default=5, help="spectral peaks to list")
+    ap.add_argument("--envelope", action="store_true",
+                    help="also print the short-frame RMS shape: a note-on rises "
+                         "from zero, a ring-out only falls")
     ap.add_argument("files", nargs="+")
     args = ap.parse_args()
     for f in args.files:
         try:
-            analyse(f, args.start, args.dur, args.top)
+            analyse(f, args.start, args.dur, args.top, args.envelope)
         except subprocess.CalledProcessError as e:
             print("%s: ffmpeg failed: %s"
                   % (os.path.basename(f), e.stderr.decode(errors="replace").strip()[:200]),
