@@ -879,6 +879,89 @@ problem - but the container around it is now addressable.
 The comment field holds the composers' notes, rotating over about fifteen jokes,
 and one names the tracker: "Pushing Wavemelon To The Limit".
 
+#### Absolute tempo, solved
+
+The row clock is
+
+    T = 2 * header[+0x07] + (operand of event command 0xFA & 0x0F)   ticks
+    tick = 99.8745 Hz +/- 0.005      (10.0126 ms)
+
+applied PER ROW - an `0xFA` takes effect at the row it occupies and holds until
+the next one, so a module can ramp its tempo mid-song. Track 20 carries an
+explicit ritardando (`0xFA` operands 0,1,2,3,4 on successive bars) and track 38
+steps 6 then 4.
+
+It is NOT the video frame. 99.8745 Hz is nothing like 59.92 Hz, and the sequencer
+lives on the cartridge MCU, so it keeps its own time.
+
+Checked against the 52 hardware captures two independent ways. Predicting each
+recording's loop period from the module alone and finding the autocorrelation
+peak gives a median error of **6 ppm** over 49 of 52 tracks on an unconstrained
+search, and an independent re-measurement here, searching only +/-3% around the
+prediction, gives a median of **27 ppm** over the 36 constant-tempo modules -
+against a window of +/-30,000 ppm, so the peak is landing a thousand times
+tighter than chance. Perturbing the tick by a single count collapses it, and
+permuting which module's prediction is applied to which recording collapses it.
+
+Two honest limits. The ratio T/clock is what is measured, so nothing excludes the
+real hardware tick being an integer multiple faster with T scaled to match; and
+the sixth digit of 99.8745 is not established - candidate derivations at 99.8712
+(5/3 x NTSC frame) and 99.8757 (master clock / 537600) are not separable at this
+precision.
+
+#### Header +0x09 is the loop point
+
+Playback repeats over `(npos - header[+0x09])` order positions; the first
+`+0x09` positions are a non-repeating intro. Confirmed on the captures two ways:
+the loop period predicted with `(npos - hdr09)` beats the one predicted with the
+full `npos` in every module where `hdr09 > 0`, and the point where fixed-lag
+self-similarity steps up recovers `hdr09` in 19 of the 22 tracks where that step
+is measurable. This is also what makes the tempo result above come out - the two
+were fitted and tested separately and agree.
+
+#### The 8-byte event record
+
+Four big-endian words. Word 0 is the note; words 1-3 are `(command, operand)`
+pairs, **left-packed and zero-terminated**, which is measured rather than
+assumed: over 24,709 grid-referenced records the occupancy mask of words 1-3
+takes only `000`, `100`, `110` and `111` - `001`, `010`, `011` and `101` occur
+exactly zero times, and an occupied command word never has a zero code byte.
+
+    word 0   byte 0  note: 0 = no note, 1..12 = pitch class with 1 = C,
+                     0x0E = gate release. 0x0D NEVER occurs in any record the
+                     grid references.
+             byte 1  octave, 0..7 in all 24,709 records
+    words 1-3  command codes up to 250 with operands up to 255
+
+So `pitch = 12*byte1 + byte0 + C`. **C is not established** - scale-fit and
+interval evidence is invariant to octave transposition, solo-note measurements
+against the captures imply inconsistent values, and `render_mwmm.py` assumes
+C = -1. Since the synth is sample-based and per-program root pitch is still
+unsolved, a single global C may not exist; treat the absolute anchor as open and
+resolve it per instrument.
+
+Two commands are identified: **`0xFA` sets the row period** (above), and `0x0F`
+appears to carry instrument selection - it is present at or before the first note
+of a voice in the modules whose static program array is empty, which is what
+explains how 37 modules play varied instruments while `+0x2A` is all zeros.
+`0x0E`'s byte 1 is NOT the octave of the note being released (28.9% match against
+20.5% by chance) and a renderer must ignore it.
+
+#### The comments carry no hidden clue
+
+Checked, because the pattern of them invited it. There are exactly 15 distinct
+comment strings over the 52 modules. A 256-key sweep of the whole 8 MB ROM finds
+them ONLY inside the modules' own compressed streams - there is no joke table, no
+tracker string pool, and no untruncated version of the six that the 32-byte field
+cuts off. The comment does not track authorship either: 7 of the 12 multi-module
+groups span more than one composer.
+
+They are stock lines picked per module from a small recurring set, and the
+technical-sounding ones ("Set all TL parameters to zero fo...", "I am king of the
+YM chip !") are jokes about the Mega Drive's own FM chip - which this cartridge
+uses only as a PCM DAC. Worth recording as a clean negative so nobody spends the
+afternoon on it twice.
+
 ### The SFX bank is readable, and is where a non-music cue would live
 
 If the punk-TV audio exists on original hardware - and it is reported to - then
