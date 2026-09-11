@@ -93,36 +93,64 @@ The row tick lives in `ppm_start()`'s loop, which runs far faster than 60 Hz, so
 at most one row advances per call and a carried millisecond remainder keeps the
 grid from drifting. `cmd_8D` parks the bars on stop.
 
-**`mame.c` / `mame.h` — pickup items spin forever instead of settling (ours).**
-`PPM_CHAIN_ONLY_AT_END` (0.2.1) refuses a queued follow-up whenever the CURRENT
-animation loops. Right for characters, wrong for dropped pickups: on hardware the
-electric stick, pipe and knife loop their fall and spin instead of taking their
-ground pose. The animation data at ROM `0x0C0000` (241 objects, 17,401
-animations, 2,846 of them ending on a non-zero loop target) separates the two
-cases with no timing heuristic at all:
+**`mame.c` / `mame.h` — dropped weapons spin forever instead of settling (ours).**
+An enemy drops a knife `0xDC`, electric stick `0xDE` or pipe `0xE0`. It should
+land and take its ground pose; instead it kept spinning. `PPM_CHAIN_ONLY_AT_END`
+(0.2.1) takes a queued follow-up only at a TERMINAL end (loop target 0), and
+measured across 12 minutes of captured play that fires on **0 of 821** queue
+requests — every animation the game ever arms a follow-up on loops. In practice
+the rule is "never chain". Turning it off lands the items and regresses the
+character walk-in to moonwalking; both confirmed on hardware, in both directions.
 
-| | source anim | queued target |
-|---|---|---|
-| characters / enemies | loops | **loops** (a 37-frame idle) |
-| pickups `0x33`-`0x3D`, `0x97`-`0x9B` | loops | **terminal, 1 frame** (ground pose) |
+What separates the two cases is WHEN the game arms the queue, relative to the
+animation it arms it on:
 
-`0x33`-`0x3D` are eleven contiguous simple objects with exactly two animations
-each, a 1-frame terminal pose and a 31..97-frame looping one — a dropped weapon.
-So `PPM_CHAIN_TARGET_TERMINAL` takes a queued follow-up out of a looping
-animation **only when the queued animation is itself terminal**. A character's
-queued idle loops and is still refused, so 0.2.1 is untouched — including the
-walk-in capture where the game leaves the record alone for 295 frames and the
-retail cart keeps walking.
+| | animation | ends at frame | queue armed at | on an end |
+|---|---|---|---|---|
+| weapon fall `anim 8` | 25 frames, loops to index 1 | 49, 73, 97 | **49** | **11 of 11** |
+| player walk-in `anim 9` | 49 frames, loops to index 1 | 49, 97, 145 | 5, 17, 18, 19, 80, 116 | **0 of 31** |
+
+The game arms `nextAnim` **on the frame the animation finishes** when it means
+"switch now", and mid-cycle when it is only a standing fallback it will resolve
+itself with a later direct `setAnim`. So `PPM_CHAIN_FRESH_QUEUE` takes a queued
+follow-up at a looping end only when the queue was armed at that end. This
+firmware detects the end one call LATER than Genesis Plus GX does — it keeps the
+frame just drawn and advances at the top of the next call — hence
+`PPM_CHAIN_FRESH_WINDOW 1`; the result is identical for any window from 0 to 4,
+and the nearest a walk-in arming ever comes to an end is 17 frames.
+
+Verified by replaying this firmware's own `ppm_obj_render` against four winlog
+captures, 5,558 object episodes: **11 of 11 weapon chains fire, 0 chains out of
+`anim 09`.** Then on hardware: items settle and stir, walk-ins keep walking, no
+despawn change.
+
+**The game's animation protocol**, decoded from `setAnim` at ROM `0x031024` and
+worth having written down: bit 14 of the argument QUEUES (writes `+0x02`), a plain
+value SETS NOW (writes `+0x00`, raises `+0x0A`, clears `+0x02` to `0xFFFF`), and
+bit 15 forces a restart. It never writes `+0x04`, so `objID` bit 15 marks object
+creation only. A corollary this firmware relies on: the game never changes `anim`
+without raising `reset` in the same call.
+
+**Refuted first, recorded so they are not retried.** The frame-word flag bits
+(bits 24-30) are a VRAM streaming hint — their low nibble is the count of
+graphics blocks a pose adds that the previous pose did not, matching 24,764 of
+24,893 pose boundaries (99.48%); "weapons 0/1/2, characters 3-7" is only sprite
+size. `obj_data+0x06` is mutable nibble-packed game state and the knife carries
+`0000` in one drop and `2233` in another. Movement while armed is backwards — the
+player's walk moved 0.0% of samples and the knife 13.2%. Matching Genesis Plus GX
+is not an option either: it chains at every looping end and therefore moonwalks
+the walk-in as well, proved by matching its logged graphics blocks against the
+ROM's per-frame art. And "chain only for the object's spawn animation" fails
+because a dropped knife is not spawned falling — it is created on the ground at
+`anim 1` and the game calls `setAnim(8)` when it is knocked loose; 38 of 42
+weapon objects spawn already grounded.
 
 **A frame clock was tried first and is wrong.** Waiting N frames for the game to
 set the animation itself fires on that same 295-frame walk-in and puts the
-character back into its sliding standing pose — the exact bug 0.2.1 fixed. The
-attempt is recorded here so it is not tried again.
-
-**Blast radius, checked against both winlog captures:** every `nextAnim` observed
-for every object present (`01`, `02`, `03`, `6B`, `DC`, `DE`, `E3`) points at a
-LOOPING animation, so the new arm never fires on any of them — no behaviour
-change on anything the captures exercise.
+character back into its sliding standing pose — the exact bug 0.2.1 fixed. So was
+`PPM_CHAIN_TARGET_TERMINAL` (0.2.3), which required the QUEUED animation to be
+terminal: it shipped, changed nothing on hardware, and was reverted. Both are
+recorded here so they are not tried again.
 
 ## Not yet re-applied
 

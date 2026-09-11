@@ -175,6 +175,18 @@ def main():
     #     kind 18  pad = +0xA (reset) low byte    address = index | (anim & 0xFF) << 8
     #     kind 19  pad = +0xA (reset) high byte   address = raw +4 word (objID; bit 15 = the 'fresh' bit mega-ppm reads)
     #     kind 20  pad = 0                        address = +2 (nextAnim)
+    #     kind 21  pad = 0                        address = +6, THE FIELD NOBODY READS
+    #     kind 22  pad = 0                        address = +8 (objAttr)
+    #     kind 23  pad = framePtr bits 23..16     address = framePtr bits 15..0
+    #     kind 24  pad = 0                        address = +C (posX)
+    #     kind 25  pad = 0                        address = +E (posY)
+    #
+    # 21-25 were added 2026-09-10 for the dropped-item spin bug. The item and the
+    # walking character are indistinguishable in every field either implementation
+    # reads, so the remaining candidates are the two words neither reads (+6, and
+    # objAttr beyond its flip bit) plus where the renderer actually is in the frame
+    # list. framePtr is logged at ENTRY, before the reload/advance, so a capture
+    # shows which frame was drawn without inferring it from block fingerprints.
     old = TAB + 'int pos_y = *(uint16*) (paprium_s.ram + 0xF8E + index*16);'
     assert s.count(old) == 1, ('sprite: record read', s.count(old))
     s = s.replace(old, NL.join([old,
@@ -182,7 +194,20 @@ def main():
                                 TAB + '{ unsigned int st = (winlog_frames << 16) | (v_counter & 0xFFFF);',
                                 TAB + '  winlog_raw(18, (unsigned char)(reset & 0xFF), (unsigned short)((index & 0xFF) | ((anim & 0xFF) << 8)), st);',
                                 TAB + '  winlog_raw(19, (unsigned char)((reset >> 8) & 0xFF), *(uint16*) (paprium_s.ram + 0xF84 + index*16), st);',
-                                TAB + '  winlog_raw(20, 0, (unsigned short) nextAnim, st); }',
+                                TAB + '  winlog_raw(20, 0, (unsigned short) nextAnim, st);',
+                                TAB + '  winlog_raw(21, 0, *(uint16*) (paprium_s.ram + 0xF86 + index*16), st);',
+                                TAB + '  winlog_raw(22, 0, (unsigned short) objAttr, st);',
+                                TAB + '  winlog_raw(24, 0, (unsigned short) pos_x, st);',
+                                TAB + '  winlog_raw(25, 0, (unsigned short) pos_y, st); }',
+                                '#endif']))
+
+    # kind 23 needs framePtr, which is declared further down than pos_y.
+    old = TAB + 'int framePtr = paprium_s.obj[index];'
+    assert s.count(old) == 1, ('sprite: framePtr decl', s.count(old))
+    s = s.replace(old, NL.join([old,
+                                '#if PAPRIUM_WINLOG',
+                                TAB + 'winlog_raw(23, (unsigned char)((framePtr >> 16) & 0xFF), (unsigned short)(framePtr & 0xFFFF),',
+                                TAB + TAB + '(winlog_frames << 16) | (v_counter & 0xFFFF));',
                                 '#endif']))
 
     # 7. paprium_sprite: per-object outcome (kind 14) and per streamed sprite (kind 13)

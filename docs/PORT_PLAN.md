@@ -10768,3 +10768,66 @@ values 0/1/2, characters 3-7 and 32-38.
 `+0 count +1 flags`. Tiles are 32 bytes, 4bpp, high nibble = left pixel, column-major. Confirmed by
 three invariants over 28,871 records. Identifying an object by eye takes minutes; inferring it from
 animation shape cost most of a day and was wrong three times.
+
+## 0.2.4 (2026-09-10) — dropped weapons settle
+
+The last open functional bug from 0.2.3. Validated on hardware: items settle and stir, walk-ins keep
+walking, nothing else moved.
+
+**The game's animation protocol**, decoded from `setAnim` at ROM `0x031024`, because everything else
+here depends on reading it correctly:
+
+    031046  CMP.W (A0),D1          queued anim == current? then cancel the queue
+    03104A  MOVE.W D1,2(A0)        +0x02  nextAnim          <- bit 14 set: QUEUE
+    031058  MOVE.W #1,10(A0)       +0x0A  reset = 1         <- bit 14 clear: SET NOW
+    031062  MOVE.W D1,(A0)         +0x00  anim
+    031064  MOVE.W #-1,2(A0)       +0x02  nextAnim = 0xFFFF
+
+Bit 14 of the argument queues, a plain value sets immediately, bit 15 forces a restart of the same
+animation. It never writes `+0x04`, so `objID` bit 15 marks object creation only — and the game never
+changes `anim` without raising `reset` in the same call.
+
+**What the game does with a dropped weapon**, from the emulator's object-table trace: the stick
+`0xDE` is created, falls for 48 frames, then the game arms `nextAnim=1` and **never writes `anim`
+again for 458 frames**. Only the cartridge can land it. The player's walk-in is the same shape —
+`anim 9` with `nextAnim=1` armed and held for 295 frames — but there the game resolves it itself.
+
+**The discriminator is timing.** An animation's ends are at frames `n, n+(n-L), ...` where `n` is the
+frame count and `L` the loop index:
+
+| | animation | ends at | queue armed at | on an end |
+|---|---|---|---|---|
+| weapon fall `anim 8` | 25 frames, loop index 1 | 49, 73, 97 | **49** | **11 of 11** |
+| player walk `anim 9` | 49 frames, loop index 1 | 49, 97, 145 | 5, 17, 18, 19, 80, 116 | **0 of 31** |
+
+The game arms the queue on the frame the animation finishes when it means "switch now".
+`PPM_CHAIN_FRESH_QUEUE` takes a queued follow-up at a looping end only when the queue was armed at
+that end. Window 1, because this firmware detects the end one call later than Genesis Plus GX does;
+the outcome is identical for any window from 0 to 4.
+
+**How it was verified without a fit.** Replaying this firmware's own `ppm_obj_render` against four
+captures — 5,558 object episodes — fires 11 of 11 weapon chains and 0 chains out of `anim 09`. That
+replay matters because the emulator *cannot* test this rule: GPGX decides at the call that draws the
+last frame, this firmware on the call after, and the weapon's queue appears in the one-frame gap
+between them. An emulator "confirmation" either way would have been meaningless.
+
+**Refuted, with the measurement that killed each.** Frame-word flag bits 24-30: a VRAM streaming
+hint, low nibble = graphics blocks this pose adds that the previous did not, 24,764 of 24,893 pose
+boundaries (99.48%) — "weapons 0/1/2, characters 3-7" is sprite size, nothing more. `obj_data+0x06`:
+mutable nibble-packed state, the knife carries `0000` in one drop and `2233` in another. Movement
+while armed: backwards, the walk moved 0.0% of samples and the knife 13.2%. Copying GPGX: it chains
+at every looping end and moonwalks the walk-in too, proved by matching its logged graphics blocks
+against the ROM's per-frame art. Spawn-animation: a dropped knife is not spawned falling — it is
+created on the ground at `anim 1` and `setAnim(8)` is called when it is knocked loose, and 38 of 42
+weapon objects spawn already grounded.
+
+**And the shipped 0.2.3 rule was not the narrow refinement it read as.** `PPM_CHAIN_ONLY_AT_END`
+chains 0 of 821 queue requests across 12 minutes of play: every animation the game arms a follow-up
+on has a nonzero loop target, so in practice it was "never chain".
+
+**Instrumentation added.** The winlog now carries the whole object record — 21 = `+0x06`, 22 =
+`objAttr`, 23 = `framePtr` at entry, 24/25 = posX/posY — and kind 15's graphics-block numbers make
+the emulator falsifiable: match them against the ROM's per-frame sprite fingerprints and you know
+which animation was really drawn, whatever the game's RAM claimed. The attract-mode demo plays the
+game by itself, drops weapons and walks characters in, so a core plus a capture tests an animation
+rule with no hardware and no player. It refuted the spawn-animation rule in a single run.
