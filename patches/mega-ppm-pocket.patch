@@ -1,5 +1,5 @@
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..de8ce41 100644
+index b568843..8bb981f 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
 @@ -4,6 +4,252 @@
@@ -1627,7 +1627,7 @@ index b568843..de8ce41 100644
  void ppm_obj_render(uint16_t obj_slot) {
  
      ppm_intf_obj *intf_obj = &ppmio.ramdp->obj_data[obj_slot]; // interface obj
-@@ -340,12 +1798,46 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -340,12 +1798,44 @@ void ppm_obj_render(uint16_t obj_slot) {
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
@@ -1654,11 +1654,9 @@ index b568843..de8ce41 100644
 +    // with its follow-up already armed would read as an old queue and never chain.
 +    if (intf_obj->objID & 0x8000) {
 +        handle->prev_next = 0xffff;
-+        handle->queue_at_load = 0;
 +    }
 +    if (intf_obj->nextAnim == 0xffff) {
 +        handle->queue_age = 0xff;
-+        handle->queue_at_load = 0;
 +    } else if (handle->prev_next == 0xffff) {
 +        handle->queue_age = 0;
 +    } else if (handle->queue_age < 0xff) {
@@ -1674,16 +1672,10 @@ index b568843..de8ce41 100644
  
      //	printf("Slot 0x%02x (ID 0x%04x): ", obj_slot, intf_obj->objID);
  
-@@ -363,6 +1855,25 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -363,6 +1853,19 @@ void ppm_obj_render(uint16_t obj_slot) {
          handle->anim_offset = offset;
          handle->crtAnim = intf_obj->anim;
          handle->counter = intf_obj->animCounter;
-+#if PPM_CHAIN_FRESH_QUEUE && PPM_CHAIN_QUEUE_AT_LOAD
-+        // setAnim(N) and the queue in the same call: "play this, then that".
-+        // The end is a whole animation away, so remember it - see
-+        // PPM_CHAIN_QUEUE_AT_LOAD in mame.h.
-+        handle->queue_at_load = (queue_age == 0);
-+#endif
 +#if PPM_ANIM_FLAG_SEMANTICS
 +        // The animation has just been (re)loaded from its first frame, which is
 +        // exactly what a restart request asks for - so acknowledge it by writing
@@ -1700,7 +1692,7 @@ index b568843..de8ce41 100644
      } else {
          // move to next frame
  
-@@ -377,11 +1888,33 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -377,11 +1880,30 @@ void ppm_obj_render(uint16_t obj_slot) {
              offset += 4;
          } else {
              // anim is over, do we have fallback anim?
@@ -1710,17 +1702,14 @@ index b568843..de8ce41 100644
 +            if (intf_obj->nextAnim != 0xffff &&
 +                ((ppm_anim_data[(offset + 4) >> 2] & 0xffffffu) == 0
 +#if PPM_CHAIN_FRESH_QUEUE
-+                 // a looping end chains too, but only for a queue the game meant
-+                 // for this animation: armed at this end, armed on the draw that
-+                 // set the animation, or left standing so long that the game has
-+                 // plainly handed the object over - see mame.h
++                 // an actor chains at a looping end only for a queue armed at
++                 // that end - see PPM_CHAIN_FRESH_QUEUE in mame.h
 +                 || queue_age <= PPM_CHAIN_FRESH_WINDOW
-+#if PPM_CHAIN_QUEUE_AT_LOAD
-+                 || handle->queue_at_load
 +#endif
-+#if PPM_CHAIN_STALE_QUEUE
-+                 || queue_age >= PPM_CHAIN_STALE_QUEUE
-+#endif
++#if PPM_CHAIN_PROP_ANIMS
++                 // a prop always chains: it has no state machine behind it, and
++                 // the game drops one and never writes its animation again
++                 || ppm_anim_max_index[intf_obj->objID & 0xff] < PPM_CHAIN_PROP_ANIMS
 +#endif
 +                )) {
 +#else
@@ -1734,7 +1723,7 @@ index b568843..de8ce41 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -395,13 +1928,23 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -395,13 +1917,23 @@ void ppm_obj_render(uint16_t obj_slot) {
          }
  
          data_offset = ppm_anim_data[offset >> 2] & 0xffffffu;
@@ -1758,7 +1747,7 @@ index b568843..de8ce41 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1953,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -410,6 +1942,11 @@ void ppm_obj_render(uint16_t obj_slot) {
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1770,7 +1759,7 @@ index b568843..de8ce41 100644
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,26 +1969,69 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -421,26 +1958,69 @@ void ppm_obj_render(uint16_t obj_slot) {
              // break; need to iterate all to keep resevations?
          }
      }
@@ -1840,7 +1829,7 @@ index b568843..de8ce41 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +2052,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -461,7 +2041,44 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1885,7 +1874,7 @@ index b568843..de8ce41 100644
          satEntry++;
      }
  
-@@ -482,12 +2110,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -482,12 +2099,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
@@ -1921,7 +1910,7 @@ index b568843..de8ce41 100644
          return 0;
      }
  
-@@ -505,24 +2155,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -505,24 +2144,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1991,7 +1980,7 @@ index b568843..de8ce41 100644
      dma_entry->srcH = 0x9700;
      dma_entry->srcM = 0x9660;
      dma_entry->srcL = 0x9500; // 0xc000 source
-@@ -536,6 +2230,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+@@ -536,6 +2219,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1999,7 +1988,7 @@ index b568843..de8ce41 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2244,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +2233,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -2010,20 +1999,19 @@ index b568843..de8ce41 100644
      ppm_vram_slot *slot = ppm_vram_slots;
  
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..b88df54 100644
+index 06ccf59..2dfbf8e 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -131,6 +131,9 @@ typedef struct {
+@@ -131,6 +131,8 @@ typedef struct {
      uint32_t lastDisplayedOffset; //
      uint16_t crtAnim;
      uint16_t counter;
 +    uint16_t prev_next;    // nextAnim as of the previous draw
 +    uint8_t  queue_age;    // draws since the queue was armed; 255 = no queue
-+    uint8_t  queue_at_load; // the queue was armed on the draw that loaded crtAnim
  } ppm_obj;
  
  typedef struct { //byteswapped (endianess fix)
-@@ -152,9 +155,449 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,9 +154,446 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
@@ -2251,48 +2239,45 @@ index 06ccf59..b88df54 100644
 +// that fits both hardware-confirmed cases. See docs/PORT_PLAN.md.
 +#define PPM_CHAIN_FRESH_QUEUE   1
 +#define PPM_CHAIN_FRESH_WINDOW  1
-+// THE OTHER TWO WAYS THE GAME SAYS "SWITCH WHEN THIS ENDS" (2026-09-11).
++// A PROP IS NOT AN ACTOR (2026-09-11, hardware).
 +//
-+// 0.2.4's window catches a queue armed AT an end and nothing else, so it settled
-+// the weapons an enemy drops and left everything else spinning - users report
-+// knives, chains, pipes and neon sticks still spinning when the PLAYER is
-+// knocked down. Measured over 721,736 object records, the game arms a queue in
-+// three distinct places, and only one of them is an end:
++// Two hardware experiments bracket this exactly, and between them they say what
++// the rule has to be:
 +//
-+//   AT-LOAD  on the very draw that sets the animation - setAnim(N) and the
-+//     queue in one call, "play this, then that". The end is then a whole
-+//     animation away (age at the end is exactly the animation's length), so the
-+//     fresh window can NEVER fire on it. Two confirmed cases in the demo alone:
-+//     item 0xE3's ground stir (35 armings) and the player's idle fidget, obj 01
-+//     anim 02 - 30 frames, queued back to the stance, and the game then leaves
-+//     the object alone for 212 to 1,067 draws. This port loops that fidget about
-+//     22 times instead of playing it once.
-+//   AT-END   age 0 or 1. 0.2.4, confirmed on hardware.
-+//   MID      mid-cycle. For a character this is a one-frame transient the game
-+//     resolves ITSELF a few draws later with a direct setAnim; for a dropped
-+//     item it is a handover the game never comes back to.
++//   69e00e2  chain at EVERY looping end, all objects. Every dropped weapon
++//            settled correctly - and the character walk-in moonwalked.
++//   0.2.5a   chain at a looping end when the queue was armed with the animation
++//            (AT-LOAD) or left standing past 64 draws (STALE). The weapons
++//            settled, a little later than original hardware - and the walk-in
++//            moonwalked AGAIN.
 +//
-+// So the second rule is a stale queue. What separates the two MID cases is how
-+// long the queue is left standing, and the separation is clean:
++// Both times the weapons wanted the wide rule and the characters refused it, so
++// the discriminator is not WHEN the queue was armed at all. It is WHAT the
++// object is. Those two rules both reach obj 01 anim 02 - the player's looping
++// idle, queued back to the stance and then left alone for 212 to 1,067 draws -
++// which is the only character animation either of them touches in 834,000
++// object records, and it is enough to put a moving character into a standing
++// pose.
 +//
-+//   characters (obj 01/02/03): a queue NEVER reaches an animation end older than
-+//     41 draws. 1,950 such ends measured, 1,946 of them at age 33 or less; the
-+//     whole tail above 28 is one animation (3A), whose queue the game always
-+//     resolves by draw 42. Nothing at all between 42 and 47.
-+//   dropped items: 82 to 458 draws, and the game never resolves them - the
-+//     object is gone before it touches them again.
++// The cartridge cannot be doing this, but the population split is real and the
++// firmware already has it to hand: ppm_anim_max_index, the per-object animation
++// count it bounds-checks against. Measured over all 241 objects, it separates
++// with a gap and no overlap:
 +//
-+// PPM_CHAIN_STALE_QUEUE sits at 64, above every character queue ever measured by
-+// half again, and below every item handover. It is the safety net: it catches a
-+// weapon dropped by ANY path, whatever the arming looks like, at the cost of up
-+// to a second of extra spin in the cases the other two rules miss.
++//   props   2, 4, 5, 10, 11, 12, 13, 16, 17, 18, 23, 29 animations
++//           - every weapon is 10: knife DC, chain DD, neon stick DE, pipe E0
++//   actors  39, 61, 157, 160, 161, 220 animations
++//           - all three playable characters are 157, every enemy 39 or more
 +//
-+// The hardware record is what justifies a net this wide. Turning chaining off at
-+// looping ends entirely (69e00e2) settled every weapon on hardware and moonwalked
-+// the character walk-in; the ends that regression fired on are all at ages 2 to
-+// 47, which is exactly what this threshold excludes and 0.2.4 already excluded.
-+#define PPM_CHAIN_QUEUE_AT_LOAD 1
-+#define PPM_CHAIN_STALE_QUEUE   64
++// So: a prop takes a queued follow-up at any looping end, which is the rule
++// hardware confirmed settles every weapon; an actor keeps 0.2.4's rule exactly,
++// which is the rule hardware confirmed keeps the walk-in walking. Nothing an
++// actor does changes from the build the user tested and passed.
++//
++// This is a containment boundary, not a discovery - if the cartridge's actual
++// rule is ever found, it replaces this. What it buys is that the failure that
++// came back twice cannot come back a third time from a rule we cannot see into.
++#define PPM_CHAIN_PROP_ANIMS    32
 +// obj_data+0x0A IS THE GAME'S ONE-SHOT RESTART FLAG, NOT OUR COUNTER (2026-09-10).
 +// This firmware called it animCounter and INCREMENTED it every drawn frame, in
 +// memory the 68000 owns and reads back. It is a flag, and the game writes 1 to

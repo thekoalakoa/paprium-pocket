@@ -1,7 +1,7 @@
 """Replay this firmware's ppm_obj_render against recorded object-table traces.
 
     python scripts/sim_anim_firmware.py <winlog.bin> [more.bin ...]
-    WINDOW=2 python scripts/sim_anim_firmware.py <winlog.bin>
+    PROP=0 python scripts/sim_anim_firmware.py <winlog.bin>    # actors' rule for all
 
 **Why this exists, and why the emulator is not a substitute.** Genesis Plus GX
 decides what to do at the end of an animation on the call that DRAWS its last
@@ -30,9 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import anim_data
 import winlog_objects
 
-WINDOW = int(os.environ.get('WINDOW', '1'))      # PPM_CHAIN_FRESH_WINDOW
-AT_LOAD = int(os.environ.get('AT_LOAD', '1'))   # PPM_CHAIN_QUEUE_AT_LOAD
-STALE = int(os.environ.get('STALE', '64'))      # PPM_CHAIN_STALE_QUEUE, 0 = off
+WINDOW = int(os.environ.get('WINDOW', '1'))     # PPM_CHAIN_FRESH_WINDOW
+PROP = int(os.environ.get('PROP', '32'))        # PPM_CHAIN_PROP_ANIMS, 0 = off
 # knife, chain, neon stick, pipe (each as a pair), and 0xE3, the spinning disc
 WEAPONS = {0xDC, 0xDD, 0xDE, 0xDF, 0xE0, 0xE1, 0xE3}
 WALK = 0x09                                     # the walk-in animation to guard
@@ -45,13 +44,12 @@ def sim(w, rows, obj):
     crt = None
     prev_next = 0xFFFF
     age = 0xFF
-    at_load = 0
     first = True
+    prop = PROP and anim_data.n_anims(w, obj) <= PROP
     for t in rows:
         nxt = t['nxt']
         if nxt == 0xFFFF:
             age = 0xFF
-            at_load = 0
         elif prev_next == 0xFFFF:
             age = 0
         elif age < 0xFF:
@@ -68,7 +66,6 @@ def sim(w, rows, obj):
             except Exception:
                 anim_off = None
             crt = t['anim']
-            at_load = 1 if age == 0 else 0      # setAnim and the queue in one call
             continue
         if anim_off is None:
             continue
@@ -83,8 +80,7 @@ def sim(w, rows, obj):
         if nxt != 0xFFFF:
             if loop == 0:                       return (t['f'], crt, nxt, 'terminal')
             if age <= WINDOW:                   return (t['f'], crt, nxt, 'at-end')
-            if AT_LOAD and at_load:             return (t['f'], crt, nxt, 'at-load')
-            if STALE and age >= STALE:          return (t['f'], crt, nxt, 'stale')
+            if prop:                            return (t['f'], crt, nxt, 'prop')
         anim_off = loop
         if not anim_off:                        # terminal end: stop drawing
             return None
@@ -117,8 +113,7 @@ def main():
     if not caps:
         raise SystemExit(__doc__)
     w = anim_data.load()
-    print('FRESH_WINDOW = %d   QUEUE_AT_LOAD = %d   STALE_QUEUE = %d'
-          % (WINDOW, AT_LOAD, STALE))
+    print('FRESH_WINDOW = %d   PROP_ANIMS = %d' % (WINDOW, PROP))
     print('')
     tot = defaultdict(int)
     n_eps = 0

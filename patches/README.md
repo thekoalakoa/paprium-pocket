@@ -124,56 +124,53 @@ captures, 5,558 object episodes: **11 of 11 weapon chains fire, 0 chains out of
 `anim 09`.** Then on hardware: items settle and stir, walk-ins keep walking, no
 despawn change.
 
-**That was only one of the three places the game arms a queue (0.2.5).** Users
-reported knives `0xDC`, chains `0xDD`, neon sticks `0xDE` and pipes `0xE0` still
-spinning when the PLAYER is knocked down, and the reason is that a window around
-an end catches exactly one arming pattern. Measured over 721,736 object records:
+**0.2.5: a prop is not an actor.** Users reported knives `0xDC`, chains `0xDD`, neon
+sticks `0xDE` and pipes `0xE0` still spinning when the PLAYER is knocked down — a
+drop path no capture contains, since attract mode never picks a weapon up. Two
+readings of the captured data were tried, and both moonwalked the walk-in on
+hardware:
 
-| where the queue is armed | what it means | age when the animation ends |
-|---|---|---|
-| **AT-LOAD** — the same call as `setAnim(N)` | "play this, then that" | the animation's whole length |
-| **AT-END** — on the frame it finishes | "switch now" | 0 or 1 |
-| **MID** — mid-cycle | character: a transient the game resolves itself; item: a handover it never returns to | 2 and up |
+- **AT-LOAD.** The game arms a queue in three places, and a window around an end
+  catches one of them. `setAnim(N)` and the queue in ONE call — "play this, then
+  that" — puts the end a whole animation away by construction, so no window can
+  fire on it. Item `0xE3`'s ground stir does this, 35 times in the captures.
+- **Stale queue.** A character's mid-cycle queue stands ≤ 42 draws and the game
+  always resolves it itself; a dropped item's stands 82 to 458 and the game never
+  comes back. A threshold of 64 sits in that gap.
 
-AT-LOAD can therefore *never* satisfy a window of 1: the end is a whole animation
-away by construction. It is not a corner case either — item `0xE3` uses it for its
-ground stir (35 armings), and so does the player's own idle fidget, `obj 01 anim
-02`: 30 frames, queued back to the stance, after which the game leaves the object
-alone for 212 to 1,067 draws. This port loops that fidget about 22 times instead
-of playing it once. `PPM_CHAIN_QUEUE_AT_LOAD` remembers one bit — was the queue
-armed on the draw that loaded this animation — and chains at that animation's end.
+Both reach one object: `obj 01 anim 02`, the player's looping idle, set with a
+queue back to the stance in the same call and then left alone for 212 to 1,067
+draws. It is AT-LOAD *and* stale, it is the only character animation either rule
+touches in 834,000 records, and chaining it puts a moving character into its
+standing pose. (The "0 character ends" the stale branch reported was an artifact
+of branch ordering — with AT-LOAD off, the same 1,765 ends come back as stale.)
 
-`PPM_CHAIN_STALE_QUEUE` is then the safety net under both, because the reported
-case is a drop path no capture contains, and a rule that only fires on a pattern
-nobody has measured is a guess. What separates the two MID cases is how long the
-game leaves the queue standing, and the separation is clean:
+What shipped instead comes straight off the hardware record. `69e00e2` chained at
+every looping end for every object: every weapon settled correctly, the walk-in
+moonwalked. 0.2.4 chained only at an end: the walk-in was fine, the weapons spun.
+Every time, the weapons want the wide rule and the actors refuse it — so the
+discriminator is not *when* the queue was armed, it is *what the object is*. The
+firmware already has the number: `ppm_anim_max_index`, which separates the two
+populations with a gap and no overlap.
 
-| | queue reaches an animation end at age | queue lifetime | how it ends |
-|---|---|---|---|
-| characters `01`/`02`/`03` | 2 to **41**, and 1,946 of 1,950 at 33 or less | ≤ 42 draws | the game sets `anim` itself |
-| dropped items | 48 to 255 | 82 to 458 draws | never — the object is gone first |
+| | animation counts |
+|---|---|
+| props | 2, 4, 5, 10, 11, 12, 13, 16, 17, 18, 23, **29** — every weapon is 10 |
+| actors | **39**, 61, 157, 160, 161, 220 — the characters are 157, enemies 39+ |
 
-The whole character tail above 28 is one animation (`3A`), whose queue the game
-always resolves by draw 42; nothing at all lands between 42 and 47. The threshold
-sits at **64**, half again above every character queue ever measured and below
-every item handover, so a weapon dropped by ANY path settles at the next end past
-that age whatever its arming looked like. What justifies a net this wide is the
-hardware record: turning chaining off at looping ends entirely settled every
-weapon and moonwalked the walk-in, and the ends that regression fired on are all
-at ages 2 to 47 — exactly what this threshold excludes.
+`PPM_CHAIN_PROP_ANIMS 32` sits in that gap: a prop chains at any looping end, an
+actor keeps 0.2.4's rule exactly. **It is a containment boundary, not a
+discovery** — the cartridge is not counting animations. It buys the guarantee
+that a regression which came back twice cannot come back a third time out of a
+rule we cannot see into.
 
-This is NOT the frame clock refuted below. That one counted frames since the
-animation started and fired without an end; this one counts draws since the QUEUE
-was armed and fires only at an end. The walk-in `anim 09` is untouched by it in a
-way the measurement makes explicit: across 64 armings its queue stands for 1 to 3
-draws and **never reaches an animation end at all**.
-
-Replaying `ppm_obj_render` against all five captures, 6,688 object episodes: 45
-weapon/item chains, and no chain out of `anim 09` except the one at-end chain
-0.2.4 already took and hardware confirmed. One more implementation bug went with
-it: `queue_age` lives in a per-SLOT handle and was not reset when a new object
-took the slot, so a weapon created with its follow-up already armed inherited the
-previous tenant's age and could never chain.
+Verified by replaying `ppm_obj_render` against all five captures, 6,688 object
+episodes, and diffing the chain set against the pure 0.2.4 rule: **every chain on
+an object that is not a prop is identical to 0.2.4**, so nothing an actor does
+differs from the build hardware passed. One implementation bug went with it:
+`queue_age` lives in a per-SLOT handle and was not reset when a new object took
+the slot, so an object created with its follow-up already armed inherited the
+previous tenant's age.
 
 **The game's animation protocol**, decoded from `setAnim` at ROM `0x031024` and
 worth having written down: bit 14 of the argument QUEUES (writes `+0x02`), a plain

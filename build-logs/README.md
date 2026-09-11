@@ -59,3 +59,4 @@ Runs with different figures carried RTL changes that were later reverted or park
 | `build-dmafloor2.log` | Sun Sep  6 10:30:06 2026 | 5 | ok | -2.549 | 0.264 |
 | `build-chainend.log` | Sun Sep  6 11:36:02 2026 | 5 | ok | -2.549 | 0.264 |
 | `build-atload.log` | Fri Sep 11 07:25:45 2026 | 5 | ok | -1.469 | 0.052 |
+| `build-propgate.log` | Fri Sep 11 08:24:22 2026 | 5 | ok | -1.469 | 0.052 |
