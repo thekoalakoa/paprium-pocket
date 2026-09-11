@@ -792,18 +792,37 @@ nothing about it is the pointer table.
 That makes the audible residue a property of **what played before**, not of which
 blank slot was chosen - which is exactly the shape of "each one sounds slightly
 different" when the slots are swept in order and each blank follows a different
-track. It also makes two sharp predictions, both testable on captures already in
-hand, because blanks 8/9/10 all follow live track 7 and blanks 44/45 both follow
-live track 43:
+track.
 
-- 8, 9 and 10 should be **indistinguishable from each other**; so should 44 and 45.
-- Reaching the *same* blank from two different tracks should give two different
-  sounds.
+**Confirmed on hardware the same day.** Blank 08 reached from Bone Crusher sounds
+like Bone Crusher; the same blank reached from Gothic sounds like a note from
+Gothic. The real DATENMEISTER firmware therefore does *not* null-check, and the
+reconstruction above - no check at `0x8C`, type `0x00` falling into an empty
+`else`, `music_ram` left stale - describes the cartridge and not just the
+emulator. That is the first time the decoder-type dispatch has been checked
+against hardware behaviour rather than against its own output.
 
-If both hold, a blank slot is the cleanest probe into the synth we have: 26 voices
-at a known program, volume `0x80`, pan `0x80`, with no sequencer driving them. If
-they fail, the real DATENMEISTER firmware null-checks where this reconstruction
-does not, and that is worth knowing on its own.
+**What carries the difference is the sequence, not the programs.** Bone Crusher
+(track 7) and Gothic (track 30) have byte-identical module headers apart from
+`+0x07` (`03` vs `04`) and the two text fields: array A is `0x10` throughout,
+array C zero, array D `0x80`, and the per-voice program array B is **all zeros in
+both**. B is sparse generally - only 14 of the 52 modules set a single nonzero
+byte in it. So the voices are re-armed to the same programs either way, and what
+differs is the stale sequence data at `+0xB8` that the rewound sequencer starts
+walking.
+
+That retires the idea that a blank slot is a fixed-program probe. What it may
+still be worth is narrower and sharper: the residue is reported as *faint* - a
+note rather than the track audibly restarting - which would mean the sequence
+emits its opening event or two and then stalls, leaving a **held, unmodulated
+tone whose pitch is a known byte in a known module**. Every pitch reading so far
+has died on the produced album being the only reference; this would be a raw
+single note with a sequence byte next to it. Measuring one settles whether that
+is what is happening.
+
+The remaining free prediction: blanks 8/9/10 all follow live track 7 and blanks
+44/45 both follow live track 43, so within each group they should be
+indistinguishable.
 
 ### The SFX bank is readable, and is where a non-music cue would live
 
