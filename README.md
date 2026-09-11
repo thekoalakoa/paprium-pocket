@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/images/platform-banner.png" alt="Paprium" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/platform-banner.png">
+    <img src="docs/images/platform-banner-light.png" alt="Paprium" />
+  </picture>
 </p>
 
 # Paprium for Analogue Pocket
