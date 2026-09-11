@@ -10831,3 +10831,72 @@ the emulator falsifiable: match them against the ROM's per-frame sprite fingerpr
 which animation was really drawn, whatever the game's RAM claimed. The attract-mode demo plays the
 game by itself, drops weapons and walks characters in, so a core plus a capture tests an animation
 rule with no hardware and no player. It refuted the spawn-animation rule in a single run.
+
+## 0.2.5 (2026-09-11) — the other two ways the game hands an object over
+
+0.2.4 shipped and users came back with the same symptom on a different path: knives `0xDC`, chains
+`0xDD`, neon sticks `0xDE` and pipes `0xE0` still spin when the **player** is knocked down. The
+0.2.4 rule chains at a looping end only when the queue was armed AT that end, and no capture in the
+archive contains a player knocked down while carrying a weapon — attract mode never picks one up.
+So the fix had to be grounded in what the captures DO contain, not in a guess about that path.
+
+**The game arms a queue in three distinct places.** Measured across 721,736 object records from five
+winlog captures, classifying every arming by where it falls in the animation running at the time:
+
+| where | meaning | age when the animation next ends | seen on |
+|---|---|---|---|
+| **AT-LOAD** | `setAnim(N)` and the queue in one call — "play this, then that" | the animation's whole length | item `0xE3` stir, player idle fidget `01/02` |
+| **AT-END** | the frame the animation finishes — "switch now" | 0 or 1 | weapon drops, attack returns |
+| **MID** | mid-cycle | 2 and up | characters (transient), items (handover) |
+
+The trace that shows it, item `0xE3` in the demo, all three fields moving on one draw:
+
+    f3800   anim 01  nxt FFFF  reset 0
+    f3801   anim 02  nxt 0001  reset 1     <- setAnim(2) AND the queue, same call
+    f3802.. anim 02  nxt 0001  reset 0     ... for 91 more draws
+
+`anim 02` is 7 frames long, so its end arrives at queue age 7 — and a freshness window of 1 can
+never fire on it. By construction AT-LOAD always ends at age == the animation's length. This is not
+an obscure case: the player's own idle fidget `obj 01 anim 02` is AT-LOAD (30 frames, queued back to
+the stance), after which the game leaves the object alone for 212 to 1,067 draws. 0.2.4 loops that
+fidget about 22 times instead of playing it once.
+
+**`PPM_CHAIN_QUEUE_AT_LOAD`** is one bit per object: was the queue armed on the draw that loaded this
+animation. If so, chain at that animation's end.
+
+**`PPM_CHAIN_STALE_QUEUE` is the safety net**, and it is what makes this a fix rather than another
+guess — it catches a weapon dropped by any path, whatever the arming looks like. What separates a
+character's mid-cycle queue from an item handover is how long the game leaves it standing:
+
+| | age when a queue reaches an end | queue lifetime | how the queue ends |
+|---|---|---|---|
+| characters `01`/`02`/`03` | 2 to **41** (1,946 of 1,950 at ≤ 33) | ≤ 42 draws | the game sets `anim` itself |
+| dropped items | 48 to 255 | 82 to 458 draws | never; the object is gone first |
+
+The entire character tail above 28 is one animation, `3A` on `02`/`03`, whose queue the game always
+resolves by draw 42. Nothing lands between 42 and 47. The threshold is **64**.
+
+The hardware record is what justifies a net this wide. Turning chaining off at looping ends entirely
+(`69e00e2`) settled every weapon on hardware and moonwalked the character walk-in; the ends that
+regression fired on are all at ages 2 to 47 — precisely the band this threshold excludes and 0.2.4
+excluded too.
+
+**This is not the frame clock refuted in 0.2.3.** That counted frames since the animation started and
+fired without an end. This counts draws since the QUEUE was armed and fires only at an end. The
+walk-in is untouched, and the measurement says so directly: across 64 armings on `anim 09`, the queue
+stands for 1 to 3 draws and **never reaches an animation end at all** — the game resolves it with a
+direct `setAnim` on the very next frame.
+
+**An implementation bug went with it.** `queue_age` and `prev_next` live in the per-SLOT handle array
+and were not reset when a new object took the slot, so an object created with its follow-up already
+armed inherited the previous tenant's age and could never chain. `objID & 0x8000` now resets both.
+
+**Replay**, all five captures, 6,688 object episodes: 45 weapon/item chains, no chain out of `anim 09`
+beyond the single at-end chain 0.2.4 already took and hardware confirmed.
+
+    python scripts/sim_anim_firmware.py ../vdp-capture/*.bin
+
+**Object identification** (rendered from the ROM, `scripts/render_object.py`): `0xDC` knife, `0xDD`
+chain, `0xDE` neon stick, `0xE0` pipe, each with a paired ID (`DD`/`DF`/`E1`) and `0xE3` a spinning
+disc. All seven share one shape: `anim 8` is the tumble, 25 to 43 frames, looping to index 1 — which
+is why a missed chain reads as "spins forever" rather than as a wrong pose.

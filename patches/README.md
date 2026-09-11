@@ -124,6 +124,57 @@ captures, 5,558 object episodes: **11 of 11 weapon chains fire, 0 chains out of
 `anim 09`.** Then on hardware: items settle and stir, walk-ins keep walking, no
 despawn change.
 
+**That was only one of the three places the game arms a queue (0.2.5).** Users
+reported knives `0xDC`, chains `0xDD`, neon sticks `0xDE` and pipes `0xE0` still
+spinning when the PLAYER is knocked down, and the reason is that a window around
+an end catches exactly one arming pattern. Measured over 721,736 object records:
+
+| where the queue is armed | what it means | age when the animation ends |
+|---|---|---|
+| **AT-LOAD** — the same call as `setAnim(N)` | "play this, then that" | the animation's whole length |
+| **AT-END** — on the frame it finishes | "switch now" | 0 or 1 |
+| **MID** — mid-cycle | character: a transient the game resolves itself; item: a handover it never returns to | 2 and up |
+
+AT-LOAD can therefore *never* satisfy a window of 1: the end is a whole animation
+away by construction. It is not a corner case either — item `0xE3` uses it for its
+ground stir (35 armings), and so does the player's own idle fidget, `obj 01 anim
+02`: 30 frames, queued back to the stance, after which the game leaves the object
+alone for 212 to 1,067 draws. This port loops that fidget about 22 times instead
+of playing it once. `PPM_CHAIN_QUEUE_AT_LOAD` remembers one bit — was the queue
+armed on the draw that loaded this animation — and chains at that animation's end.
+
+`PPM_CHAIN_STALE_QUEUE` is then the safety net under both, because the reported
+case is a drop path no capture contains, and a rule that only fires on a pattern
+nobody has measured is a guess. What separates the two MID cases is how long the
+game leaves the queue standing, and the separation is clean:
+
+| | queue reaches an animation end at age | queue lifetime | how it ends |
+|---|---|---|---|
+| characters `01`/`02`/`03` | 2 to **41**, and 1,946 of 1,950 at 33 or less | ≤ 42 draws | the game sets `anim` itself |
+| dropped items | 48 to 255 | 82 to 458 draws | never — the object is gone first |
+
+The whole character tail above 28 is one animation (`3A`), whose queue the game
+always resolves by draw 42; nothing at all lands between 42 and 47. The threshold
+sits at **64**, half again above every character queue ever measured and below
+every item handover, so a weapon dropped by ANY path settles at the next end past
+that age whatever its arming looked like. What justifies a net this wide is the
+hardware record: turning chaining off at looping ends entirely settled every
+weapon and moonwalked the walk-in, and the ends that regression fired on are all
+at ages 2 to 47 — exactly what this threshold excludes.
+
+This is NOT the frame clock refuted below. That one counted frames since the
+animation started and fired without an end; this one counts draws since the QUEUE
+was armed and fires only at an end. The walk-in `anim 09` is untouched by it in a
+way the measurement makes explicit: across 64 armings its queue stands for 1 to 3
+draws and **never reaches an animation end at all**.
+
+Replaying `ppm_obj_render` against all five captures, 6,688 object episodes: 45
+weapon/item chains, and no chain out of `anim 09` except the one at-end chain
+0.2.4 already took and hardware confirmed. One more implementation bug went with
+it: `queue_age` lives in a per-SLOT handle and was not reset when a new object
+took the slot, so a weapon created with its follow-up already armed inherited the
+previous tenant's age and could never chain.
+
 **The game's animation protocol**, decoded from `setAnim` at ROM `0x031024` and
 worth having written down: bit 14 of the argument QUEUES (writes `+0x02`), a plain
 value SETS NOW (writes `+0x00`, raises `+0x0A`, clears `+0x02` to `0xFFFF`), and
