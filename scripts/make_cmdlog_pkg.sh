@@ -58,6 +58,12 @@ slots.append(collections.OrderedDict([
     ("required", False),
     ("parameters", "0x84"),          # same shape as the save slot
     ("nonvolatile", True),
+    # A nonvolatile slot with NO filename can only bind to a .log file that
+    # already exists on the card, so the core has nowhere to write on a clean
+    # card - or on one where the old log was moved aside to guarantee a fresh
+    # capture, which is exactly how a low-health run was lost once. The save
+    # slot names its file; so must this one.
+    ("filename", "Paprium.log"),
     ("extensions", ["log"]),
     ("address", "0x30000000"),
     ("size_maximum", "0x2000"),   # ring halved to 2048 words - see paprium_cmd_log.sv
@@ -73,7 +79,8 @@ echo
 echo "Install it over the shipping core:"
 echo "  cp -rf build_output/cmdlog-pkg/Cores/Koala_Koa.Paprium/* /d/Cores/Koala_Koa.Paprium/"
 echo
-echo "The log lands next to the save, as a .log file. Play to a boss, kill it,"
+echo "The log lands next to the save as Paprium.log. Do NOT delete or rename an"
+echo "existing one to force freshness - check its timestamp instead. Play, then"
 echo "EXIT the core so the slot is flushed, then hand the .log file back."
 echo
 echo "Restore the shipping core afterwards with:"
