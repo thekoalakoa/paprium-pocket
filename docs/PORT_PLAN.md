@@ -1087,6 +1087,34 @@ Incidental: the 8-byte table at ROM 0x118358, immediately after the BGM name
 table and on the same XOR 0xAA key, is the default high-score table - `_RetrO`,
 `BARMAN`, `SILVER`, `LEOZZY`, `TITUS`, `OGDEN`.
 
+#### C mod 12 is settled: byte0 = 1 is a C
+
+Measured against the hardware captures, no isolated note needed. Take each
+module's pitch-class histogram from `byte0`, take the capture's chroma over
+65-2100 Hz, and find the rotation that aligns them - that rotation IS `C mod 12`:
+
+    11 of 14 tracks -> rotation 0, correlations 0.68 to 0.90
+     3 of 14 tracks -> rotation 7 (a fifth: the classic tonic/dominant
+                       confusion in chroma matching, not a real disagreement)
+
+Rotation 0 means `byte0 = 1` maps to **C**, which forces **`C = 11 (mod 12)`**.
+That also explains an earlier scan whose results were recorded as "scattered"
+across {23, 11, -13, -1, 35} - every one of those is 11 mod 12, so it had in fact
+agreed on the key and disagreed only on the octave.
+
+**The octave is NOT settled.** Correlating module note histograms against a
+harmonic-summed pitch salience, restricted to C in {-13,-1,11,23,35}, votes
+-13 on 8 of 11 tracks, -1 on 2 and +11 on 1, at correlations of only 0.39-0.68.
+And it conflicts with a register check: the sax lead (program 0x56) has its
+sample rooted at C3, and C = -13 would have Dark Rock playing it at MIDI 30-54,
+absurdly low for a sax, where C = +11 gives MIDI 54-78, a real sax range.
+Sample-quality reasoning pulls the other way, since -13 keeps playback near the
+root and +11 shifts up to 30 semitones above it on 8-bit samples.
+
+So: the key is known, the register is not, and the two available lines of
+evidence point in opposite directions by an octave or two. What settles it
+remains one reliable (program, semitone, measured frequency) triple.
+
 #### Why pitch has resisted everything: the game never plays one voice alone
 
 Measured across all 52 modules: **there is no row anywhere with exactly one voice
