@@ -1005,6 +1005,52 @@ drops into crisis and pull the 4 KB log, and it says directly what the game
 sends - `0x8D`, a fresh `0x8C`, a volume ramp, or something never yet seen -
 instead of inferring it from spectra.
 
+#### The sax man is voices 23-25, and the modules say which tracks have him
+
+The player reports the "sax man" appears on certain levels and ADDS an
+instrument, and that the boombox can toggle him on the tracks he appears on.
+Found in the module data:
+
+- Voices **23, 24 and 25** carry a marker record at **position 0, row 0** - the
+  very first row - with no note attached: word 0 is `00 00` and one of the
+  command slots holds **`0x55` with operand `0x00`**. A declaration, not an event.
+- The same records load instruments through command `0x0F`: programs **`0x55`,
+  `0x56` and `0x94`** onto voices 23, 24 and 25, e.g. track 4 voice 23 is
+  `00 00 | 0f 55 | 01 1d | 55 00`.
+- **Programs `0x55` and `0x94` are used by exactly ten modules and appear nowhere
+  else in the other forty-two.** (`0x56` is shared with 5 more, so it is an
+  ordinary instrument.) That exclusivity is the signature.
+
+The ten: **4** Asian Chill, **14** Cool Groove, **22** Dark Rock, **28** Funk
+Enhanced Mix, **37** House, **39** Indian Breakbeat, **40** Jazzy Shuffle,
+**43** Neon Rider, **46** Retro Beat, **49** Slow Asian Beat. Those voices carry
+439-1,138 notes each, so it is a real melodic layer rather than a pad.
+
+Published lists of the sax levels disagree in three places and the disagreement
+is testable at the boombox: they omit **37 House**, **39 Indian Breakbeat** and
+**46 Retro Beat**, and they add **11 Club Shuffle** and **38 Indian Shuffle**,
+neither of which carries the marker or either program. Note the boombox shows
+"INDIE SHUFFLE" (38) and "INDIE BREAK BEAT" (39) as adjacent entries, which is an
+easy pair to confuse.
+
+**Why this is the capture worth making.** Toggling the sax on one track and
+recording both ways isolates programs `0x55` and `0x94` specifically, and the
+notes those three voices play are readable straight out of the module. Known
+notes plus isolated audio is the per-program root pitch anchor that
+`pitch = 12*byte1 + byte0 + C` is missing. Best candidates are 4 Asian Chill and
+22 Dark Rock: constant tempo, 82.0 s loop, all three voices marked, ~640 notes.
+
+REFUTED along the way, so nobody repeats it: the unreferenced patterns are NOT
+the sax layer (only 4 of the 9 published sax tracks have any, and 15 modules have
+spare data without being sax tracks); there is no per-track sax flag table
+anywhere in the 8 MB ROM as a byte array or a bitmask, under any encoding
+searched; and he is not a looping SFX either - the whole 127-sample bank is
+103.8 s with a 4.99 s longest entry and nothing sax-shaped.
+
+Incidental: the 8-byte table at ROM 0x118358, immediately after the BGM name
+table and on the same XOR 0xAA key, is the default high-score table - `_RetrO`,
+`BARMAN`, `SILVER`, `LEOZZY`, `TITUS`, `OGDEN`.
+
 #### The comments carry no hidden clue
 
 Checked, because the pattern of them invited it. There are exactly 15 distinct
