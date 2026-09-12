@@ -947,6 +947,64 @@ explains how 37 modules play varied instruments while `+0x2A` is all zeros.
 `0x0E`'s byte 1 is NOT the octave of the note being released (28.9% match against
 20.5% by chance) and a renderer must ignore it.
 
+#### Unreferenced patterns: 19 modules carry music the order list never names
+
+Measured with `scripts/mwmm.py`. A listed pattern occupies `G + nevents*8` bytes;
+in 19 of the 52 modules some patterns are followed by more than that, **16,832
+bytes in total**. It is not padding. Every one of those tails re-slices exactly
+into further patterns - grid plus event table, with the maximum grid index
+landing on `nevents - 1` every time, which is the same check that validates the
+listed patterns and which random bytes fail immediately.
+
+    trk 33 Hardcore Boss Part 1  2,552 B      trk 35 Hardcore Boss Part 3  2,776 B
+    trk 34 Hardcore Boss Part 3  2,632 B      trk 11 Club Shuffle          1,608 B
+    trk  5 Bad Dudes              936 B       trk  2 90's Dance              912 B
+    ...19 modules, the smallest 192 B
+
+What it is for is open. Cut material is the mundane explanation. The interesting
+one is that the cartridge can reach it: `paprium_music_setting` (command `0x8D`)
+sets `music_segment = -1`, and a music request initialises both `music_section`
+and `music_segment` to 0, so the engine has a notion of segments that the order
+list alone does not express.
+
+#### The crisis state, measured - and what it is NOT
+
+The player reports that crisis music triggers when health drops below a
+threshold, and that the "sax man" is a separate thing on a few levels which ADDS
+an instrument. A matched hardware sweep of all 52 tracks in the crisis state,
+compared against the ordinary captures with `scripts/pitch_shift.py`:
+
+- **Tempo is identical** - +0.2, +1.0 and +1.2 cents on the three tracks where a
+  beat tracker locks cleanly. Not a rate or clock difference.
+- **The bass is untouched.** 55-220 Hz matches at correlation 0.89-0.99 with no
+  shift, which also proves both takes are at the same point in the same music.
+  440-3520 Hz differs.
+- **It is not additive.** Band energy in the affected range goes DOWN 0.3-1.1 dB.
+  An added instrument would raise it. So whatever the sax man does, it is not
+  this - consistent with the player's account that they are separate mechanisms.
+- **It is not a clean detune either.** Allowing a pitch shift improves the
+  correlation every time (e.g. 0.345 -> 0.405, 0.364 -> 0.499) so real pitch
+  movement is involved, but no single shift ever gets past ~0.68, and the
+  per-octave shifts disagree within one track - Bladerunner FM reads -25c, -35c
+  and -12c across three octaves. That is per-voice or time-varying, not global.
+- It matches **neither** documented effect: nothing lands near 31/32 (-55 cents)
+  or half speed (-1200).
+- Some captures in the set show no difference at any band (62 Waterfront Beat
+  reads +0.1 to +0.6 cents at correlation 0.99), so not every track was recorded
+  in the affected state, or not every track has one.
+
+The unreferenced patterns above are a tempting explanation and do not survive
+contact: 33 Hardcore Boss Part 1 has 2,552 spare bytes and a strong effect, and
+62 Waterfront Beat has none and no effect - but 25 Electro Acid Funk and 46
+Retro Beat both show the effect with zero spare bytes. So they cannot be the
+whole mechanism.
+
+**The decisive experiment is the command log, not more audio.** The
+`paprium_cmdlog` diagnostic build records audio commands only. Play until health
+drops into crisis and pull the 4 KB log, and it says directly what the game
+sends - `0x8D`, a fresh `0x8C`, a volume ramp, or something never yet seen -
+instead of inferring it from spectra.
+
 #### The comments carry no hidden clue
 
 Checked, because the pattern of them invited it. There are exactly 15 distinct
