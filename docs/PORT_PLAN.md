@@ -1109,6 +1109,42 @@ only be sounding that note on that program:
 Play one, select a blank slot, record the residue: its frequency gives that
 program's root pitch with no ambiguity at all. Four of them give four programs.
 
+#### The semitone test failed, and the wave bank is C-rooted
+
+Four blank-slot captures were taken straight after the four modules that open
+with exactly one (program, semitone) pair, so the residue should have been that
+one note. **It was not.** Measured fundamentals against their predictions:
+
+    17 Drum & Bass Boss   52.63 Hz   predicted program 0x24, semitone 49
+    19 Electro Acid Funk 352.19 Hz   predicted program 0x1E, semitone 27
+    1D Game Over         109.84 Hz   nothing audible: peak -51 dBFS, no attack
+    2A Neo Metal         523.42 Hz   predicted program 0x25, semitone 20
+
+No single C fits them (implied -16.8, +38.2, +52.0), and Drum & Bass Boss and
+Electro Acid Funk match **no note at all** in their module's first eight
+positions, at any C, even allowing the measured peak to be a 2nd or 4th harmonic.
+So a blank slot does not simply replay the stale module's opening note, and this
+route does not give the anchor. Two follow-ups also failed: re-arming to array B
+means program 0 for most modules, and program 0 is unpitched (2,955 bytes, no
+stable fundamental); and estimating C as `sample root - median semitone played`
+scatters from -10 to +57, so composers do not keep notes near a sample's root.
+
+**What did come out of it.** `scripts/wave_roots.py` measures the natural pitch
+of every entry in the wave bank. The program table has no root-pitch field - a
+program's root is baked into its audio - so it has to be measured, and it can be:
+
+    33 pitched programs, median 11 cents from an exact semitone
+    21 of the 33 are recorded at a C   (chance would be about 3)
+
+C3 for 0x04, 0x05, 0x23, 0x2B, 0x55, 0x56, 0x57; C4 for 0x09, 0x0D, 0x0E, 0x1D,
+0x27, 0x28; C5 for 0x24; C6 for 0x21, 0x22. The sax lead 0x56 is a C3 at
+130.48 Hz and its echo voice 0x55 a C3 at 129.90 Hz.
+
+That is half of the anchor. `pitch = 12*byte1 + byte0 + C` still needs ONE
+reliable (program, semitone, measured frequency) triple to tie the note numbering
+to a known root, and nothing measured so far supplies one - the game never
+exposes a single voice, and the blank slots do not behave as modelled.
+
 #### The comments carry no hidden clue
 
 Checked, because the pattern of them invited it. There are exactly 15 distinct
