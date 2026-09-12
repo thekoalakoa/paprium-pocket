@@ -967,6 +967,42 @@ sets `music_segment = -1`, and a music request initialises both `music_section`
 and `music_segment` to 0, so the engine has a notion of segments that the order
 list alone does not express.
 
+#### The crisis state is command 0xD6 with cart RAM 0x1E10 = 2
+
+Captured on hardware with the `paprium_cmdlog` build, playing until health dropped
+and the music changed. The ring holds 1,022 entries; 622 of them are `0xD6`
+`music_special`, which the game re-asserts continuously.
+
+    #24   param 0x07   0x1E10 = 0x00A0
+    #32   param 0x04   0x1E10 = 0x0080
+    #34   param 0x07   0x1E10 = 0x00A0
+    #37   param 0x02   0x1E10 = 0x0000     normal      377 entries
+    #530  param 0x02   0x1E10 = 0x0002     CRISIS      241 entries
+
+So **`music_special(2)` carries the crisis state in cart RAM `0x1E10`**, and the
+transition is the word flipping 0 -> 2 while the parameter stays at 2.
+
+The reconstruction in the GPGX source had already noticed this location and
+guessed at it, in a comment, with a question mark:
+
+    else if( flag == 2 ) {
+        //*(uint16 *)(paprium_s.ram + 0x1E10)  /* 4 = crisis, 0 = normal ? */
+
+**The guess is wrong on the value.** Hardware says crisis is **2**, not 4. The
+handler is otherwise empty outside `DEBUG_MODE`, so nothing in the emulator ever
+acted on it, which is why the value was never checked.
+
+That closes the loop with the audio measurement above: the crisis effect keeps
+tempo, leaves the bass alone and detunes the upper voices by a varying amount.
+It is a per-voice effect the cartridge applies while `0x1E10` reads 2, not a
+different track, not a segment switch, and not either of the documented pitch
+flags.
+
+Two other `music_special` modes appear in the same run and are not yet
+identified: param `0x07` with `0x1E10` = `0x00A0`, and param `0x04` with
+`0x0080` - the latter matching the source's note that flag 4 sees `0x80`/`0x81`
+and is something to do with the "blu pill".
+
 #### The crisis state, measured - and what it is NOT
 
 The player reports that crisis music triggers when health drops below a
