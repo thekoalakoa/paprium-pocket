@@ -331,6 +331,15 @@ This compresses the tracks about 4:1 and writes a single `paprium.pcm` of roughl
 **543 MB**. (The uncompressed equivalent was 2.09 GB, which is why this step
 exists.)
 
+That script works one sample at a time on one core and takes ten minutes or more.
+`build_cdda_adpcm_fast.py` takes the same arguments and writes the same file byte
+for byte, but encodes the tracks in parallel on every core — about half a minute
+on an 8-core machine, and still faster than the original on a single core:
+
+```bash
+python scripts/build_cdda_adpcm_fast.py cdda/ paprium.pcm
+```
+
 ### Step 4 — copy it to the SD card
 
 Put `paprium.pcm` in:
