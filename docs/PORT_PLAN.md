@@ -1051,6 +1051,64 @@ Incidental: the 8-byte table at ROM 0x118358, immediately after the BGM name
 table and on the same XOR 0xAA key, is the default high-score table - `_RetrO`,
 `BARMAN`, `SILVER`, `LEOZZY`, `TITUS`, `OGDEN`.
 
+#### Why pitch has resisted everything: the game never plays one voice alone
+
+Measured across all 52 modules: **there is no row anywhere with exactly one voice
+sounding and 0.6 s of silence either side of it.** Not one, in any track. Every
+note overlaps another. That is why every attempt to anchor absolute pitch against
+the music has failed - there has never been a note to measure.
+
+The sax toggle was meant to create one by subtraction and does not, for a reason
+worth recording. Comparing a sax-on pass against the sax-off pass one loop
+earlier, in a stretch where the sax is silent in both:
+
+    band        complex r    magnitude r
+    60-120 Hz      0.603        0.884
+    500-1000       0.428        0.918
+    1000-2000      0.101        0.889
+    8000-16000     0.005        0.731
+
+**Magnitude survives, phase does not.** The two passes hold the same spectral
+content with scrambled phase, so waveform subtraction cannot cancel the backing -
+and the loop lag is stable to 5 samples, so this is not misalignment and a
+lossless recapture would not fix it. Magnitude subtraction leaves too much
+backing residue to pick sax partials out of: peak-picking per semitone regresses
+log2(f) on semitone at slope 0.0038 against the required 0.0833, and a template
+fit gives C = +11, +13, +9, -8, -13 across five voice/track combinations. The
+anchor is NOT determined.
+
+What the sax captures DID confirm: loop lags predicted from the module alone came
+in at -63, -1, +41 and +45 ppm on Dark Rock, Asian Chill, House and Neon Rider,
+and added energy ran 43.1 dB where the sax was predicted on against 34.8 dB where
+predicted off, with the transition landing at 133 s exactly as computed. **House
+carries the sax**, which was predicted from the module data and is absent from
+published lists.
+
+#### The blank slots are the only isolated voices in the game
+
+Confirmed on hardware: blank slots 8, 9, 10, 13 and 26 produce byte-identical
+residues (768.94 / 1072.96 / 576.66 Hz), and 44 and 45 likewise - same
+predecessor, same residue, which is the stale-`music_ram` mechanism. `08` reached
+from Gothic gives a clean 246.73 Hz with harmonics at 2x and 3x; reached from
+Bone Crusher it gives 48.92 Hz with harmonics at 5x, 8x and 11x. Those are the
+only single voices the cartridge ever exposes.
+
+They do not resolve C yet because the predecessor of most captures is unknown,
+and across 52 candidate modules any frequency finds a match (220+ candidates).
+The two labelled ones narrow to 3 and 5.
+
+**The experiment that settles it.** Four modules open with exactly ONE
+(program, semitone) pair, so a blank slot entered straight after one of them can
+only be sounding that note on that program:
+
+    17 Drum & Bass Boss   (program 0x24, semitone 49)
+    19 Electro Acid Funk  (program 0x1E, semitone 27)
+    1D Game Over          (program 0x0E, semitone 29)
+    2A Neo Metal          (program 0x25, semitone 20)
+
+Play one, select a blank slot, record the residue: its frequency gives that
+program's root pitch with no ambiguity at all. Four of them give four programs.
+
 #### The comments carry no hidden clue
 
 Checked, because the pattern of them invited it. There are exactly 15 distinct
