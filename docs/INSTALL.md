@@ -219,6 +219,15 @@ soundtrack, in any format ffmpeg reads:
 python scripts/build_cdda_adpcm.py  cdda/  paprium.pcm
 ```
 
+The second command is single-threaded and takes ten minutes or more.
+`build_cdda_adpcm_fast.py` is a drop-in for it - same arguments, same file byte
+for byte - that encodes on every core and finishes in under a minute on a
+typical desktop:
+
+```bash
+python scripts/build_cdda_adpcm_fast.py  cdda/  paprium.pcm
+```
+
 `docs/paprium.cue` ships with the core. Source files are matched by their leading
 two-digit number rather than by title, so a rip with slightly different titles
 still works.
