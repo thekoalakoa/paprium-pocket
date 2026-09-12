@@ -185,6 +185,15 @@ module paprium_cmd_log (
 	localparam [7:0] TRIG_B = 8'h4A;   // punk-TV cue
 	localparam [10:0] POST_ENTRIES = 11'd1024;
 
+	// TRIG_ON: arm on TRIG_A/TRIG_B and freeze POST_ENTRIES later. Right when the
+	// event of interest is a known cue. WRONG for the crisis capture, where the
+	// interesting moment is health-triggered at a time nobody can predict and an
+	// ordinary large-enemy death (0x1C) would arm the log and freeze it long
+	// before the crisis arrives. With this at 0 the ring simply wraps and keeps
+	// the newest 2047 audio commands, so exiting the core soon after the crisis
+	// music plays is all that is needed.
+	localparam TRIG_ON = 1'b0;
+
 	wire [7:0] cmd_par = cpu_data[7:0];
 	wire is_play = (cmd_hi == 8'hD1) || (cmd_hi == 8'hD3);
 
@@ -351,7 +360,7 @@ module paprium_cmd_log (
 				prev1 <= prev0;
 				prev0 <= cpu_data;
 
-				if(is_play & ((cmd_par == TRIG_A) | (cmd_par == TRIG_B)))
+				if(TRIG_ON & is_play & ((cmd_par == TRIG_A) | (cmd_par == TRIG_B)))
 					armed <= 1'b1;
 
 				if(armed) begin
