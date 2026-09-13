@@ -159,16 +159,28 @@ def render(m, progs, C, seconds, rate, only=None):
             # different table, and playing FM notes through a 70 Hz sample made
             # the whole track sound like drums.
             #
-            # Level and decay matter as much as timbre. At 40.0 with a 0.55 s
-            # decay these six voices summed to a crest factor of 7.8 dB and ran
-            # 10 dB hotter than all sixteen wave voices together, which is what
-            # saturation sounds like even with no sample near full scale.
+            # Level is CALIBRATED against hardware, not guessed. Comparing
+            # peak-normalised per-group renders is meaningless and led to
+            # cutting this to 13.0, which buried Dark Rock's FM-only opening
+            # into a tap. Measured raw, FM runs 7-13 dB BELOW the wave voices in
+            # every track. Sweeping the level against the band balance of Dark
+            # Rock's hardware capture puts the optimum near 104.
             th = 2 * np.pi * f * np.arange(ns) / rate
-            seg = np.sin(th) * 15.0
-            for h, amp in ((2, 0.5), (3, 0.25)):
-                if h * f < rate * 0.45:                 # never alias a partial in
-                    seg += np.sin(h * th) * 15.0 * amp
-            seg *= np.exp(-np.arange(ns) / (0.30 * rate))
+            # A near-pure sine is the wrong stand-in for FM bass. Dark Rock
+            # opens with three of these in unison on MIDI 30 - 46 Hz - and at
+            # that pitch a sine has almost nothing a small speaker reproduces,
+            # so the note is heard as its attack alone: a tap where the
+            # cartridge plays "dun dun". Harmonics are what make a low note
+            # audible, so build a sawtooth-ish stack, band-limited to Nyquist.
+            seg = np.zeros(ns)
+            for h in range(1, 12):
+                if h * f >= rate * 0.45:
+                    break
+                seg += np.sin(h * th) / h
+            seg *= 104.0
+            # let the body last with the note instead of always dying in 0.3 s
+            tau = max(0.22, 0.7 * dur)
+            seg *= np.exp(-np.arange(ns) / (tau * rate))
         elif v < 10:
             # PSG square, built from its odd harmonics so nothing lands past
             # Nyquist. np.sign() is the same wave with infinite bandwidth, and at
@@ -179,7 +191,7 @@ def render(m, progs, C, seconds, rate, only=None):
                 if h * f >= rate * 0.45:
                     break
                 seg += np.sin(h * th) / h
-            seg *= 20.0
+            seg *= 64.0
             seg *= np.exp(-np.arange(ns) / (0.45 * rate))
         else:
             entry = progs.get(prog[v])
