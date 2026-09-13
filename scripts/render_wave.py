@@ -93,7 +93,7 @@ def take(sig, step, n, loop):
     return sig[i0] * (1.0 - frac) + sig[i1] * frac
 
 
-def render(m, progs, C, seconds, rate):
+def render(m, progs, C, seconds, rate, only=None):
     n = int(seconds * rate)
     left = np.zeros(n + rate)
     right = np.zeros(n + rate)
@@ -121,13 +121,16 @@ def render(m, progs, C, seconds, rate):
                         T = base + (e[k + 1] & 0x0F)
             t += T / CLK
 
-    # second pass: a note lasts until the next event on the same voice
+    # Second pass: a note lasts until the voice's next NOTE or gate release.
+    # It must NOT be cut short by a parameter-only record (byte 0 == 0), which is
+    # about 6% of all events - doing that turned sustained notes into taps.
     nxt = {}
     for i in range(len(evs) - 1, -1, -1):
         tt, v, e = evs[i]
         end = nxt.get(v, seconds + 2.0)
         evs[i] = (tt, v, e, end)
-        nxt[v] = tt
+        if (1 <= e[0] <= 12) or e[0] == 0x0E:
+            nxt[v] = tt
 
     prog = {v: (m.d[0x2A + (v ^ 1)] or None) for v in range(26)}
     pan = {v: 0x80 for v in range(26)}
@@ -140,6 +143,8 @@ def render(m, progs, C, seconds, rate):
                 pan[v] = e[k + 1]
         if not (1 <= e[0] <= 12):
             continue
+        if only is not None and v not in only:
+            continue
         target = 12 * e[1] + e[0] + C
         f = 440.0 * 2.0 ** ((target - 69) / 12.0)
         dur = min(max(end - tt, 0.05), 4.0)
@@ -149,18 +154,33 @@ def render(m, progs, C, seconds, rate):
 
         if v < 6:
             # YM2612 FM. The FM patch table has never been located, so this is a
-            # stand-in: a bright harmonic stack, not the real timbre. Rendering
-            # these with a WAVE sample was the earlier bug - voices 0-5 index a
+            # stand-in: a harmonic stack, not the real timbre. Rendering these
+            # with a WAVE sample was an earlier bug - voices 0-5 index a
             # different table, and playing FM notes through a 70 Hz sample made
             # the whole track sound like drums.
+            #
+            # Level and decay matter as much as timbre. At 40.0 with a 0.55 s
+            # decay these six voices summed to a crest factor of 7.8 dB and ran
+            # 10 dB hotter than all sixteen wave voices together, which is what
+            # saturation sounds like even with no sample near full scale.
             th = 2 * np.pi * f * np.arange(ns) / rate
-            seg = (np.sin(th) + 0.5 * np.sin(2 * th) + 0.25 * np.sin(3 * th)) * 40.0
-            seg *= np.exp(-np.arange(ns) / (0.55 * rate))
+            seg = np.sin(th) * 15.0
+            for h, amp in ((2, 0.5), (3, 0.25)):
+                if h * f < rate * 0.45:                 # never alias a partial in
+                    seg += np.sin(h * th) * 15.0 * amp
+            seg *= np.exp(-np.arange(ns) / (0.30 * rate))
         elif v < 10:
-            # PSG: square wave, which is what the chip actually makes
-            th = f * np.arange(ns) / rate
-            seg = np.sign(np.sin(2 * np.pi * th)) * 26.0
-            seg *= np.exp(-np.arange(ns) / (0.7 * rate))
+            # PSG square, built from its odd harmonics so nothing lands past
+            # Nyquist. np.sign() is the same wave with infinite bandwidth, and at
+            # this sample rate its upper partials fold back as audible grit.
+            th = 2 * np.pi * f * np.arange(ns) / rate
+            seg = np.zeros(ns)
+            for h in range(1, 40, 2):
+                if h * f >= rate * 0.45:
+                    break
+                seg += np.sin(h * th) / h
+            seg *= 20.0
+            seg *= np.exp(-np.arange(ns) / (0.45 * rate))
         else:
             entry = progs.get(prog[v])
             if entry is None:
@@ -205,12 +225,18 @@ def main():
                     help="C in MIDI = 12*byte1 + byte0 + C; solved value is 11")
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--rate", type=int, default=32000)
+    ap.add_argument("--voices", default=None,
+                    help="render only these voices, e.g. 0-5 for FM, 10-25 for wave")
     a = ap.parse_args()
 
     b = load_bank(a.bank)
     progs = program_table(b)
     m = {x.n: x for x in mwmm.load_all(a.moduledir)}[a.track]
-    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate)
+    only = None
+    if a.voices:
+        lo, _, hi = a.voices.partition("-")
+        only = set(range(int(lo), int(hi or lo) + 1))
+    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89
