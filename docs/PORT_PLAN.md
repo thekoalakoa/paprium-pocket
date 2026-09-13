@@ -1087,6 +1087,29 @@ Incidental: the 8-byte table at ROM 0x118358, immediately after the BGM name
 table and on the same XOR 0xAA key, is the default high-score table - `_RetrO`,
 `BARMAN`, `SILVER`, `LEOZZY`, `TITUS`, `OGDEN`.
 
+#### The 26 voices are 6 FM + 4 PSG + 16 wave
+
+Measured by asking, per voice, how often its `0x0F` program argument lands on a
+live entry of the WAVE program table:
+
+    voices  0-5  :  78.3%   (3,322 references)   YM2612 FM
+    voices  6-9  : 100.0%   (  249 references)   PSG
+    voices 10-25 :  98.6%   (7,870 references)   cartridge wave voices
+
+6 + 4 + 16 = 26, which is the Mega Drive's own channel complement plus sixteen
+sample voices. Voices 0-5 index a **different** table - the FM patch table, which
+has never been located - and their 78% apparent hit rate is coincidental overlap,
+not membership.
+
+This matters for anything that renders a module. Playing voices 0-5 through the
+wave bank is wrong and sounds wrong in a specific way: in Theme Of Paprium voices
+0 and 1 carry 1,839 notes on FM patch 0x01, and rendering those as wave program
+0x01 - a sample whose fundamental is 70 Hz - buried the track in bass. Measured
+against the hardware capture, the opening had 16% of its energy below 150 Hz
+where hardware has 4%. Splitting the groups and giving FM a stand-in tone put
+that at 4% against 4%, the midrange at 33% against 32%, and lifted chroma
+correlation over the whole track from +0.634 to **+0.877**.
+
 #### SOLVED: the absolute pitch anchor is C = +11
 
     MIDI note = 12*byte1 + byte0 + 11
