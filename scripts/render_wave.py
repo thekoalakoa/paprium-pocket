@@ -128,25 +128,47 @@ def render(m, progs, C, seconds, rate):
                 pan[v] = e[k + 1]
         if not (1 <= e[0] <= 12):
             continue
-        entry = progs.get(prog[v])
-        if entry is None:
-            continue
-        sig, sr, root, loop = entry
-        if len(sig) < 32:
-            continue
         target = 12 * e[1] + e[0] + C
-        step = (sr / rate) * (2.0 ** ((target - root) / 12.0) if root is not None else 1.0)
-        if not np.isfinite(step) or step <= 0 or step > 40:
-            continue
+        f = 440.0 * 2.0 ** ((target - 69) / 12.0)
         dur = min(max(end - tt, 0.05), 4.0)
-        seg = take(sig, step, int(dur * rate), loop)
-        if len(seg) < 16:
+        ns = int(dur * rate)
+        if ns < 16 or f < 20 or f > rate * 0.45:
             continue
-        a = min(int(0.003 * rate), len(seg) // 4)      # click-free edges
+
+        if v < 6:
+            # YM2612 FM. The FM patch table has never been located, so this is a
+            # stand-in: a bright harmonic stack, not the real timbre. Rendering
+            # these with a WAVE sample was the earlier bug - voices 0-5 index a
+            # different table, and playing FM notes through a 70 Hz sample made
+            # the whole track sound like drums.
+            th = 2 * np.pi * f * np.arange(ns) / rate
+            seg = (np.sin(th) + 0.5 * np.sin(2 * th) + 0.25 * np.sin(3 * th)) * 40.0
+            seg *= np.exp(-np.arange(ns) / (0.55 * rate))
+        elif v < 10:
+            # PSG: square wave, which is what the chip actually makes
+            th = f * np.arange(ns) / rate
+            seg = np.sign(np.sin(2 * np.pi * th)) * 26.0
+            seg *= np.exp(-np.arange(ns) / (0.7 * rate))
+        else:
+            entry = progs.get(prog[v])
+            if entry is None:
+                continue
+            sig, sr, root, loop = entry
+            if len(sig) < 32 or root is None:
+                step = sr / rate
+            else:
+                step = (sr / rate) * 2.0 ** ((target - root) / 12.0)
+            if not np.isfinite(step) or step <= 0 or step > 40:
+                continue
+            seg = take(sig, step, ns, loop)
+            if len(seg) < 16:
+                continue
+
+        a = min(int(0.003 * rate), len(seg) // 4)
         d = min(int(0.040 * rate), len(seg) // 3)
         env = np.ones(len(seg))
-        env[:a] = np.linspace(0, 1, a)
-        env[len(seg) - d:] = np.linspace(1, 0, d)
+        if a: env[:a] = np.linspace(0, 1, a)
+        if d: env[len(seg) - d:] = np.linspace(1, 0, d)
         seg = seg * env
         pv = pan[v] / 255.0
         start = int(tt * rate)
