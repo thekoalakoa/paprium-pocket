@@ -45,87 +45,119 @@ from wave_roots import load_bank, pitch as measure_pitch, RATES
 CLK = 99.8745
 
 
-def program_table(b):
+def program_table(b, conf=0.5):
+    """program -> (samples, native rate, root MIDI or None, loop point or None)"""
     be32 = lambda o: int.from_bytes(b[o:o + 4].tobytes(), "big")
     be16 = lambda o: int.from_bytes(b[o:o + 2].tobytes(), "big")
     out = {}
     for p in range(256):
-        ptr, ln, typ = be32(p * 16), be32(p * 16 + 4), be16(p * 16 + 12)
+        ptr, ln, loop, typ = be32(p * 16), be32(p * 16 + 4), be32(p * 16 + 8), be16(p * 16 + 12)
         if not ln or ptr >= len(b):
             continue
         ridx = typ + 1 if typ + 1 < len(RATES) else 1
         sr = 48000 // RATES[ridx]
-        sig = b[ptr:ptr + ln]
-        r = measure_pitch(sig[:min(len(sig), 200000)], sr)
-        root = None
-        if r and r[1] >= 0.75 and r[0] > 0:
-            root = 69 + 12 * np.log2(r[0] / 440.0)
-        out[p] = (sig.astype(np.float64) - 128.0, sr, root)
+        sig = b[ptr:ptr + ln].astype(np.float64) - 128.0
+        r = measure_pitch(b[ptr:ptr + min(ln, 200000)], sr)
+        root = 69 + 12 * np.log2(r[0] / 440.0) if (r and r[1] >= conf and r[0] > 0) else None
+        lp = loop if loop != 0xFFFFFFFF and loop < ln else None
+        out[p] = (sig, sr, root, lp)
     return out
+
+
+def take(sig, step, n, loop):
+    """n output samples of sig read at `step`, looping from `loop` if it runs out."""
+    idx = np.arange(n) * step
+    end = len(sig) - 1
+    if loop is None:
+        idx = idx[idx <= end]
+    else:
+        over = idx > end
+        if over.any():
+            span = end - loop
+            if span <= 1:
+                idx = idx[~over]
+            else:
+                idx = np.where(over, loop + np.mod(idx - end, span), idx)
+    return sig[idx.astype(np.int64)] if len(idx) else np.zeros(0)
 
 
 def render(m, progs, C, seconds, rate):
     n = int(seconds * rate)
-    buf = np.zeros(n + rate, dtype=np.float64)
+    left = np.zeros(n + rate)
+    right = np.zeros(n + rate)
     h09, base = m.d[0x09], 2 * m.d[0x07]
-    seq = list(range(m.npos)) + [p for _ in range(40) for p in range(h09, m.npos)]
-    cur = {v: None for v in range(26)}
-    # a voice's static program, if the module sets one
-    for v in range(26):
-        b = m.d[0x2A + (v ^ 1)]
-        if b:
-            cur[v] = b
+    seq = list(range(m.npos)) + [p for _ in range(60) for p in range(h09, m.npos)]
+
+    # first pass: every event, with its absolute time
+    evs = []
     t, T = 0.0, base
-    placed = 0
     for p in seq:
+        if t > seconds + 4:
+            break
         for r in range(m.G):
-            if t > seconds:
-                return buf[:n], placed
             for v in range(26):
                 order = m.voice_order(v)
                 if p >= len(order):
                     continue
                 g, ev = m.pat[order[p]]
                 i = g[r] if r < len(g) else 0
-                if not i or i >= len(ev):
-                    continue
-                e = ev[i]
+                if i and i < len(ev):
+                    evs.append((t, v, ev[i]))
+            for _, v, e in evs[-26:]:
                 for k in (2, 4, 6):
                     if e[k] == 0xFA:
                         T = base + (e[k + 1] & 0x0F)
-                    elif e[k] == 0x0F:
-                        cur[v] = e[k + 1]
-                if not (1 <= e[0] <= 12):
-                    continue
-                entry = progs.get(cur[v])
-                if entry is None:
-                    continue
-                sig, sr, root = entry
-                if len(sig) < 64:
-                    continue
-                # The cartridge cannot know its samples' recorded pitches: it can
-                # only set a playback RATE from the note number, with one constant
-                # for the whole synth. What you hear is the sample's own pitch
-                # transposed by that. So the renderer needs no per-sample root.
-                semi = 12 * e[1] + e[0]
-                step = (sr / rate) * 2.0 ** ((semi - C) / 12.0)
-                if not np.isfinite(step) or step <= 0 or step > 64:
-                    continue
-                count = int(min(len(sig) / step, 1.2 * rate))   # cap one note at 1.2 s
-                if count < 8:
-                    continue
-                idx = (np.arange(count) * step).astype(np.int64)
-                idx = idx[idx < len(sig)]
-                start = int(t * rate)
-                seg = sig[idx] * np.linspace(1.0, 0.0, len(idx)) ** 0.5   # simple decay
-                room = len(buf) - start
-                if room <= 0:
-                    continue
-                seg = seg[:room]
-                buf[start:start + len(seg)] += seg
-                placed += 1
             t += T / CLK
-    return buf[:n], placed
+
+    # second pass: a note lasts until the next event on the same voice
+    nxt = {}
+    for i in range(len(evs) - 1, -1, -1):
+        tt, v, e = evs[i]
+        end = nxt.get(v, seconds + 2.0)
+        evs[i] = (tt, v, e, end)
+        nxt[v] = tt
+
+    prog = {v: (m.d[0x2A + (v ^ 1)] or None) for v in range(26)}
+    pan = {v: 0x80 for v in range(26)}
+    placed = 0
+    for tt, v, e, end in evs:
+        for k in (2, 4, 6):
+            if e[k] == 0x0F:
+                prog[v] = e[k + 1]
+            elif e[k] == 0x02:
+                pan[v] = e[k + 1]
+        if not (1 <= e[0] <= 12):
+            continue
+        entry = progs.get(prog[v])
+        if entry is None:
+            continue
+        sig, sr, root, loop = entry
+        if len(sig) < 32:
+            continue
+        target = 12 * e[1] + e[0] + C
+        step = (sr / rate) * (2.0 ** ((target - root) / 12.0) if root is not None else 1.0)
+        if not np.isfinite(step) or step <= 0 or step > 40:
+            continue
+        dur = min(max(end - tt, 0.05), 4.0)
+        seg = take(sig, step, int(dur * rate), loop)
+        if len(seg) < 16:
+            continue
+        a = min(int(0.003 * rate), len(seg) // 4)      # click-free edges
+        d = min(int(0.040 * rate), len(seg) // 3)
+        env = np.ones(len(seg))
+        env[:a] = np.linspace(0, 1, a)
+        env[len(seg) - d:] = np.linspace(1, 0, d)
+        seg = seg * env
+        pv = pan[v] / 255.0
+        start = int(tt * rate)
+        room = len(left) - start
+        if room <= 0:
+            continue
+        seg = seg[:room]
+        left[start:start + len(seg)] += seg * (1.0 - pv * 0.8)
+        right[start:start + len(seg)] += seg * (0.2 + pv * 0.8)
+        placed += 1
+    return np.stack([left[:n], right[:n]], axis=1), placed
 
 
 def main():
@@ -135,8 +167,8 @@ def main():
     ap.add_argument("track", type=int)
     ap.add_argument("bank")
     ap.add_argument("out")
-    ap.add_argument("--anchor", type=int, default=60,
-                    help="REF in rate = base * 2^((semitone - REF)/12)")
+    ap.add_argument("--anchor", type=int, default=11,
+                    help="C in MIDI = 12*byte1 + byte0 + C; solved value is 11")
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--rate", type=int, default=32000)
     a = ap.parse_args()
@@ -149,10 +181,10 @@ def main():
     if peak > 0:
         buf = buf / peak * 0.89
     w = wave.open(a.out, "wb")
-    w.setnchannels(1); w.setsampwidth(2); w.setframerate(a.rate)
-    w.writeframes((buf * 32767).astype("<i2").tobytes())
+    w.setnchannels(2); w.setsampwidth(2); w.setframerate(a.rate)
+    w.writeframes((buf.reshape(-1) * 32767).astype("<i2").tobytes())
     w.close()
-    print("track %d %s -> %s   REF = %d, %d notes placed, %.1f s"
+    print("track %d %s -> %s   C = %+d, %d notes placed, %.1f s"
           % (m.n, m.title, a.out, a.anchor, placed, a.seconds))
 
 
