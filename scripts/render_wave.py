@@ -65,20 +65,32 @@ def program_table(b, conf=0.5):
 
 
 def take(sig, step, n, loop):
-    """n output samples of sig read at `step`, looping from `loop` if it runs out."""
-    idx = np.arange(n) * step
+    """n output samples of sig read at `step`, looping from `loop` if it runs out.
+
+    LINEARLY interpolated. Nearest-neighbour was used first and it audibly
+    distorts the bass: a low note off a high-rooted sample reads at step ~0.04,
+    so each input sample is held for ~25 outputs and the waveform becomes a
+    staircase with a harsh harmonic skirt. That reads as clipping even though
+    nothing is near full scale.
+    """
+    pos = np.arange(n) * step
     end = len(sig) - 1
     if loop is None:
-        idx = idx[idx <= end]
+        pos = pos[pos <= end - 1]
     else:
-        over = idx > end
+        over = pos > end - 1
         if over.any():
-            span = end - loop
+            span = (end - 1) - loop
             if span <= 1:
-                idx = idx[~over]
+                pos = pos[~over]
             else:
-                idx = np.where(over, loop + np.mod(idx - end, span), idx)
-    return sig[idx.astype(np.int64)] if len(idx) else np.zeros(0)
+                pos = np.where(over, loop + np.mod(pos - (end - 1), span), pos)
+    if not len(pos):
+        return np.zeros(0)
+    i0 = pos.astype(np.int64)
+    frac = pos - i0
+    i1 = np.minimum(i0 + 1, end)
+    return sig[i0] * (1.0 - frac) + sig[i1] * frac
 
 
 def render(m, progs, C, seconds, rate):
