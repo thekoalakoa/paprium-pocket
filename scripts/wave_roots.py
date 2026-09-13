@@ -48,26 +48,73 @@ def load_bank(path):
 
 
 def pitch(sig, sr):
-    """Fundamental by autocorrelation, with the peak parabolically refined."""
+    """Root pitch as the COMMON DIVISOR of the sample's strong partials.
+
+    Two simpler estimators were tried and each fails on real cartridge samples.
+    Autocorrelation latches onto the noisy tail of a steeply decaying sample -
+    it put program 0x01 at 1853 Hz when its partials are 70 and 141 Hz. Plain
+    harmonic-sum, or taking the strongest peak, picks a harmonic instead of the
+    fundamental - program 0x0E's loudest partial is its 2nd (520 Hz over a real
+    261 Hz), and 0x24's visible series 1045/1567/2089/2610 is 2x,3x,4x,5x of
+    522 Hz with no energy at the fundamental at all.
+
+    What is reliable is the SPACING. Score each candidate f0 by how much of the
+    measured peak energy sits within tolerance of an integer multiple of it, and
+    keep the HIGHEST f0 that explains essentially as much as the best - so a
+    subharmonic, which trivially explains everything, does not win.
+    """
     x = sig.astype(np.float64) - 128.0
-    if len(x) < 4096:
+    if len(x) < 2048:
         return None
-    x = x[: min(len(x), sr * 2)]
-    x -= x.mean()
-    n = 1 << int(np.ceil(np.log2(2 * len(x))))
-    f = np.fft.rfft(x, n)
-    ac = np.fft.irfft(f * np.conj(f), n)[: len(x)]
-    ac /= ac[0] + 1e-30
-    lo, hi = max(int(sr / 2000), 2), min(int(sr / 50), len(ac) - 2)
-    if hi <= lo:
+    NF = 1 << int(np.log2(min(len(x), 16384)))
+    if NF < 2048:
         return None
-    k = lo + int(np.argmax(ac[lo:hi]))
-    d = ac[k - 1] - 2 * ac[k] + ac[k + 1]
-    frac = 0.5 * (ac[k - 1] - ac[k + 1]) / d if d else 0.0
-    per = k + frac
-    if per <= 0:
+    w = np.hanning(NF)
+    acc = np.zeros(NF // 2 + 1)
+    frames = 0
+    for i in range(0, max(min(len(x) - NF, NF * 8), 1), NF // 2):
+        acc += np.abs(np.fft.rfft(x[i:i + NF] * w))
+        frames += 1
+    if not frames:
         return None
-    return sr / per, float(ac[k])
+    acc /= frames
+    freqs = np.fft.rfftfreq(NF, 1.0 / sr)
+    ok = (freqs >= 40) & (freqs <= min(4000, sr * 0.45))
+    v, f = acc[ok], freqs[ok]
+    if len(v) < 16 or v.max() <= 0:
+        return None
+
+    peaks = [i for i in range(1, len(v) - 1)
+             if v[i] > v[i - 1] and v[i] >= v[i + 1] and v[i] > 0.12 * v.max()]
+    if not peaks:
+        return None
+    peaks.sort(key=lambda i: -v[i])
+    peaks = peaks[:12]
+    pf = np.array([f[i] for i in peaks])
+    pm = np.array([v[i] for i in peaks])
+    total = pm.sum()
+
+    def explains(f0):
+        if f0 <= 0:
+            return 0.0
+        r = pf / f0
+        near = np.abs(r - np.round(r)) < 0.06
+        near &= np.round(r) >= 1
+        near &= np.round(r) <= 16
+        return float(pm[near].sum())
+
+    cands = sorted({round(pf[i] / h, 3) for i in range(len(pf)) for h in range(1, 9)
+                    if 35 <= pf[i] / h <= 4000})
+    if not cands:
+        return None
+    scored = [(explains(c), c) for c in cands]
+    best = max(s for s, _ in scored)
+    if best <= 0:
+        return None
+    # highest f0 that still explains ~everything the best one does
+    f0 = max(c for s, c in scored if s >= 0.97 * best)
+    conf = float(best / (total + 1e-30))
+    return (f0, conf)
 
 
 def main():
