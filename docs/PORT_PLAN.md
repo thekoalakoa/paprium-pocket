@@ -1087,6 +1087,43 @@ Incidental: the 8-byte table at ROM 0x118358, immediately after the BGM name
 table and on the same XOR 0xAA key, is the default high-score table - `_RetrO`,
 `BARMAN`, `SILVER`, `LEOZZY`, `TITUS`, `OGDEN`.
 
+#### SOLVED: the absolute pitch anchor is C = +11
+
+    MIDI note = 12*byte1 + byte0 + 11
+
+So `byte0 = 1` is a C in every octave, and `byte1 = 4, byte0 = 1` is middle C.
+`scripts/solve_anchor.py` re-derives it from the modules and the hardware
+captures.
+
+**Why this worked where every earlier attempt failed.** The row clock is solved
+to a few ppm, so every note's time is known. That allows the spectrum to be
+sampled *in the window of each individual note* instead of averaged over a
+track - hundreds of separate measurements of one voice, each with its semitone
+known. For a candidate C, energy is summed at the predicted fundamental and its
+2nd and 3rd harmonics across every note; the right C aligns all of them at once.
+Pooling per-track z-scores over 11 tracks:
+
+    C = +11   z = 23.8   <-- answer
+    C = +12   z = 17.4       adjacent-bin leakage, not a real competitor
+    C = +23   z = 16.6       one octave up
+    C =  -1   z =  9.1
+
+Three independent lines agree. Rotating module pitch-class histograms against
+capture chroma gives C = 11 (mod 12) by a completely different route. C = +11
+puts Dark Rock's sax lead at MIDI 54-78, a real saxophone range, where the
+harmonic-salience estimate's -13 would have demanded MIDI 30. And it is what a
+1..12 pitch class starting at C requires.
+
+**A reading recorded earlier is withdrawn:** that there is no global C because
+pitch is relative to each program's own sample root. Sample roots do sit at C3,
+C4, C5 and C6, and solving a per-program REF gave a different REF for each - but
+the *same* C. The cartridge compensates the octave through the program table's
+rate field, so the roots cancel and one global constant governs everything.
+
+With tempo, the loop point, the event record and now the anchor, a module's
+notes can be placed at the right pitch and the right time. What remains for a
+faithful renderer is the per-voice envelope and effect handling, not the notes.
+
 #### C mod 12 is settled: byte0 = 1 is a C
 
 Measured against the hardware captures, no isolated note needed. Take each
