@@ -198,7 +198,13 @@ def render(m, progs, C, seconds, rate, only=None):
             if entry is None:
                 continue
             sig, sr, root, loop = entry
-            if len(sig) < 32 or root is None:
+            # A root is only believable if the note sits within a couple of
+            # octaves of it. Gothic asks for shifts of -59 and +27 semitones
+            # around 22 s, which are step 0.02 and step 4.5 - a sample dragged
+            # into sub-audio rumble, or screeching with aliasing. Those are
+            # percussion entries and mis-detected roots, not instrument design,
+            # so play them at their own rate rather than transposing wildly.
+            if len(sig) < 32 or root is None or abs(target - root) > 24:
                 step = sr / rate
             else:
                 step = (sr / rate) * 2.0 ** ((target - root) / 12.0)
