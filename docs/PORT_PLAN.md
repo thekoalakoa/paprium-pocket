@@ -1087,6 +1087,69 @@ Incidental: the 8-byte table at ROM 0x118358, immediately after the BGM name
 table and on the same XOR 0xAA key, is the default high-score table - `_RetrO`,
 `BARMAN`, `SILVER`, `LEOZZY`, `TITUS`, `OGDEN`.
 
+#### FOUND: the FM patch bank, ROM 0x004000, XOR 0xA8A2
+
+Recorded elsewhere in this document as "never located". It is at **ROM 0x004000,
+135 records of 32 bytes, under a repeating word XOR of 0xA8A2** - 0xA8 on even
+byte offsets, 0xA2 on odd. `scripts/fm_patches.py` extracts and decodes it.
+
+That key is why every previous search missed it. This cartridge uses three
+different obfuscation keys: module text is XOR 0xA5, the ROM UI string tables
+XOR 0xAA, and the FM bank XOR 0xA8A2. A plain-byte search finds none of them.
+
+Records are operator-major - each field appears four times, once per operator,
+in the YM2612's register order Op1, Op3, Op2, Op4:
+
+    +0x00 TL x4 | +0x04 DT/MUL x4 | +0x08 RS/AR x4 | +0x0C AM/D1R x4
+    +0x10 D2R x4 | +0x14 D1L/RR x4 | +0x18 SSG-EG x4
+    +0x1C FB/ALGO | +0x1D LFO (zero in 132 of 135) | +0x1E two zero bytes
+
+**Why it is certainly the bank**, all measured over all 135 records:
+
+- Every YM2612 field limit holds with no exceptions - TL <= 127, AR <= 31,
+  D1R <= 31, D2R <= 31, SSG-EG <= 15, ALGO <= 7, FB <= 7, every unused bit zero,
+  last two bytes zero. (DT = 4 appears 13 times and is legal: the detune field's
+  top bit is a sign, so 4 is negative zero.)
+- There are exactly **135** records, and the music's command-0x0F arguments on
+  FM voices 0-5 span exactly 0x00..0x86 = 135 values.
+- Scanning the whole ROM at every even offset under this key gives exactly ONE
+  run of four or more consecutive valid records - this one, length 135 - against
+  52 scattered singles in 4.19 million positions.
+- The key is pinned independently of any padding assumption: of the 256 keys the
+  field constraints permit, only 0xA8A2 also satisfies "SSG-EG nonzero implies
+  bit 3 set" across all 58 nonzero SSG-EG bytes.
+- The algorithm histogram spans all eight values (12/11/30/13/24/36/6/3) and
+  feedback peaks at 7 and 0 - what a hand-made bank looks like, not noise.
+
+Patch 0x52, the most used, decodes as algorithm 2 with feedback 7: one loud
+modulator at TL 10 MUL 11, two attenuated to TL 116 and 114, carrier at TL 2.
+
+**A cross-check that did NOT work, recorded so it is not repeated:** correlating
+a crude "modulator drive" proxy from the table against the harmonic richness
+measured from hardware gives Pearson -0.24, Spearman +0.11 over 23 grade-A/B
+patches. That is a limitation of the proxy, not evidence against the table - FM
+brightness depends on modulation index, which scales with the modulator's
+frequency ratio and its envelope state, and no single number captures it. The
+real validation is to synthesise the patches and compare spectra, which is also
+what a faithful renderer needs.
+
+#### The FM timbres were measured from hardware too
+
+Independently of the table, the timbre of each patch was measured straight from
+the captures, exploiting the solved clock to window each note individually.
+Results are in the scratchpad as `fm/fm_timbre.csv`: 60 patches with harmonics
+1-14 in dB, attack time, decay rate, SNR and an A/B/C grade.
+
+It works, but it is enrichment rather than identification. Under
+leave-one-track-out matching over the 15 grade-A patches, a single note's
+10-harmonic vector picks the correct patch **47.1%** of the time (591 of 1,254)
+against a measured block-permutation null of **7.24% +/- 1.47** - z = 27, with
+0 of 40 null draws reaching it. Controls hold: time-shifted windows score 6.7%
+(chance), pitch alone scores 10-17%, and pitch-matched templates still score
+44.0% against 11.5%. But the classifier is wrong on most notes and the true
+patch's median rank is 2. Useful as corroboration, not as a substitute for the
+table.
+
 #### The 26 voices are 6 FM + 4 PSG + 16 wave
 
 Measured by asking, per voice, how often its `0x0F` program argument lands on a
