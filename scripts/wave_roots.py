@@ -117,6 +117,62 @@ def pitch(sig, sr):
     return (f0, conf)
 
 
+def requested_notes(moddir):
+    """{program: [MIDI notes the music asks of it]} over every wave voice, whole corpus.
+
+    Tracks the program exactly the way render_wave.render() does - the static
+    byte at +0x2A as the initial value, then command 0x0F wherever it appears -
+    so the two agree on which sample a note lands on.
+    """
+    import collections
+    import mwmm
+
+    req = collections.defaultdict(list)
+    for m in mwmm.load_all(moddir):
+        for v in range(10, 26):
+            prog = m.d[0x2A + (v ^ 1)] or None
+            for _, ev in m.timeline(v):
+                for k in (2, 4, 6):
+                    if ev[k] == 0x0F:
+                        prog = ev[k + 1]
+                if ev[0] and ev[0] != 0x0E and prog is not None:
+                    req[prog].append(12 * ev[1] + ev[0] + 11)
+    return req
+
+
+def octave_fix(roots, req, span=6):
+    """{program: whole-octave shift} to put a measured root where the music uses it.
+
+    `pitch` above is reliable on the SPACING of a sample's partials and
+    unreliable on which of them is the fundamental, so its answer is right
+    modulo an octave and wrong by up to five of them: program 0x3F measures at
+    MIDI 106.3 with confidence 1.00 while every one of its 1,440 notes asks for
+    B2 to B4. Nothing in the sample settles it, but the music does - a sampler
+    part is written near its instrument's own register.
+
+    So take the octave that centres each program's note distribution on its root.
+    Corpus-wide that moves the notes sitting beyond render_wave's +/-24 semitone
+    guard - which are played at the sample's own rate, in the wrong octave, and
+    are heard as a missing or a shrill instrument - from 31.2% to 1.7%.
+
+    The fit is only over 13 discrete octaves, and it is NOT circular: the
+    PITCH CLASS is never fitted, and it comes out C. 40 of 86 corrected roots
+    land within a semitone of C against 14 expected by chance (p = 1.2e-10),
+    which is what the bank's own docstring says the instruments are recorded at.
+    """
+    import numpy as np
+
+    out = {}
+    for p, root in roots.items():
+        n = req.get(p)
+        if root is None or not n:
+            continue
+        n = np.asarray(n, dtype=float)
+        out[p] = min(range(-span, span + 1),
+                     key=lambda k: np.median(np.abs(n - (root + 12 * k))))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
