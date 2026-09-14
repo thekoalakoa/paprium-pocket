@@ -168,17 +168,29 @@ def load_timbres(path, grades=("A", "B", "C")):
             h = [float(r["h%d_norm" % i]) for i in range(1, 15)]
             atk = float(r["attack_ms"]) / 1000.0
             dec = abs(float(r["decay_db_s"]))
+            lvl = float(r.get("level_db") or 0.0)
         except (KeyError, ValueError):
             continue
         if max(h) <= 0:
             continue
-        out[int(r["patch"], 16)] = (np.array(h) / max(h), max(atk, 0.002), dec)
+        out[int(r["patch"], 16)] = [np.array(h) / max(h), max(atk, 0.002), dec, lvl]
+
+    # Each profile is shape-normalised, so without this every patch would render
+    # at the same loudness and quiet background voices would punch through as
+    # hard as leads - which is exactly what a listener notices first. level_db is
+    # each patch's measured level relative to its own capture's RMS; recentre on
+    # the median so the typical patch keeps the calibrated gain and the rest sit
+    # where hardware puts them.
+    if out:
+        mid = float(np.median([v[3] for v in out.values()]))
+        for v in out.values():
+            v[3] = float(np.clip(10.0 ** ((v[3] - mid) / 20.0), 0.05, 6.0))
     return out
 
 
 def measured_note(timbre, f, ns, rate):
-    """Additive synthesis from a measured harmonic profile."""
-    h, atk, dec = timbre
+    """Additive synthesis from a measured harmonic profile, at its measured level."""
+    h, atk, dec, gain = timbre
     n = np.arange(ns)
     t = n / rate
     y = np.zeros(ns)
@@ -188,7 +200,7 @@ def measured_note(timbre, f, ns, rate):
             continue
         y += amp * np.sin(2 * np.pi * fh * n / rate)
     env = np.where(t < atk, t / max(atk, 1e-9), 10.0 ** (-dec * (t - atk) / 20.0))
-    return y * env / max(np.abs(h).sum(), 1e-9)
+    return y * env * gain / max(np.abs(h).sum(), 1e-9)
 
 
 def program_table(b, conf=0.5):

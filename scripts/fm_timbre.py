@@ -118,6 +118,7 @@ def main():
     mods = {m.n: m for m in mwmm.load_all(a.moduledir)}
     acc = collections.defaultdict(list)
     env = collections.defaultdict(list)
+    lvl = collections.defaultdict(list)
 
     for trk in sorted(set(caps) & set(mods)):
         m = mods[trk]
@@ -131,6 +132,10 @@ def main():
             continue
         off = music_start(x)
         dur = len(x) / SR
+        # reference level for this capture, so per-patch loudness is comparable
+        # ACROSS tracks. Without this every patch renders at the same level and
+        # quiet background voices punch through as loudly as leads.
+        ref_db = 20 * np.log10(np.sqrt((x[int(off * SR):] ** 2).mean()) + 1e-12)
 
         cand = collections.defaultdict(list)
         for i, (t, v, p, semi) in enumerate(fm):
@@ -159,6 +164,7 @@ def main():
                 if snr < 6:
                     continue
                 acc[p].append(amps / amps.max())
+                lvl[p].append(20 * np.log10(amps.max()) - ref_db)
                 at, de = envelope(seg)
                 if at is not None:
                     env[p].append((at, de, snr, near, trk))
@@ -167,7 +173,8 @@ def main():
     with open(a.out, "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["patch", "n_notes", "n_tracks", "snr_db", "grade",
-                    "attack_ms", "decay_db_s"] + ["h%d_norm" % i for i in range(1, NH + 1)])
+                    "attack_ms", "decay_db_s", "level_db"]
+                   + ["h%d_norm" % i for i in range(1, NH + 1)])
         ngrade = collections.Counter()
         for p in sorted(acc):
             v = np.array(acc[p])
@@ -186,8 +193,10 @@ def main():
             g = "A" if (len(v) >= 25 and ntr >= 2 and spread <= 0.12 and snr >= 12) else \
                 "B" if (len(v) >= 12 and spread <= 0.20 and snr >= 9) else "C"
             ngrade[g] += 1
+            lv = float(np.median(lvl[p])) if lvl[p] else 0.0
             w.writerow(["0x%02X" % p, len(v), ntr, "%.1f" % snr, g,
-                        "%.1f" % atk, "%.1f" % dec] + ["%.4f" % z for z in med])
+                        "%.1f" % atk, "%.1f" % dec, "%.1f" % lv]
+                       + ["%.4f" % z for z in med])
     print("\nwrote %s   grades %s" % (a.out, dict(ngrade)))
 
 
