@@ -334,7 +334,7 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
                 if h * f >= rate * 0.45:
                     break
                 seg += np.sin(h * th) / h
-            seg *= 64.0
+            seg *= 128.0
             seg *= np.exp(-np.arange(ns) / (0.45 * rate))
         else:
             entry = progs.get(prog[v])
