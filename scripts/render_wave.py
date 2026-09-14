@@ -3,6 +3,8 @@
 
     python scripts/render_wave.py <moduledir> <track> <wave-bank.wav> out.wav
                                   [--anchor C] [--seconds 60] [--rate 32000]
+                                  [--voices 0-5,12,20-25] [--mute 6-9]
+    python scripts/render_wave.py <moduledir> <track> --dry-list
 
 Unlike the old render_mwmm.py (which predates the decoded format and plays square
 waves), this uses the real model and the real samples:
@@ -32,6 +34,7 @@ Derived from a commercial ROM: keep the output local.
 
 import argparse
 import collections
+import json
 import io
 import os
 import sys
@@ -41,10 +44,41 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mwmm
-from wave_roots import load_bank, pitch as measure_pitch, RATES
+from wave_roots import (load_bank, pitch as measure_pitch, RATES,
+                        octave_fix, requested_notes)
 
 CLK = 99.8745
+NVOICES = 26
 
+
+def parse_voices(spec, what="--voices"):
+    """"0-5,12,20-25" -> {0..5, 12, 20..25}.
+
+    A comma list of ranges and singletons. The old single-range form "lo-hi" is
+    just the one-element case of it, so every existing command line still means
+    what it meant. Out-of-range numbers are an error rather than a silent no-op:
+    a mistyped solo that renders nothing looks exactly like a voice that is
+    silent, and that is a trap when the whole point is isolated A/B evidence.
+    """
+    out = set()
+    for part in str(spec).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        lo, sep, hi = part.partition("-")
+        try:
+            a = int(lo)
+            b = int(hi) if sep else a
+        except ValueError:
+            raise SystemExit("%s: cannot parse %r in %r" % (what, part, spec))
+        if b < a:
+            a, b = b, a
+        if a < 0 or b >= NVOICES:
+            raise SystemExit("%s: voice %r out of range 0-%d" % (what, part, NVOICES - 1))
+        out.update(range(a, b + 1))
+    if not out:
+        raise SystemExit("%s: no voices in %r" % (what, spec))
+    return out
 
 
 # ---------------------------------------------------------------- YM2612 FM
@@ -203,8 +237,18 @@ def measured_note(timbre, f, ns, rate):
     return y * env * gain / max(np.abs(h).sum(), 1e-9)
 
 
-def program_table(b, conf=0.5):
-    """program -> (samples, native rate, root MIDI or None, loop point or None)"""
+def program_table(b, conf=0.5, moddir=None):
+    """program -> (samples, native rate, root MIDI or None, loop point or None)
+
+    With `moddir`, each measured root is octave-corrected against how the music
+    actually uses that program (wave_roots.octave_fix). measure_pitch reads the
+    SPACING of a sample's partials correctly and picks the wrong one as the
+    fundamental on 73 of 86 programs, by up to five octaves - and a root that is
+    octaves out then trips render()'s +/-24 semitone guard, which drops the
+    transposition entirely and plays the sample at its own rate. That is heard as
+    an instrument in the wrong register, or as one missing. Correcting the octave
+    takes the notes that trip the guard from 31.2% of the corpus to 1.7%.
+    """
     be32 = lambda o: int.from_bytes(b[o:o + 4].tobytes(), "big")
     be16 = lambda o: int.from_bytes(b[o:o + 2].tobytes(), "big")
     out = {}
@@ -219,6 +263,13 @@ def program_table(b, conf=0.5):
         root = 69 + 12 * np.log2(r[0] / 440.0) if (r and r[1] >= conf and r[0] > 0) else None
         lp = loop if loop != 0xFFFFFFFF and loop < ln else None
         out[p] = (sig, sr, root, lp)
+
+    if moddir:
+        fix = octave_fix({p: v[2] for p, v in out.items()}, requested_notes(moddir))
+        for p, k in fix.items():
+            if k and out[p][2] is not None:
+                sig, sr, root, lp = out[p]
+                out[p] = (sig, sr, root + 12 * k, lp)
     return out
 
 
@@ -278,11 +329,13 @@ def sax_voices(m):
     return out
 
 
-def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl=None,
-           sax=False):
-    n = int(seconds * rate)
-    left = np.zeros(n + rate)
-    right = np.zeros(n + rate)
+def event_timeline(m, seconds):
+    """[(t, voice, event, end)] for the window a render of `seconds` would cover.
+
+    Lifted out of render() unchanged so --dry-list reports on exactly the events
+    the renderer would place, rather than a second implementation of the clock
+    that could drift away from it.
+    """
     h09, base = m.d[0x09], 2 * m.d[0x07]
     seq = list(range(m.npos)) + [p for _ in range(60) for p in range(h09, m.npos)]
 
@@ -317,10 +370,24 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
         evs[i] = (tt, v, e, end)
         if (1 <= e[0] <= 12) or e[0] == 0x0E:
             nxt[v] = tt
+    return evs
+
+
+def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl=None,
+           vgain=None,
+           sax=False, mute=None):
+    n = int(seconds * rate)
+    left = np.zeros(n + rate)
+    right = np.zeros(n + rate)
+    evs = event_timeline(m, seconds)
 
     prog = {v: (m.d[0x2A + (v ^ 1)] or None) for v in range(26)}
     pan = {v: 0x80 for v in range(26)}
+    # The sax man stays off unless --sax, exactly as before; --mute only ever
+    # adds to that set, so it can never switch him on by accident.
     muted = set() if sax else sax_voices(m)
+    if mute:
+        muted = muted | set(mute)
     placed = 0
     for tt, v, e, end in evs:
         for k in (2, 4, 6):
@@ -400,6 +467,11 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
         if a: env[:a] = np.linspace(0, 1, a)
         if d: env[len(seg) - d:] = np.linspace(1, 0, d)
         seg = seg * env
+        # Per-voice mix level, read off the cartridge's own VU meter
+        # (scripts/vu_gain.py). It is not in the module - array A at +0x10 is a
+        # flat 0x10 everywhere - and the renderer has no other source for it.
+        if vgain:
+            seg = seg * vgain.get(v, 1.0)
         pv = pan[v] / 255.0
         start = int(tt * rate)
         room = len(left) - start
@@ -412,13 +484,78 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
     return np.stack([left[:n], right[:n]], axis=1), placed
 
 
+def dry_list(m, seconds, only=None, mute=None, sax=False):
+    """Per voice: note count, distinct programs, total sounding seconds.
+
+    An inventory of the module over the same window a render would cover, so a
+    solo can be aimed before any audio is made. Programs are tracked exactly the
+    way render() tracks them - the static byte at +0x2A as the initial value,
+    then command 0x0F wherever it appears, on every event including ones on
+    voices that are muted or filtered out.
+    """
+    evs = event_timeline(m, seconds)
+    saxv = sax_voices(m)
+    muted = (set() if sax else set(saxv)) | set(mute or ())
+    prog = {v: (m.d[0x2A + (v ^ 1)] or None) for v in range(26)}
+    notes = collections.Counter()
+    secs = collections.defaultdict(float)
+    used = collections.defaultdict(list)
+    for tt, v, e, end in evs:
+        for k in (2, 4, 6):
+            if e[k] == 0x0F:
+                prog[v] = e[k + 1]
+        if not (1 <= e[0] <= 12):
+            continue
+        notes[v] += 1
+        # the same clamp render() applies, so this is sounding time as RENDERED
+        secs[v] += min(max(end - tt, 0.05), 4.0)
+        if prog[v] not in used[v]:
+            used[v].append(prog[v])
+
+    print("track %d  %s   G=%d, %d positions, loop at %d, %d of 26 voices sounding"
+          % (m.n, m.title, m.G, m.npos, m.d[0x09], sum(1 for v in range(26) if notes[v])))
+    print("window %.1f s; sounding = sum of note lengths clamped to [0.05, 4.00] s,"
+          % seconds)
+    print("the same clamp the renderer uses, so voices never overlap themselves.")
+    print("\n%3s %5s %-11s %7s %10s  %s"
+          % ("v", "kind", "state", "notes", "sounding s", "programs"))
+    tot_n, tot_s = 0, 0.0
+    for v in range(26):
+        kind = "FM" if v < 6 else ("PSG" if v < 10 else "wave")
+        if only is not None and v not in only:
+            state = "off:-voices"
+        elif v in (mute or ()):
+            state = "off:-mute"
+        elif v in muted:
+            state = "off:sax"
+        elif not notes[v]:
+            state = "silent"
+        else:
+            state = "render"
+        ps = " ".join("--" if p is None else "0x%02X" % p for p in used[v]) or "--"
+        print("%3d %5s %-11s %7d %10.2f  %s"
+              % (v, kind, state, notes[v], secs[v], ps))
+        tot_n += notes[v]
+        tot_s += secs[v]
+    print("%3s %5s %-11s %7d %10.2f" % ("", "", "total", tot_n, tot_s))
+    if saxv:
+        print("\nsax-man voices (command 0x55): %s%s"
+              % (sorted(saxv), "" if sax else "  - muted, pass --sax to hear them"))
+    print("\nMETHOD BLIND: this reads the MODULE only. It cannot see whether a note"
+          "\nsurvives rendering - a wave program missing from the bank, an FM patch"
+          "\nwith no measured timbre, or a pitch outside the band is dropped in"
+          "\nrender() and still counted here. Compare against 'notes placed'.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("moduledir")
     ap.add_argument("track", type=int)
-    ap.add_argument("bank")
-    ap.add_argument("out")
+    # optional ONLY so --dry-list, which needs neither, can be run without
+    # naming a bank and an output file it would never touch
+    ap.add_argument("bank", nargs="?")
+    ap.add_argument("out", nargs="?")
     ap.add_argument("--anchor", type=int, default=11,
                     help="C in MIDI = 12*byte1 + byte0 + C; solved value is 11")
     ap.add_argument("--seconds", type=float, default=60.0)
@@ -433,17 +570,39 @@ def main():
                     help="fm_timbre.csv - measured FM timbres, preferred over the model")
     ap.add_argument("--rom", default=None,
                     help="paprium.md, to render FM voices from the real patch bank")
+    ap.add_argument("--vu-gain", default=None,
+                    help="per-voice gain table from scripts/vu_gain.py (JSON), measured "
+                         "from the hardware capture's on-screen level meter")
+    ap.add_argument("--raw-roots", action="store_true",
+                    help="skip the corpus octave correction of wave roots (for A/B only)")
     ap.add_argument("--voices", default=None,
-                    help="render only these voices, e.g. 0-5 for FM, 10-25 for wave")
+                    help="render only these voices: a comma list of ranges and "
+                         "singletons, e.g. 0-5 for FM, 10-25 for wave, "
+                         "0-5,12,20-25 for a mixture. Default: all")
+    ap.add_argument("--mute", default=None,
+                    help="silence these voices, same syntax as --voices, applied "
+                         "after it. The sax-man default is unaffected: this only "
+                         "ever adds to what is muted")
+    ap.add_argument("--dry-list", action="store_true",
+                    help="print per-voice note count, programs and sounding "
+                         "seconds, then exit without rendering")
     a = ap.parse_args()
 
-    b = load_bank(a.bank)
-    progs = program_table(b)
     m = {x.n: x for x in mwmm.load_all(a.moduledir)}[a.track]
-    only = None
-    if a.voices:
-        lo, _, hi = a.voices.partition("-")
-        only = set(range(int(lo), int(hi or lo) + 1))
+    only = parse_voices(a.voices, "--voices") if a.voices else None
+    mute = parse_voices(a.mute, "--mute") if a.mute else None
+    if a.dry_list:
+        dry_list(m, a.seconds, only, mute, a.sax)
+        return
+    if not a.bank or not a.out:
+        ap.error("bank and out are required unless --dry-list is given")
+
+    b = load_bank(a.bank)
+    progs = program_table(b, moddir=None if a.raw_roots else a.moduledir)
+    live = sum(1 for v in progs.values() if len(v[0]) >= 32)
+    if live < 90:
+        ap.error("%s yields only %d live programs (expected ~94). Wrong bank or "
+                 "wrong sample width - check that load_bank matches the file." % (a.bank, live))
     fm = {}
     if a.rom:
         import fm_patches
@@ -491,7 +650,15 @@ def main():
             wavelvl = {pn: float(np.clip(10.0 ** ((v - mid) / 20.0), 0.15, 4.0))
                        for pn, v in res.items()}
             print("wave levels: %d programs (residual over sample RMS)" % len(wavelvl))
-    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm, timbres, wavelvl, a.sax)
+    vgain = None
+    if a.vu_gain:
+        vgain = {int(k): float(v) for k, v in json.load(open(a.vu_gain)).items()}
+        print("VU gain: %d voices, %+.1f to %+.1f dB"
+              % (len(vgain), 20 * np.log10(min(vgain.values())),
+                 20 * np.log10(max(vgain.values()))))
+    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only=only, fm=fm,
+                         timbres=timbres, wavelvl=wavelvl, vgain=vgain,
+                         sax=a.sax, mute=mute)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89
@@ -499,8 +666,10 @@ def main():
     w.setnchannels(2); w.setsampwidth(2); w.setframerate(a.rate)
     w.writeframes((buf.reshape(-1) * 32767).astype("<i2").tobytes())
     w.close()
-    print("track %d %s -> %s   C = %+d, %d notes placed, %.1f s"
-          % (m.n, m.title, a.out, a.anchor, placed, a.seconds))
+    print("track %d %s -> %s   C = %+d, %d notes placed, %.1f s%s%s"
+          % (m.n, m.title, a.out, a.anchor, placed, a.seconds,
+             "" if only is None else "   voices %s" % sorted(only),
+             "" if not mute else "   muted %s" % sorted(mute)))
 
 
 if __name__ == "__main__":
