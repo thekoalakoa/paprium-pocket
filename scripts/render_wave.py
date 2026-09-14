@@ -148,7 +148,7 @@ def fm_note(patch, f, ns, rate):
 
 
 
-def load_timbres(path, grades=("A", "B")):
+def load_timbres(path, grades=("A", "B", "C")):
     """Measured FM timbres: {patch: (harmonic amplitudes, attack s, decay dB/s)}.
 
     These come from the hardware captures, not from theory - each patch's
