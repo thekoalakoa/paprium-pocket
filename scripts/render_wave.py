@@ -111,6 +111,20 @@ def fm_note(patch, f, ns, rate):
     for i in range(4):
         op = patch["ops"][SLOT[i]]
         mul = op["MUL"] if op["MUL"] else 0.5
+        if i in carriers:
+            # A real YM2612 multiplies EVERY operator's frequency by MUL, so a
+            # carrier at MUL 8 sounds three octaves above the written note. This
+            # bank is full of them - patch 0x01's carrier is x0.5 and 0x02's are
+            # x4, x8 and x12 - and those two patches are played in UNISON on
+            # voices 0 and 1 of Theme Of Paprium, 508 notes on identical
+            # semitones. Rendered the YM2612 way they split octaves apart, which
+            # is what the player heard as "two instruments at the wrong timing",
+            # and it put Dark Rock's 46 Hz opening at 368 Hz.
+            # The cartridge synthesises FM in its own firmware and evidently
+            # does not do this: holding carriers at the written note and using
+            # MUL only as a modulator ratio measures better against hardware on
+            # both chroma (0.818 vs 0.806) and band balance (0.246 vs 0.272).
+            mul = 1.0
         fo = f * mul * (1.0 + DETUNE[op["DT"] & 7])
         if fo > rate * 0.48:
             fo = rate * 0.48
