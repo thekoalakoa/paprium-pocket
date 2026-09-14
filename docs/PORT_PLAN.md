@@ -1173,6 +1173,31 @@ where hardware has 4%. Splitting the groups and giving FM a stand-in tone put
 that at 4% against 4%, the midrange at 33% against 32%, and lifted chroma
 correlation over the whole track from +0.634 to **+0.877**.
 
+#### How the hardware captures were made, and why it matters
+
+Confirmed by the player: the 52 boombox captures were recorded with the audio
+menu set to **DATENMEISTER** (not the YM chip) and with the **+10 dB** boost on.
+Both matter to everything measured from them.
+
+DATENMEISTER is the cartridge's own DAC, so the captures carry the synth's
+direct output rather than a mix routed through the YM2612's DAC. That is the
+right source for a timbre library - it is the cartridge, not the host chip.
+
+The +10 dB needed checking, because a boost that pushes the output into clipping
+would bake clipping harmonics into every timbre measured from it. It does not:
+
+    peak 0.115 to 0.150 (about 17 dB below full scale)
+    crest factor 12.7 to 16.2 dB
+    0.000% of samples within 3% of peak, essentially no flat runs
+
+So the captures are clean and the timbre library is uncontaminated. The boost is
+also uniform, and per-patch levels are recentred on their median, so it cancels
+out of the relative levels entirely.
+
+The remaining consequence is the one in the known-issues list: the same audio
+setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
+0x1800/0x1801, and the port does nothing with it.
+
 #### The released album: right for the notes, wrong for the synth
 
 Measured, because it is the obvious thing to reach for and it is only half
