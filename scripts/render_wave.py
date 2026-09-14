@@ -251,7 +251,7 @@ def take(sig, step, n, loop):
     return sig[i0] * (1.0 - frac) + sig[i1] * frac
 
 
-def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None):
+def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl=None):
     n = int(seconds * rate)
     left = np.zeros(n + rate)
     right = np.zeros(n + rate)
@@ -356,6 +356,12 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None):
             seg = take(sig, step, ns, loop)
             if len(seg) < 16:
                 continue
+            # Sample amplitude alone does not say how loud a program is in the
+            # mix - two instruments recorded at the same peak can sit 20 dB
+            # apart. wavelvl carries each program's level as measured from the
+            # captures, the same treatment the FM patches get.
+            if wavelvl:
+                seg = seg * wavelvl.get(prog[v], 1.0)
 
         a = min(int(0.003 * rate), len(seg) // 4)
         d = min(int(0.040 * rate), len(seg) // 3)
@@ -386,6 +392,8 @@ def main():
                     help="C in MIDI = 12*byte1 + byte0 + C; solved value is 11")
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--rate", type=int, default=32000)
+    ap.add_argument("--wave-levels", default=None,
+                    help="MEASURED AND REJECTED - see the note in main(); leave unset")
     ap.add_argument("--timbres", default=None,
                     help="fm_timbre.csv - measured FM timbres, preferred over the model")
     ap.add_argument("--rom", default=None,
@@ -410,7 +418,45 @@ def main():
     timbres = load_timbres(a.timbres) if a.timbres else None
     if timbres:
         print("measured timbres: %d patches" % len(timbres))
-    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm, timbres)
+    # Calibrating WAVE levels the way FM levels were calibrated does not work,
+    # and the reason is instructive. FM needed a measured level because
+    # load_timbres normalises each harmonic profile and throws the loudness
+    # away. A wave sample never loses it - the cartridge plays the sample as
+    # recorded, so its own amplitude already IS the level. Applying a measured
+    # level on top double-counts (Theme Of Paprium chroma 0.823 -> 0.565) and
+    # applying the residual over the sample's RMS is no better (0.559).
+    # It is NOT that wave notes are harder to isolate: measured over the whole
+    # corpus, 3.7% of wave notes have two or fewer other onsets within 120 ms
+    # against 3.8% of FM notes. The flag stays for reproducing the negative.
+    wavelvl = None
+    if a.wave_levels:
+        # A wave sample already carries its own loudness, so the measured level
+        # must not be applied on top of it - that double-counts and wrecks the
+        # balance (it cost Theme Of Paprium 0.823 -> 0.565 chroma). What the
+        # cartridge adds is the RESIDUAL: measured level minus the sample's own
+        # RMS. That is what gets applied here.
+        import csv as _csv
+        raw = {}
+        for r in _csv.DictReader(io.open(a.wave_levels, encoding="utf-8")):
+            try:
+                raw[int(r["patch"], 16)] = float(r["level_db"])
+            except (KeyError, ValueError):
+                continue
+        res = {}
+        for pn, lvl in raw.items():
+            e = progs.get(pn)
+            if e is None or len(e[0]) < 64:
+                continue
+            srms = float(np.sqrt((e[0].astype(np.float64) ** 2).mean()))
+            if srms <= 0:
+                continue
+            res[pn] = lvl - 20.0 * np.log10(srms)
+        if res:
+            mid = float(np.median(list(res.values())))
+            wavelvl = {pn: float(np.clip(10.0 ** ((v - mid) / 20.0), 0.15, 4.0))
+                       for pn, v in res.items()}
+            print("wave levels: %d programs (residual over sample RMS)" % len(wavelvl))
+    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm, timbres, wavelvl)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89

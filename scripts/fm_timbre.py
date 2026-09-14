@@ -110,10 +110,14 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--min-notes", type=int, default=6)
     ap.add_argument("--seconds", type=float, default=150.0)
+    ap.add_argument("--voices", default="0-5",
+                    help="voice range to measure: 0-5 FM, 6-9 PSG, 10-25 wave")
     ap.add_argument("--per-track", type=int, default=40,
                     help="best-exposed notes to take per patch per track")
     a = ap.parse_args()
 
+    lo, _, hi = a.voices.partition("-")
+    VR = set(range(int(lo), int(hi or lo) + 1))
     caps = captures(a.capturedir)
     mods = {m.n: m for m in mwmm.load_all(a.moduledir)}
     acc = collections.defaultdict(list)
@@ -123,7 +127,8 @@ def main():
     for trk in sorted(set(caps) & set(mods)):
         m = mods[trk]
         rows, _ = vn.timeline(m, set(range(26)), 1)
-        fm = [(t, v, p, 12 * b1 + b0) for t, v, p, b0, b1 in rows if v < 6 and p is not None]
+        fm = [(t, v, p, 12 * b1 + b0) for t, v, p, b0, b1 in rows
+              if v in VR and p is not None]
         if not fm:
             continue
         onsets = np.array(sorted(t for t, _, _, _, _ in rows))
