@@ -1173,6 +1173,30 @@ where hardware has 4%. Splitting the groups and giving FM a stand-in tone put
 that at 4% against 4%, the midrange at 33% against 32%, and lifted chroma
 correlation over the whole track from +0.634 to **+0.877**.
 
+#### The released album: right for the notes, wrong for the synth
+
+Measured, because it is the obvious thing to reach for and it is only half
+usable. Comparing the OST against the hardware captures of the same tracks:
+
+    same NOTES?    chroma correlation 0.986 / 0.978 / 0.981 on Dark Rock,
+                   Gothic and Theme Of Paprium - the same arrangements
+    same TIMBRE?   Dark Rock's opening note differs by a mean of 8.89 dB per
+                   harmonic, with harmonics 6, 7 and 9 running 10-15 dB hotter
+                   than hardware
+
+So it is a studio production of the same compositions, not a cleaner recording
+of the same synthesiser.
+
+**Use it for the note data.** It is cleaner than any console capture - no
+capture chain, no lead-in, no AAC - and it independently confirms the pitch
+anchor from a completely separate source: pooling the per-note method over 10
+album tracks gives C = +11 at z = 16.45, matching the z = 23.8 the captures give.
+
+**Do not use it for timbre.** The measured timbres taken from hardware match an
+isolated note to 1.08 dB over harmonics 1-8; the album differs from that same
+note by 8.89 dB. Rendering from album timbres would make the port sound like the
+album rather than like the cartridge, which is the opposite of the goal.
+
 #### SOLVED: the absolute pitch anchor is C = +11
 
     MIDI note = 12*byte1 + byte0 + 11
