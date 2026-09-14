@@ -36,7 +36,7 @@ import mwmm
 import voice_notes as vn
 
 SR = 32000
-NH = 14
+NH = 24   # raised from 14; see --harmonics
 ANCHOR = 11
 
 
