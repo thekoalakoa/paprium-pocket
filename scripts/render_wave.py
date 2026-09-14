@@ -165,7 +165,7 @@ def load_timbres(path, grades=("A", "B", "C")):
         if r.get("grade") not in grades:
             continue
         try:
-            h = [float(r["h%d_norm" % i]) for i in range(1, 15)]
+            h = [float(r[k]) for k in ("h%d_norm" % i for i in range(1, 40)) if k in r]
             atk = float(r["attack_ms"]) / 1000.0
             dec = abs(float(r["decay_db_s"]))
             lvl = float(r.get("level_db") or 0.0)
@@ -251,7 +251,35 @@ def take(sig, step, n, loop):
     return sig[i0] * (1.0 - frac) + sig[i1] * frac
 
 
-def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl=None):
+def sax_voices(m):
+    """Voices carrying the sax-layer marker: command 0x55 at position 0, row 0.
+
+    Ten modules have this on voices 23-25 (see docs/PORT_PLAN.md). The sax man is
+    an option the player enables, so rendering those voices unconditionally puts
+    him in every performance - audible immediately on Asian Chill, one of the ten.
+
+    The identification rests on the MODULE data, not on audio: programs 0x55 and
+    0x94 appear in exactly those ten modules and in none of the other 42. Audio
+    cannot settle it - two separate captures of a looping track drift apart, so a
+    frame-by-frame A/B between a sax and non-sax recording shows a median
+    difference of 0.42 even where they should match, and any average long enough
+    to be stable washes three voices out of twenty-six away entirely.
+    """
+    out = set()
+    for v in range(26):
+        order = m.voice_order(v)
+        if not order:
+            continue
+        g, ev = m.pat[order[0]]
+        for i in g:
+            if i and i < len(ev) and any(ev[i][k] == 0x55 for k in (2, 4, 6)):
+                out.add(v)
+                break
+    return out
+
+
+def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl=None,
+           sax=False):
     n = int(seconds * rate)
     left = np.zeros(n + rate)
     right = np.zeros(n + rate)
@@ -292,6 +320,7 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
 
     prog = {v: (m.d[0x2A + (v ^ 1)] or None) for v in range(26)}
     pan = {v: 0x80 for v in range(26)}
+    muted = set() if sax else sax_voices(m)
     placed = 0
     for tt, v, e, end in evs:
         for k in (2, 4, 6):
@@ -302,6 +331,8 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
         if not (1 <= e[0] <= 12):
             continue
         if only is not None and v not in only:
+            continue
+        if v in muted:
             continue
         target = 12 * e[1] + e[0] + C
         f = 440.0 * 2.0 ** ((target - 69) / 12.0)
@@ -392,6 +423,10 @@ def main():
                     help="C in MIDI = 12*byte1 + byte0 + C; solved value is 11")
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--rate", type=int, default=32000)
+    ap.add_argument("--sax", action="store_true",
+                    help="play the sax-man layer (voices marked 0x55). OFF by default: "
+                         "the ordinary captures were recorded without him, and he is "
+                         "an option the player enables in the boombox")
     ap.add_argument("--wave-levels", default=None,
                     help="MEASURED AND REJECTED - see the note in main(); leave unset")
     ap.add_argument("--timbres", default=None,
@@ -456,7 +491,7 @@ def main():
             wavelvl = {pn: float(np.clip(10.0 ** ((v - mid) / 20.0), 0.15, 4.0))
                        for pn, v in res.items()}
             print("wave levels: %d programs (residual over sample RMS)" % len(wavelvl))
-    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm, timbres, wavelvl)
+    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm, timbres, wavelvl, a.sax)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89
