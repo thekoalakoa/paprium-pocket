@@ -45,6 +45,93 @@ from wave_roots import load_bank, pitch as measure_pitch, RATES
 CLK = 99.8745
 
 
+
+# ---------------------------------------------------------------- YM2612 FM
+
+# Algorithm topology, operators numbered 1..4 in the logical sense.
+# mods[c] lists which operators modulate operator c; carriers are summed.
+ALGO = {
+    0: ({1: [0], 2: [1], 3: [2]}, [3]),
+    1: ({2: [0, 1], 3: [2]}, [3]),
+    2: ({2: [1], 3: [0, 2]}, [3]),
+    3: ({1: [0], 3: [1, 2]}, [3]),
+    4: ({1: [0], 3: [2]}, [1, 3]),
+    5: ({1: [0], 2: [0], 3: [0]}, [1, 2, 3]),
+    6: ({1: [0]}, [1, 2, 3]),
+    7: ({}, [0, 1, 2, 3]),
+}
+# the bank stores operators in the YM2612's register order Op1, Op3, Op2, Op4,
+# so logical op 1..4 reads table slots 0, 2, 1, 3
+SLOT = [0, 2, 1, 3]
+DETUNE = [0.0, 0.0012, 0.0024, 0.0036, 0.0, -0.0012, -0.0024, -0.0036]
+
+
+def eg_rate_db_s(rate):
+    """YM2612 envelope rate -> decibels per second. An approximation: the real
+    chip advances an attenuation counter in steps whose size depends on rate and
+    key code. Rate 0 means the phase never advances."""
+    return 0.0 if rate <= 0 else 96.0 / (0.0015 * 26667.0 ** ((31 - rate) / 30.0))
+
+
+def fm_envelope(op, ns, rate):
+    """Amplitude envelope for one operator: attack, first decay to the sustain
+    level, then second decay. Release is handled by the caller's note length."""
+    t = np.arange(ns) / rate
+    ar, d1r, d2r, d1l = op["AR"], op["D1R"], op["D2R"], op["D1L"]
+    if ar >= 31:
+        atk = 0.0005
+    else:
+        atk = min(2.0, 0.0015 * 26667.0 ** ((31 - ar) / 30.0))
+    env_db = np.zeros(ns)
+    rising = t < atk
+    env_db[rising] = -60.0 * (1.0 - t[rising] / max(atk, 1e-9))
+    td = np.maximum(t - atk, 0.0)
+    sus_db = -3.0 * d1l if d1l < 15 else -96.0
+    r1 = eg_rate_db_s(d1r)
+    d1_db = np.maximum(-r1 * td, sus_db)
+    reached = np.where(d1_db <= sus_db)[0]
+    out = d1_db.copy()
+    if len(reached):
+        k = reached[0]
+        r2 = eg_rate_db_s(d2r)
+        out[k:] = sus_db - r2 * (t[k:] - t[k])
+    out[rising] = env_db[rising]
+    return 10.0 ** (np.clip(out, -96.0, 0.0) / 20.0)
+
+
+def fm_note(patch, f, ns, rate):
+    """Render one note of a YM2612 patch. Modulation is applied to phase, which
+    is what FM is; feedback on operator 1 is approximated by one iteration
+    rather than a true per-sample recursion."""
+    algo, fb = patch["ALGO"], patch["FB"]
+    mods, carriers = ALGO[algo]
+    n = np.arange(ns)
+    outs = [None] * 4
+    envs, amps, phases = [], [], []
+    for i in range(4):
+        op = patch["ops"][SLOT[i]]
+        mul = op["MUL"] if op["MUL"] else 0.5
+        fo = f * mul * (1.0 + DETUNE[op["DT"] & 7])
+        if fo > rate * 0.48:
+            fo = rate * 0.48
+        phases.append(2 * np.pi * fo * n / rate)
+        envs.append(fm_envelope(op, ns, rate))
+        amps.append(2.0 ** (-op["TL"] / 8.0))
+    for i in range(4):
+        ph = phases[i]
+        if i in mods:
+            m = np.zeros(ns)
+            for src in mods[i]:
+                if outs[src] is not None:
+                    m += outs[src]
+            ph = ph + 2.0 * m
+        y = np.sin(ph)
+        if i == 0 and fb:
+            y = np.sin(ph + (fb / 7.0) * 0.5 * y)
+        outs[i] = y * envs[i] * amps[i]
+    return sum(outs[c] for c in carriers) / max(len(carriers), 1)
+
+
 def program_table(b, conf=0.5):
     """program -> (samples, native rate, root MIDI or None, loop point or None)"""
     be32 = lambda o: int.from_bytes(b[o:o + 4].tobytes(), "big")
@@ -93,7 +180,7 @@ def take(sig, step, n, loop):
     return sig[i0] * (1.0 - frac) + sig[i1] * frac
 
 
-def render(m, progs, C, seconds, rate, only=None):
+def render(m, progs, C, seconds, rate, only=None, fm=None):
     n = int(seconds * rate)
     left = np.zeros(n + rate)
     right = np.zeros(n + rate)
@@ -153,34 +240,14 @@ def render(m, progs, C, seconds, rate, only=None):
             continue
 
         if v < 6:
-            # YM2612 FM. The FM patch table has never been located, so this is a
-            # stand-in: a harmonic stack, not the real timbre. Rendering these
-            # with a WAVE sample was an earlier bug - voices 0-5 index a
-            # different table, and playing FM notes through a 70 Hz sample made
-            # the whole track sound like drums.
-            #
-            # Level is CALIBRATED against hardware, not guessed. Comparing
-            # peak-normalised per-group renders is meaningless and led to
-            # cutting this to 13.0, which buried Dark Rock's FM-only opening
-            # into a tap. Measured raw, FM runs 7-13 dB BELOW the wave voices in
-            # every track. Sweeping the level against the band balance of Dark
-            # Rock's hardware capture puts the optimum near 104.
-            th = 2 * np.pi * f * np.arange(ns) / rate
-            # A near-pure sine is the wrong stand-in for FM bass. Dark Rock
-            # opens with three of these in unison on MIDI 30 - 46 Hz - and at
-            # that pitch a sine has almost nothing a small speaker reproduces,
-            # so the note is heard as its attack alone: a tap where the
-            # cartridge plays "dun dun". Harmonics are what make a low note
-            # audible, so build a sawtooth-ish stack, band-limited to Nyquist.
-            seg = np.zeros(ns)
-            for h in range(1, 12):
-                if h * f >= rate * 0.45:
-                    break
-                seg += np.sin(h * th) / h
-            seg *= 104.0
-            # let the body last with the note instead of always dying in 0.3 s
-            tau = max(0.22, 0.7 * dur)
-            seg *= np.exp(-np.arange(ns) / (tau * rate))
+            # YM2612 FM, rendered from the cartridge's own patch bank at ROM
+            # 0x004000 (see scripts/fm_patches.py). Before the bank was found
+            # this was a generic harmonic stack, which is why FM-led tracks
+            # sounded synthetic no matter how exact the pitch was.
+            patch = fm.get(prog[v] if prog[v] is not None else 0)
+            if patch is None:
+                continue
+            seg = fm_note(patch, f, ns, rate) * 118.0
         elif v < 10:
             # PSG square, built from its odd harmonics so nothing lands past
             # Nyquist. np.sign() is the same wave with infinite bandwidth, and at
@@ -243,6 +310,8 @@ def main():
                     help="C in MIDI = 12*byte1 + byte0 + C; solved value is 11")
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--rate", type=int, default=32000)
+    ap.add_argument("--rom", default=None,
+                    help="paprium.md, to render FM voices from the real patch bank")
     ap.add_argument("--voices", default=None,
                     help="render only these voices, e.g. 0-5 for FM, 10-25 for wave")
     a = ap.parse_args()
@@ -254,7 +323,13 @@ def main():
     if a.voices:
         lo, _, hi = a.voices.partition("-")
         only = set(range(int(lo), int(hi or lo) + 1))
-    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only)
+    fm = {}
+    if a.rom:
+        import fm_patches
+        t = fm_patches.load(a.rom)
+        fm = {p: fm_patches.decode(t[p]) for p in range(len(t))}
+        print("FM bank: %d patches from %s" % (len(fm), a.rom))
+    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89
