@@ -32,6 +32,7 @@ Derived from a commercial ROM: keep the output local.
 
 import argparse
 import collections
+import io
 import os
 import sys
 import wave
@@ -138,12 +139,56 @@ def fm_note(patch, f, ns, rate):
             for src in mods[i]:
                 if outs[src] is not None:
                     m += outs[src]
-            ph = ph + 2.0 * m
+            ph = ph + 3.0 * m
         y = np.sin(ph)
         if i == 0 and fb:
-            y = np.sin(ph + (fb / 7.0) * 0.5 * y)
+            y = np.sin(ph + (fb / 7.0) * 1.5 * y)
         outs[i] = y * envs[i] * amps[i]
     return sum(outs[c] for c in carriers) / max(len(carriers), 1)
+
+
+
+def load_timbres(path, grades=("A", "B")):
+    """Measured FM timbres: {patch: (harmonic amplitudes, attack s, decay dB/s)}.
+
+    These come from the hardware captures, not from theory - each patch's
+    harmonic profile was measured by windowing individual notes whose time and
+    pitch are known from the solved clock. That matters because the cartridge
+    does NOT contain a YM2612: it renders FM in its own firmware, so its patch
+    data is in YM2612 format while its synthesis is its own. Modelling the chip
+    reproduces the data but not the sound - on Dark Rock's opening note the chip
+    model puts the 3rd harmonic 22 dB below where hardware has it.
+    """
+    import csv
+    out = {}
+    for r in csv.DictReader(io.open(path, encoding="utf-8")):
+        if r.get("grade") not in grades:
+            continue
+        try:
+            h = [float(r["h%d_norm" % i]) for i in range(1, 15)]
+            atk = float(r["attack_ms"]) / 1000.0
+            dec = abs(float(r["decay_db_s"]))
+        except (KeyError, ValueError):
+            continue
+        if max(h) <= 0:
+            continue
+        out[int(r["patch"], 16)] = (np.array(h) / max(h), max(atk, 0.002), dec)
+    return out
+
+
+def measured_note(timbre, f, ns, rate):
+    """Additive synthesis from a measured harmonic profile."""
+    h, atk, dec = timbre
+    n = np.arange(ns)
+    t = n / rate
+    y = np.zeros(ns)
+    for i, amp in enumerate(h):
+        fh = (i + 1) * f
+        if amp <= 0.001 or fh >= rate * 0.45:
+            continue
+        y += amp * np.sin(2 * np.pi * fh * n / rate)
+    env = np.where(t < atk, t / max(atk, 1e-9), 10.0 ** (-dec * (t - atk) / 20.0))
+    return y * env / max(np.abs(h).sum(), 1e-9)
 
 
 def program_table(b, conf=0.5):
@@ -194,7 +239,7 @@ def take(sig, step, n, loop):
     return sig[i0] * (1.0 - frac) + sig[i1] * frac
 
 
-def render(m, progs, C, seconds, rate, only=None, fm=None):
+def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None):
     n = int(seconds * rate)
     left = np.zeros(n + rate)
     right = np.zeros(n + rate)
@@ -258,10 +303,15 @@ def render(m, progs, C, seconds, rate, only=None, fm=None):
             # 0x004000 (see scripts/fm_patches.py). Before the bank was found
             # this was a generic harmonic stack, which is why FM-led tracks
             # sounded synthetic no matter how exact the pitch was.
-            patch = fm.get(prog[v] if prog[v] is not None else 0)
-            if patch is None:
-                continue
-            seg = fm_note(patch, f, ns, rate) * 118.0
+            pn = prog[v] if prog[v] is not None else 0
+            meas = timbres.get(pn) if timbres else None
+            if meas is not None:
+                seg = measured_note(meas, f, ns, rate) * 260.0
+            else:
+                patch = fm.get(pn)
+                if patch is None:
+                    continue
+                seg = fm_note(patch, f, ns, rate) * 118.0
         elif v < 10:
             # PSG square, built from its odd harmonics so nothing lands past
             # Nyquist. np.sign() is the same wave with infinite bandwidth, and at
@@ -324,6 +374,8 @@ def main():
                     help="C in MIDI = 12*byte1 + byte0 + C; solved value is 11")
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--rate", type=int, default=32000)
+    ap.add_argument("--timbres", default=None,
+                    help="fm_timbre.csv - measured FM timbres, preferred over the model")
     ap.add_argument("--rom", default=None,
                     help="paprium.md, to render FM voices from the real patch bank")
     ap.add_argument("--voices", default=None,
@@ -343,7 +395,10 @@ def main():
         t = fm_patches.load(a.rom)
         fm = {p: fm_patches.decode(t[p]) for p in range(len(t))}
         print("FM bank: %d patches from %s" % (len(fm), a.rom))
-    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm)
+    timbres = load_timbres(a.timbres) if a.timbres else None
+    if timbres:
+        print("measured timbres: %d patches" % len(timbres))
+    buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only, fm, timbres)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89
