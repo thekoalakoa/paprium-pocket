@@ -217,8 +217,15 @@ def load_timbres(path, grades=("A", "B", "C")):
     # where hardware puts them.
     if out:
         mid = float(np.median([v[3] for v in out.values()]))
+        # CLAMPED to +/-6 dB. The raw spread is 30.4 to 65.2 dB and it correlates
+        # with each patch's own measurement SNR at Pearson r = +0.73 - the quietest
+        # level in the table, patch 0x32, is also the hardest patch to measure. A
+        # genuinely quiet instrument has no reason to be noisy to measure, so most
+        # of that spread is measurement confidence being used as a mix level. It
+        # buried Gothic voice 4 nineteen decibels under the mix while the cartridge's
+        # own meter ranks that voice the LOUDEST of all 26.
         for v in out.values():
-            v[3] = float(np.clip(10.0 ** ((v[3] - mid) / 20.0), 0.05, 6.0))
+            v[3] = float(np.clip(10.0 ** ((v[3] - mid) / 20.0), 0.5, 2.0))
     return out
 
 
@@ -241,13 +248,9 @@ def program_table(b, conf=0.5, moddir=None):
     """program -> (samples, native rate, root MIDI or None, loop point or None)
 
     With `moddir`, each measured root is octave-corrected against how the music
-    actually uses that program (wave_roots.octave_fix). measure_pitch reads the
-    SPACING of a sample's partials correctly and picks the wrong one as the
-    fundamental on 73 of 86 programs, by up to five octaves - and a root that is
-    octaves out then trips render()'s +/-24 semitone guard, which drops the
-    transposition entirely and plays the sample at its own rate. That is heard as
-    an instrument in the wrong register, or as one missing. Correcting the octave
-    takes the notes that trip the guard from 31.2% of the corpus to 1.7%.
+    uses that program (wave_roots.octave_fix). That correction is UNVALIDATED and
+    measurably harmful - see its docstring - so main() passes moddir only under
+    --octave-fix, and the default is the raw measured root.
     """
     be32 = lambda o: int.from_bytes(b[o:o + 4].tobytes(), "big")
     be16 = lambda o: int.from_bytes(b[o:o + 2].tobytes(), "big")
@@ -433,7 +436,12 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
                     break
                 seg += np.sin(h * th) / h
             seg *= 128.0
-            seg *= np.exp(-np.arange(ns) / (0.45 * rate))
+            # NO fixed decay. A hard-coded exp(-n/(0.45*rate)) was here, and on a
+            # 4-second note it is 38 dB down by the end. The cartridge does not do
+            # that: its own level meter holds Theme Of Paprium's PSG voice 9 at a
+            # steady level 2 for 11,202 frames - three minutes of sustained pad.
+            # The note length already ends the note, and the shared release below
+            # shapes the tail, so let the voice hold.
         else:
             entry = progs.get(prog[v])
             if entry is None:
@@ -573,8 +581,10 @@ def main():
     ap.add_argument("--vu-gain", default=None,
                     help="per-voice gain table from scripts/vu_gain.py (JSON), measured "
                          "from the hardware capture's on-screen level meter")
-    ap.add_argument("--raw-roots", action="store_true",
-                    help="skip the corpus octave correction of wave roots (for A/B only)")
+    ap.add_argument("--octave-fix", action="store_true",
+                    help="apply the corpus octave correction of wave roots. OFF by default: "
+                         "it is NOT validated and it moves 24 confidence-1.00 programs by up "
+                         "to five octaves. See wave_roots.octave_fix.")
     ap.add_argument("--voices", default=None,
                     help="render only these voices: a comma list of ranges and "
                          "singletons, e.g. 0-5 for FM, 10-25 for wave, "
@@ -598,7 +608,7 @@ def main():
         ap.error("bank and out are required unless --dry-list is given")
 
     b = load_bank(a.bank)
-    progs = program_table(b, moddir=None if a.raw_roots else a.moduledir)
+    progs = program_table(b, moddir=a.moduledir if a.octave_fix else None)
     live = sum(1 for v in progs.values() if len(v[0]) >= 32)
     if live < 90:
         ap.error("%s yields only %d live programs (expected ~94). Wrong bank or "
