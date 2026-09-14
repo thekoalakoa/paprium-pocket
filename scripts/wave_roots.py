@@ -155,10 +155,29 @@ def octave_fix(roots, req, span=6):
     guard - which are played at the sample's own rate, in the wrong octave, and
     are heard as a missing or a shrill instrument - from 31.2% to 1.7%.
 
-    The fit is only over 13 discrete octaves, and it is NOT circular: the
-    PITCH CLASS is never fitted, and it comes out C. 40 of 86 corrected roots
-    land within a semitone of C against 14 expected by chance (p = 1.2e-10),
-    which is what the bank's own docstring says the instruments are recorded at.
+    UNVALIDATED, AND PROBABLY WRONG. Kept for experiment only; render_wave does
+    not apply it unless asked with --octave-fix. Both arguments once made for it
+    have since failed:
+
+      * "it takes notes beyond the +/-24 guard from 31.2% to 1.7%". True, and
+        worthless: this function minimises median|note - root| and the guard is
+        |note - root| > 24, so it is optimising the statistic it is scored on.
+      * "the corrected roots land on pitch class C at p = 1.2e-10". Vacuous. The
+        correction is root + 12*k and a whole-octave shift CANNOT change pitch
+        class. That p-value measures `pitch` above, not this function, and it
+        carries exactly zero information about the octave - which is the only
+        thing this function chooses.
+
+    Measured against it: 24 programs that `pitch` rates at confidence 1.00 - a
+    complete harmonic ladder, the case it is most reliable on - get moved, by up
+    to five octaves. Rendering with it applied puts Gothic voice 12 (written C5)
+    at MIDI 38.7 and Waterfront Beat voice 13 (written C4) at 33.1.
+
+    The real question it was trying to answer is still open: the music routinely
+    asks a program for notes two to five octaves from where its sample measures,
+    and nobody yet knows whether the cartridge transposes that far, uses a rate
+    table rather than equal temperament, or carries a per-program tuning we have
+    not found. Settle THAT from a hardware capture, not from a fit.
     """
     import numpy as np
 
