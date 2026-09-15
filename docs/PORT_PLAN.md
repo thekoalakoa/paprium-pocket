@@ -1236,6 +1236,79 @@ Sham control on effect-free notes: +4.2 cents, p = 0.13. Internal control -
 indistinguishable. The operand does not grade the effect within a track (pooled
 rho +0.03, p = 0.73); the cross-track grading is confounding.
 
+#### CLOSED: the wave pitch law is continuous 12-TET, measured over five octaves
+
+276 hardware measurements, 22 programs, 30 tracks, written MIDI 21 to 81 - five
+octaves. Sounding pitch against written pitch:
+
+    median  +5 cents      mean  -3 cents
+    83% within 25 cents   95% within 50 cents   96% within 100 cents
+
+No octave trend: per-octave medians run -10/-10/+10/+20/-10 cents from MIDI 24 to
+83, and a linear fit gives 0.44 cents per semitone - 26 cents across the whole
+60-semitone span. Site-to-site reproducibility of the same program and note at
+independent track/voice sites is 8 cents median.
+
+So the law is what render_wave.py already implements:
+
+    target = 12*byte1 + byte0 + 11
+    step   = (sample native rate / output rate) * 2^((target - root)/12)
+
+continuous, no quantisation, no guard.
+
+METHOD, because peak-picking cannot work in these mixes. Every number is a
+CONTRAST: the mean spectrum of the target run divided by the mean spectrum of the
+SAME voice and program playing DIFFERENT notes elsewhere in the same track, so
+anything not moving with that voice's note cancels. The identical pipeline runs
+against our own render, where the wave voice is at the written pitch by
+construction - so the render says whether a position is measurable at all, and a
+row whose render control fails is marked void rather than reported.
+
+EVERY DIVIDER FAMILY IS OUT, directly rather than by inference. A divider law
+f = A/N has a grid step of 1731/N cents, so fitting an 8-cent reproducibility at
+196 Hz needs N > 70. The small-N families - and GPGX's six-entry music table - are
+excluded. If the hardware divides a clock at all it does so with 8 to 10 bits of
+resolution, which is indistinguishable from continuous at these tolerances.
+
+THE EXTREMES DO NOT QUANTISE EITHER, which retroactively justifies removing the
++/-24 guard. 29 rows where the written note sits 24 or more semitones from the
+sample's measured root land at median -10 cents, 90% within 50. Program 0x21,
+asked for notes about 52 semitones below its measured root, still lands at
+-20/-5/+5/+15 cents.
+
+THE ANCHOR IS CONFIRMED 420 TIMES OVER. The same pipeline on the chip voices,
+which are not sample-rate-driven at all: FM voices 0-5, n=242, MIDI 16..94,
+median +0 cents, 85% within 25; PSG voices 6-9, n=178, MIDI 48..82, median +0
+cents, 85% within 25. That is 420 independent confirmations of C = +11, and it
+localises the wave path's small +5 cent offset to the wave path rather than to
+the recording or the console. +5 cents with SEM about 3 is at the edge of
+significance - do not build on it - but it is the right size for the wave base
+rate sitting 0.3 to 0.6% above the assumed 48000/N.
+
+#### 0x0F's audibility is now in doubt, and the two tests disagree
+
+The same run tested the twelve bank-less programs by substituting program 0x05's
+sample into a render, so the control asks "could this method see a wave voice at
+the written pitch here at all?". 15 rows pass that control, and their capture
+rank0 is median 0.36 against a uniform null of 0.5 - indistinguishable
+(Wilcoxon p = 0.42) where in-bank rows give 0.89 (Mann-Whitney p = 5.8e-4).
+
+Program 0x0F has the best controls of any of them - render rank0 0.991 to 0.998
+on all seven rows - and gives capture rank0 0.28/0.07/0.08/0.22/0.25/0.84/0.52
+with local pitch scattered over +/-225 cents. Nothing at the written pitch and
+nothing coherent anywhere.
+
+That CONTRADICTS the Tough Guy result, which found 0x0F's presence worth +0.155
+of the 250 Hz-1 kHz share at p = 1.7e-15 with our silent render flat at p = 0.38.
+
+The two are not measuring the same thing and both can be true. Tough Guy asked
+whether a BAND gets louder when 0x0F plays; this asks whether a TONE appears at
+the written pitch. A program with no bank entry has no root, so if it sounds at
+all there is no reason it would sound at the written pitch - and the scatter over
++/-225 cents is what that would look like. The alternative is that the Tough Guy
+band result is an arrangement correlation that density matching did not remove.
+UNRESOLVED; do not quote either as settled.
+
 #### RETRACTED: program 0x34 is not detuned - that tone belongs to voice 10
 
 Urban, voice 17, three clean written pitches in 0.6 s windows:
