@@ -1203,10 +1203,13 @@ setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
 The player's standing rule, restated 2026-09-15: **neither GPGX nor krikzz's
 mega-ppm is accurate to hardware on audio.** This is what it costs when that is
 forgotten. The 0.2.3 VU firmware steps a row every `header[0x07]` frames of 60 Hz
-with `header[0x0A] + 8` rows per pattern - both from GPGX's module walk - and its
-"verified on hardware" note (Stage Clear, 105 rows x 50 ms = 5.25 s) was never
-checked against the tempo law measured above. Checked now on the Stage Clear
-capture, which plays the jingle three times over:
+with `header[0x0A] + 8` rows per pattern - both from GPGX's module walk. Its
+"verified on hardware" note WAS measured on real hardware - the player's CDX,
+captures `2026-09-10 09-41-14` and `09-43-28` - but misread: the 5.25 s is the
+SOUNDING duration per play at a 3%-of-peak threshold, and the 0.58 s left over
+to the observed 5.83 s repeat was written off as a "Boom Box re-trigger gap".
+There is no gap. Re-read today against the tempo law measured above, on the
+same captures plus `35 Stage Clear`, each of which plays the jingle three times:
 
     hardware loop period   5.824 s      audio envelope autocorrelation, r = 0.46
                            5.83-5.85 s  the bars themselves, decoded by vu_meter.py
@@ -1219,6 +1222,16 @@ frame, so `2*h` ticks is `1.2*h` frames, not `h` - and the `+8` runs every
 pattern eight rows into its own null event record; header `0x0A` is the row
 count, which `mwmm.py` had already established on all 52 modules. Together they
 made 5.25 s look right. On the card the bars lap the music every ~30 s.
+
+The bars settle it without the audio: on both captures no bar goes dark between
+plays - the only all-dark stretch is the lead-in - and the lit count falls to 1
+at 5.75 s and is back to 11 by 6.0 s. The module is 97 rows: its last note is on
+row 92 and row 96 is a burst of `0x0E` gate releases on seven voices, which the
+synth law puts at 5.77 s, just ahead of the 5.827 s loop; the audio threshold
+cut off the decaying FM chord before that. Under the firmware law those releases
+land at 4.80 s and rows 97-104 are the null record. The bar-matrix
+autocorrelation on the 09-10 capture: r = 0.489 at 5.827 s, 0.157 at 5.257 s,
+-0.027 at 4.856 s.
 
 Fixed in the firmware 2026-09-15: row period `2*header[0x07] + (0xFA & 0x0F)`
 ticks of 10.01257 ms with the remainder carried in 1/100000 ms; `0xFA` read from
