@@ -1198,6 +1198,52 @@ The remaining consequence is the one in the known-issues list: the same audio
 setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
 0x1800/0x1801, and the port does nothing with it.
 
+#### The twelve bank-less programs are not one category
+
+Each was tested with scripts/audible_test.py: find a track where the program has
+natural on and off periods, match frames for total note density, and use OUR OWN
+render as the negative control - the program has no sample, so it is silent in
+our output by construction and must show nothing.
+
+    AUDIBLE      0x0F  396 notes  Tough Guy    +0.155 share, p = 1.7e-15
+                 0x34  195 notes  Urban        pitched tone at each written f0
+    NOT AUDIBLE  0x35  156 notes  Dark Rock    -0.011, p = 0.29, control clean
+                 0x42   72 notes  Hardcore     -0.020, p = 0.47  (weak)
+    METHOD BLIND 0x96  225        locked unison, see below
+                 0x30  138        zero OFF frames survive density matching
+                 0x06  140        totally confounded by an FM voice
+                 0x33   40        16 notes; no track has power
+                 0x6A   24, 0x67/0x69/0x6B 6 each - untestable by any method
+
+So roughly 591 notes are real audio the ROM does not contain, about 230 are
+correctly silent, and 453 remain unknown. "Dead selector" was wrong as a blanket
+reading and so was "all missing audio".
+
+0x35 is a CONFIRMED null, not a power failure. Sensitivity was calibrated by
+injection: a real bank sample transposed to 0x35's pitches and placed at its note
+times is detected at 5% of a normal wave-voice level (p = 6.3e-3), and at 25% it
+reproduces 0x0F's effect size exactly. Dark Rock also carries a built-in positive
+control - 420 notes of 0x0F, undefined AND audible - and at the same onsets in
+the same capture: 0x28 (in bank) +4.31 dB, 0x0F +3.74 dB, 0x35 +0.28 dB.
+
+0x06 is the case the negative control exists for. A pitch-matched filter gave
+hardware +16.85 dB at k = -12, p = 5e-25 - and our SILENT render gave +13.63 dB
+at k = 0. Wave voice 12's 0x06 part is doubled note-for-note by FM voices 0 and 1
+at pitch offset 0, 140 of 140 within 60 ms, with zero frames where one sounds
+without the other. Reported alone that would have been a false positive.
+
+0x96 cannot be separated, and why is interesting. Voice 25 is a locked unison
+double of voice 24 - written exactly a perfect fifth below in 396 of 396 Neon
+Rider instants - and program 0x94, the target of the ROM 0x16AC4C redirect, has
+its sample root +7.03 semitones above C3. A part transposed down a fifth by a
+program whose root is up a fifth lands in dead unison with voice 24, inside a
+tenth of a semitone, which is measurable: 100% of instants put the probe within
+0.7 semitones of a voice 23/24 partial. That looks deliberate, and if it is, the
+redirect is real. What the data does settle is that 0x96 does NOT sound at its
+written pitch (+0.47 dB against the in-bank control's +4.10). Nor does 0x94 in
+Dark Rock (+0.72 dB on hardware against our render's +7.29), which independently
+reconfirms the 0x94 pitch anomaly found via the sax A/B.
+
 #### The sax-man A/B is the only true voice isolation the cartridge offers
 
 The player can enable the sax man on ten tracks from the Boom Box, which puts
