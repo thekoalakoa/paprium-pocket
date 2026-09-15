@@ -424,26 +424,6 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
     # adds to that set, so it can never switch him on by accident.
     muted = set() if sax else sax_voices(m)
 
-    # Per-program whole-octave offset, from this module's own use of each wave
-    # program. Only programs whose notes sit further than two octaves from their
-    # measured root get one; everything else stays at 0 and is untouched.
-    octave = {}
-    want = collections.defaultdict(list)
-    for v in range(10, 26):
-        pn = m.d[0x2A + (v ^ 1)] or None
-        for _, ev in m.timeline(v):
-            for k in (2, 4, 6):
-                if ev[k] == 0x0F:
-                    pn = ev[k + 1]
-            if ev[0] and ev[0] != 0x0E and pn is not None:
-                want[pn].append(12 * ev[1] + ev[0] + 11)
-    for pn, mids in want.items():
-        ent = progs.get(pn)
-        if not ent or ent[2] is None:
-            continue
-        d = np.median(np.asarray(mids, float) - ent[2])
-        if abs(d) > 24:
-            octave[pn] = int(round(d / 12.0))
     if mute:
         muted = muted | set(mute)
     placed = 0
@@ -529,21 +509,24 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
             if len(sig) < 32 or root is None:
                 step = sr / rate
             else:
-                # When the guard fires, SHIFT THE ROOT BY WHOLE OCTAVES rather
-                # than abandoning the transposition. The old fallback played the
-                # sample at its own rate, which gives every note of a part the
-                # same pitch - and Theme Of Paprium's voices 11/12/13 write a
-                # chord on program 0x21, MIDI 35/40/43, which came out as three
-                # byte-identical voices at ~1 kHz. Three different written notes
-                # cannot correctly produce identical audio, whatever the right
-                # root turns out to be, and those three alone were 46% of our
-                # 1-3 kHz energy in a section the capture says should be bass.
+                # NO GUARD. Transposing from a correctly measured root is
+                # self-cancelling - the sounding pitch is the sample's own pitch
+                # times 2^((target - root)/12), and when `root` IS that pitch the
+                # result is exactly the written note. The sax A/B confirmed on
+                # hardware that the cartridge plays the written note (program
+                # 0x56, 33 of 41 pitches within 0.6 semitone, median error 0.22).
                 #
-                # `octave` is per PROGRAM, not per note, so the intervals inside
-                # a part are preserved exactly. The register may still be an
-                # octave out - the wave pitch law is open - but a chord stays a
-                # chord.
-                step = (sr / rate) * 2.0 ** ((target - root - 12.0 * octave.get(prog[v], 0)) / 12.0)
+                # The +/-24 guard threw that away. Dark Rock 35-42 s has voices
+                # 10, 11 and 12 all writing G3, and they came out at 41, 2715 and
+                # 30 Hz - six and a half octaves apart on one written note, which
+                # is why the 250 Hz-1 kHz body of that section was 16% against
+                # the capture's 53%. Removing the guard puts voice 10 at 199.7 Hz
+                # against a written 196.0.
+                #
+                # What remains is root QUALITY, not the guard: a program whose
+                # root is mis-measured transposes the error straight through, and
+                # one whose root is not measured at all still plays untransposed.
+                step = (sr / rate) * 2.0 ** ((target - root) / 12.0)
             if not np.isfinite(step) or step <= 0 or step > 40:
                 continue
             seg = take(sig, step, ns, loop)
