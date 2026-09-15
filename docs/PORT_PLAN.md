@@ -1236,7 +1236,7 @@ Sham control on effect-free notes: +4.2 cents, p = 0.13. Internal control -
 indistinguishable. The operand does not grade the effect within a track (pooled
 rho +0.03, p = 0.73); the cross-track grading is confounding.
 
-#### Program 0x34 does not play at its written pitch, and the ratios are integer
+#### RETRACTED: program 0x34 is not detuned - that tone belongs to voice 10
 
 Urban, voice 17, three clean written pitches in 0.6 s windows:
 
@@ -1257,6 +1257,39 @@ The integers are not pinned: 18/16/15, 38/34/32 and 63/56/53 all fit the error.
 
 Harmonic profile at the measured frequencies: h1:h2:h3 = 0.55 : 1.00 : 0.92, the
 SECOND harmonic loudest, reproduced on track 54 at h1/h2 = 0.56.
+
+**ALL OF THE ABOVE IS RETRACTED.** Program 0x34's 16-byte bank entry is sixteen
+ZERO bytes - no pointer, no length, no sample - so voice 17 owns nothing to
+sound. The tone was voice 10's bass line, an octave down, measured through a
+harmonic series that is cleanly 1 : 2.007 : 2.992 : 3.983:
+
+    sounding minus voice 10 written   -12.035  -12.112  -12.163   spread 0.13 st
+    sounding minus voice 17 written   -14.035  -12.112  -10.163   spread 3.87 st
+
+Measured interval steps between the three groups are -107.7 and -205.1 cents.
+Voice 10's written line wants -100 and -200; voice 17's wants -300 and -400. The
+measurement is 6 cents from voice 10 and 195 cents from voice 17, and the
+attribution holds at every lag from 1.04 to 1.295 s. Voices 16, 12 and FM 0 carry
+the same line in parallel octaves at a constant -24.0 and -36.0.
+
+So there is NO compressed pitch law and no reciprocal-integer ratio to explain.
+Written-pitch 12-TET already accounts for everything measurable in Urban, and the
+implemented law is supported rather than contradicted:
+
+    target = 12*byte1 + byte0 + 11
+    step   = (48000 / RATES[type+1]) / out_rate * 2^((target - root) / 12)
+
+It also puts 0x34's AUDIBLE verdict back in doubt: that test probed 49.0, 65.4
+and 98.0 Hz - the written 12-TET frequencies - and the energy is at 36.5, 41.0
+and 43.6 Hz. An all-zero bank entry and a tone that belongs to another voice are
+together a better explanation than a sample nobody can find.
+
+Independently confirmed while establishing this: krikzz's own FPGA,
+repos/mega-ppm/fpga/audio_sfx.sv, instantiates exactly six playback clocks -
+48000, 24000, 12000, 9600, 6000, 5333 - matching GPGX's SFX table {1,2,4,5,8,9}
+as divisors of 48 kHz. GPGX's MUSIC table {2,4,5,8,9,10} contains 4800 Hz, which
+that hardware cannot generate, and its own comment marks two entries with a
+question mark. wave_roots.RATES was already the better-supported reading.
 
 #### 0x1A is FM modulation depth, not level
 
