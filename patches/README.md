@@ -85,9 +85,13 @@ they sat permanently lit. The neighbouring `0x1802..0x19FF` fill in
 Rather than smear one playback level across 26 identical columns, the bars are
 driven from the module `cmd_8C_bgm_play` **already unpacks and then discards**,
 so they show the real per-voice arrangement at the module's own tempo, and cost
-no RTL. MWMM header `0x07` is frames per row (1..6 across the 52 modules), so a
-row lasts `0x07/60` s; verified on hardware — Stage Clear is 105 rows with
-`0x07`=3, giving 5.25 s, matching a Boom Box capture exactly.
+no RTL. The row clock is the synth's, measured against the captures: a row is
+`2*header[0x07] + (0xFA operand & 0x0F)` ticks of 1/99.8745 s, an `0xFA` taking
+effect on the row it sits on; header `0x0A` is the rows per pattern (0 = 256) and
+`0x09` the position playback repeats from. The 0.2.3–0.2.5 firmware used GPGX's
+frames-per-row reading, plus 8 extra rows per pattern, and ran about 20% fast:
+Stage Clear loops every 5.82 s on hardware, 4.86 s under that reading. Corrected
+2026-09-15; not yet in a release.
 
 The row tick lives in `ppm_start()`'s loop, which runs far faster than 60 Hz, so
 at most one row advances per call and a carried millisecond remainder keeps the
