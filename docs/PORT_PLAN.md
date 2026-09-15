@@ -1381,6 +1381,60 @@ A carrier TL or any per-note level moves every harmonic by the same dB. These lo
 harmonics do not move at all. It is a TL write on a MODULATOR, so 0x1A cannot be
 the per-note FM level we are still missing.
 
+#### 0xE0 is NOT the rate index, and 0x02 IS pan - both settled on hardware
+
+The rate reading came from the SFX path: 0xE0's operands (00 01 10 12 18 20 28
+30 3A F0) have the same byte layout paprium_sfx_voice decodes as
+`rate = _rates[type>>4]`, which would make each top-nibble step exactly one
+octave. Predicted before measuring: the same written note must sound 12.00
+semitones lower at 0x10 than at 0x00.
+
+Measured on Electro Acid Funk voice 20, which holds program 0x0E throughout and
+changes only its 0xE0 operand: **0.00 semitones**, spread 0.00 across three
+independent groups and two registers.
+
+The sensitivity control is what makes that a refutation rather than a null. A
+synthetic mix - render with voice 20 muted, plus voice 20 solo with every
+0xE0=0x10 region pitch-shifted down exactly 12 semitones - returns -12.00
+through the identical pipeline. The method sees the octave when it is there.
+
+Cross-checked twice more. Theme Of Paprium voice 23 under 0xE0=0x20 sounds at
+its WRITTEN pitch: +9.49 dB at E5 659 Hz against +0.72 at the octave down, on 20
+onsets of a note no other voice plays within 60 ms, with the sweep peaking at
+635-654 Hz. Urban's 0xF0 - the out-of-range value - neither mutes voice 12 nor
+moves it.
+
+The alternatives died with it. LEVEL is refuted per-voice off the Boom Box meter:
+matched on written note over 7 cells and 178 notes the difference is
+-0.057 +/- 0.140 level steps against a quantum of 1, and 6 of the 7 cells are
+exactly equal. Decisively, 10 simultaneous triples on voices 15/16/17 - identical
+program, identical MIDI 62, identical 0xE0, same frame - show VU peaks of 7.000,
+4.000 and 2.700. Level differs by 4.3 steps with 0xE0 held constant, so it is set
+somewhere else entirely. Envelope and note length show nothing. Brightness and
+which-sample are METHOD BLIND: only 7 voice-parts in all 52 modules ever change
+the operand, and none of the three tracks that do has a single solo window.
+
+WHAT WAS WON INSTEAD. Command 0x02 is CONFIRMED as pan against hardware - the
+first time pan has been tested at all here. Per-50 ms L/R balance, capture
+against our render over 1518 loud frames, r = 0.290, against a circular-shift
+null (which preserves autocorrelation) averaging -0.008 with sd 0.045 and a
+maximum of 0.088. That is 6.6 sd clear; the shuffle null gives z = 10.9. Track
+25's 0x02 operands are exactly 0x00, 0x80 and 0xF0 - hard left, centre, hard
+right. It also kills 0xE0 as pan, since voices 16 and 17 carry the identical
+0xE0 sequence while carrying 0x02 = 0x00 and 0xF0.
+
+This outcome was PREDICTED by the pitch law and is consistent with it: wave
+voices land on the written pitch to within 25 cents across five octaves, so
+nothing can be shifting octaves underneath that.
+
+So 0xE0 stays OPEN. Wave-exclusive, in the load sequence right after the program
+select, operand 93% constant per (track, voice), and not rate, level, pan,
+envelope or note length.
+
+Incidental and worth a follow-up: hardware puts program 0x0E's energy only at
+2f, 4f, 6f and 8f of the written note and nothing at 1f, 3f or 5f - its sounding
+fundamental is the second harmonic.
+
 #### 0xE0 is an instrument-load setter, but not a per-program flag
 
 518 events, wave voices only, 62% in a pattern's first event, operand 93% constant
