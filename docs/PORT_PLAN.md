@@ -1435,6 +1435,56 @@ Incidental and worth a follow-up: hardware puts program 0x0E's energy only at
 2f, 4f, 6f and 8f of the written note and nothing at 1f, 3f or 5f - its sounding
 fundamental is the second harmonic.
 
+#### The 0xE0 distinction that survives, and one claim that did not
+
+Adjudication of the three tests corrected them in four places and drew a
+distinction none of them made. It is the useful residue of the whole run:
+
+  * "Changing 0xE0 TRANSPOSES the note"  - REFUTED, twice, with passing controls.
+  * "0xE0 declares the sample CLOCK and the driver resamples to the written note"
+    - NOT TESTED. It predicts ZERO pitch change by construction, so every
+    measurement above is consistent with it. It fits the byte layout, fits the
+    operand usually restating the program's own `type` default, and fits a
+    load-time parameter. What it predicts instead is a BANDWIDTH change - and the
+    one window that could have tested that is confounded (see below).
+
+Corrections worth keeping. Test 1's design claim that voice 20 "switches only its
+0xE0 operand" is wrong: its row-0 record is `05 04 0f 0e 01 09 e0 00`, which also
+re-issues command 0x01 with operand 0x09. The value is constant across both
+groups so the PITCH result stands, but any level or spectral comparison anchored
+there is confounded - which is why the adjudicator withdrew its own most
+interesting measurement, a +3.1 to +5.7 dB lift across 4-16 kHz in group A where
+the render control shows +/-0.03 dB. Real, but attributable to the 0x01 re-issue,
+and with no cliff at 6, 12 or 24 kHz it does not support a Nyquist reading
+either. It is a lead about 0x01, not evidence about 0xE0.
+
+Also refuted, by readings nobody had tried: loop mode (corr of top nibble against
+sample-loops -0.055), sample length (per-program Spearman -0.245, p = 0.12; the
+per-event figure is inflated by repeated programs) and a streaming-bandwidth
+budget (p = 0.088 and the sign is backwards).
+
+RESOLUTION LIMIT, stated plainly: every pitch probe in this work has about 0.5
+semitone resolution. A fine detune below that is NOT excluded - if 0xE0 were a
+detune, the 16-unit step from 0x00 to 0x10 would have to be under 0.031
+semitones per unit.
+
+THE TWO PROBLEMS ARE ORTHOGONAL. None of the twelve bank-less programs - 0x06,
+0x0F, 0x30, 0x33, 0x34, 0x35, 0x42, 0x67, 0x69, 0x6A, 0x6B, 0x96, together 1,171
+notes and 1.30% of all wave notes - ever carries a 0xE0. Reinterpreting 0xE0
+cannot explain the missing samples.
+
+NOTHING WAS IMPLEMENTED, correctly: adding a 0xE0 rate divider would transpose
+track 25's voice 20 by an octave that measurably is not there.
+
+NOT SUPPORTED - the one renderer change the run proposed. Test 1 observed that
+hardware puts program 0x0E's energy at 2f, 4f, 6f and 8f of the written note and
+nothing at 1f, 3f or 5f, and concluded render_wave places 0x0E an octave too low.
+Checked against the sample itself: 0x0E's own partials are 1f 0.38, 2f 1.00,
+3f 0.38 - its loudest component IS its second harmonic, and it is alone in that
+among its neighbours (0x0D, 0x09, 0x27 and 0x28 all measure 1f = 1.00). So the
+observation is a property of the sample, which our renderer plays too, not a
+transposition error. No change made.
+
 #### 0xE0 is an instrument-load setter, but not a per-program flag
 
 518 events, wave voices only, 62% in a pattern's first event, operand 93% constant
