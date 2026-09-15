@@ -1,9 +1,10 @@
 # What the emulator's author was unsure about, and what it actually is
 
-Genesis Plus GX's `core/cart_hw/paprium.h` is the only public reverse engineering
-of the Paprium cartridge's audio hardware. Its author marked the parts they were
-unsure of, and those marks turn out to be a good map of where the real questions
-are. This is every one of them, with what we have since measured.
+Genesis Plus GX's `core/cart_hw/paprium.h` is one of two public reverse
+engineerings of the Paprium cartridge's audio (krikzz's `mega-ppm` is the other)
+and the only one that annotates its own doubts. Its author marked the parts they
+were unsure of, and those marks turn out to be a good map of where the real
+questions are. This is every one of them, with what we have since measured.
 
 **The governing fact, which sets how much any of it is worth.**
 `paprium_music_synth()` at line 487 opens with an `#if 1` block that copies a
@@ -14,6 +15,13 @@ bank is inside `#if 0`. There is also a hard C99 error in the compiled path — 
 functions that return nothing and an `end:` label with no `goto`. **The music
 synth in that file has never been compiled, let alone heard.** Every audio
 comment in it is a reading of data, never a tested one.
+
+The same goes for krikzz's `mega-ppm`: a reimplementation written without the
+cartridge's MCU, not a dump of it. **Neither is a hardware reference.** Where
+this audit cites either, it is as a map of where the questions are, never as an
+answer — the player's standing rule, and one this project has paid for each time
+it slipped: the 0.2.3 Boom Box row clock was GPGX's frames-per-row reading, and
+it runs 20% fast against a capture.
 
 That is not a criticism of the author. They wrote down what they did not know,
 which is why this audit is possible at all.
@@ -40,8 +48,8 @@ by reading, no measurement needed.
 
 | line | the comment | what it actually is |
 |---|---|---|
-| 560 | `_rates[] = {2,4,5,8,9,10}; /* 24000 ?, 12000, 9600, 6000, 5333-?, 4800-? */` | **REFUTED, and the question marks were well placed.** krikzz's independent FPGA (`repos/mega-ppm/fpga/audio_sfx.sv`) instantiates exactly six playback clocks — 48000, 24000, 12000, 9600, 6000, 5333 — i.e. 48000/N for N in {1,2,4,5,8,9}. **4800 Hz is not producible by that hardware.** The file's own SFX path uses the correct {1,2,4,5,8,9}; the music table is the wrong one, and the two disagree by a whole octave on bank type 0. |
-| — | the table's reachable range | Across all 94 defined programs the bank's `type` field takes **only 0, 1 and 2**. The three entries the author flagged with `?` are precisely the ones the bank can never reach. |
+| 560 | `_rates[] = {2,4,5,8,9,10}; /* 24000 ?, 12000, 9600, 6000, 5333-?, 4800-? */` | **UNMEASURED — two readings, no hardware.** The file's own SFX path uses {1,2,4,5,8,9}, and krikzz's `mega-ppm` (`fpga/audio_sfx.sv`) instantiates the same six clocks, 48000 down to 5333; this music table disagrees with both by a whole octave on bank type 0. But `mega-ppm` is a reimplementation, not the cartridge, so the agreement is between two readers of the same data. No capture has measured a playback rate, and pitch cannot measure one: the sample roots were measured at the nominal rate and the transposition to the written note cancels any rate error — only a bandwidth difference would show. The question marks were well placed and they stay. |
+| — | the table's reachable range | Across all 94 defined programs the bank's `type` field takes **only 0, 1 and 2**, so at most three entries of any six-entry table are ever reached. |
 | — | what pitch actually does | **SOLVED.** 276 hardware measurements over 22 programs and five octaves (MIDI 21–81): sounding pitch is the written pitch, median +5 cents, 83% within 25 cents. Every small-N divider law is excluded — a divider has a grid step of 1731/N cents, so an 8-cent reproducibility at 196 Hz needs N > 70. |
 
 ## Echo — live code, and the one that matters
@@ -59,7 +67,7 @@ by reading, no measurement needed.
 |---|---|---|
 | 686 | `tick -= (flags & 0x8000) ? 0x800 : 0; /* tiny pitch */` | 0x800/0x10000 = ×31/32 = **−55 cents**. |
 | 687 | `tick -= (flags & 0x2000) ? 0x8000 : 0; /* huge pitch */` | 0x8000/0x10000 = ×1/2 = **one octave down**. |
-| — | flag 0x0100 | The author calls it "amplify"; `mega-ppm/mcu/sfx.c` measured it stepping the rate table index by one, with amplitude at 0.90× — **refuting gain**. Precedent that this exact class of comment is wrong in this exact way. |
+| — | flag 0x0100 | The author calls it "amplify"; krikzz's `mega-ppm/mcu/sfx.c` reads it as stepping the rate-table index by one with amplitude 0.90×. Two readings that disagree, neither measured on hardware. **OPEN.** |
 
 ## The wave program table
 
@@ -91,5 +99,5 @@ by reading, no measurement needed.
 
 - The **pattern walk** looks wrong and is correct: its byte-swapped `[0x0B]+8` with `(index-1)*8` is algebraically identical to our `mwmm.py`'s `G + index*8`. Two independent decoders agreeing byte-for-byte on the pattern layout is real corroboration.
 - `voice->program = music_ram[0x2A + ch^1]` matches our array-B reading, `^1` quirk included.
-- Its **SFX** rate table `{1,2,4,5,8,9}` is the correct one and matches krikzz's FPGA exactly.
+- Its **SFX** rate table `{1,2,4,5,8,9}` agrees with krikzz's reading. Corroboration between readers, not a measurement — see the rate-table section.
 - `0x0E` really is the stop/gate-release.

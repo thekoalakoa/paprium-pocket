@@ -2494,7 +2494,7 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..b887d97 100644
+index 1a1de1d..91d2c9b 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
 @@ -1,6 +1,10 @@
@@ -2806,7 +2806,7 @@ index 1a1de1d..b887d97 100644
  }
  
  void cmd_F4_unpack_scal() {
-@@ -390,16 +554,195 @@ void cmd_F5_stamp_rescale() {
+@@ -390,16 +554,216 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
@@ -2895,22 +2895,32 @@ index 1a1de1d..b887d97 100644
 +// That is the real per-voice arrangement, at the module's own tempo, and costs
 +// no RTL.
 +//
-+// Tempo: MWMM header 0x07 is FRAMES PER ROW (1..6 across the 52 modules), so a
-+// row lasts frames_per_row/60 s. Confirmed on hardware - Stage Clear is 105
-+// rows with 0x07=3, giving 5.25 s, which matches a Boom Box capture exactly.
++// Tempo: the row clock is the synth's own, measured against the hardware
++// captures (paprium-pocket docs/PORT_PLAN.md, "Absolute tempo, solved"):
++//
++//     row = 2*header[0x07] + (0xFA operand & 0x0F)   ticks of 1/99.8745 s
++//
++// applied per row - an 0xFA takes effect on the row it sits on and holds until
++// the next one. It is NOT frames-per-row at 60 Hz. That was GPGX's reading, and
++// under it Stage Clear looped every 4.86 s where the capture loops every 5.82 s
++// (audio envelope autocorrelation 5.824 s; the bars themselves 5.83-5.85 s;
++// 97 rows x 6 ticks = 5.827 s). The same code also ran 8 rows past the end of
++// every pattern into its null event record: header 0x0A IS the row count.
 +// ---------------------------------------------------------------------------
 +#define PPM_VU_BASE     0x1B98      // 68000 address of voice 0's L word
 +#define PPM_VU_VOICES   26
 +#define PPM_VU_ON       0x00E0      // level the cart writes for a sounding voice
 +
 +static u32 vu_mod   = 0;            // SDRAM address of the unpacked module
-+static u16 vu_secs  = 0;
-+static u16 vu_bars  = 0;
++static u16 vu_secs  = 0;            // order-list positions per voice (header 0x08)
++static u16 vu_loop  = 0;            // position playback repeats from (header 0x09)
++static u16 vu_bars  = 0;            // rows per pattern (header 0x0A, 0 = 256)
 +static u16 vu_seg   = 0;
 +static u16 vu_row   = 0;
 +static u32 vu_due   = 0;            // ms tick the next row falls on
-+static u16 vu_rem   = 0;            // ms remainder, keeps the grid drift-free
-+static u8  vu_fpr   = 4;            // frames per row
++static u32 vu_rem   = 0;            // remainder in 1/100000 ms, keeps the grid drift-free
++static u16 vu_base  = 8;            // 2 * header[0x07]: ticks per row before any 0xFA
++static u8  vu_fa    = 0;            // current 0xFA operand & 0x0F
 +static u8  vu_on    = 0;
 +
 +// ppm_unpack writes through ppmio.sdram with ^1 on every byte, so read it back
@@ -2936,9 +2946,11 @@ index 1a1de1d..b887d97 100644
 +
 +void ppm_music_vu_start(u32 mod_addr) {
 +    vu_mod = mod_addr;
-+    vu_fpr = vu_mb(0x07) ? vu_mb(0x07) : 4;
++    vu_base = 2 * (vu_mb(0x07) ? vu_mb(0x07) : 4);
++    vu_fa = 0;
 +    vu_secs = vu_mb(0x08);
-+    vu_bars = (vu_mb(0x0A) ? vu_mb(0x0A) : 0x100) + 8;
++    vu_loop = (vu_mb(0x09) < vu_secs) ? vu_mb(0x09) : 0;
++    vu_bars = vu_mb(0x0A) ? vu_mb(0x0A) : 0x100;
 +    vu_seg = 0;
 +    vu_row = 0;
 +    vu_rem = 0;
@@ -2952,29 +2964,38 @@ index 1a1de1d..b887d97 100644
 +    vu_all(0);
 +}
 +
-+// Called from ppm_start()'s loop, which runs far faster than 60 Hz, so at most
-+// one row is advanced per call and the grid stays accurate.
++// Called from ppm_start()'s loop, which runs far faster than the row rate, so at
++// most one row is advanced per call and the grid stays accurate.
 +void ppm_music_vu_update() {
 +
 +    if (!vu_on) return;
 +    if ((s32) (FPGAIO->time - vu_due) < 0) return;
 +
-+    // a row is vu_fpr frames at 60 Hz; carry the remainder so it does not drift
-+    u32 num = (u32) vu_fpr * 1000 + vu_rem;
-+    vu_due += num / 60;
-+    vu_rem = num % 60;
-+
 +    for (int ch = 0; ch < PPM_VU_VOICES; ch++) {
 +        u32 po = 0xD8 + ((u32) ch * vu_secs + vu_seg) * 2;
 +        u32 ptr = ((u32) vu_mb(po) << 8) | vu_mb(po + 1);
-+        u16 lvl = vu_mb(ptr + vu_row) ? PPM_VU_ON : 0;
++        u8 idx = vu_mb(ptr + vu_row);       // grid byte: index into this pattern's event table
++        u16 lvl = idx ? PPM_VU_ON : 0;
 +        vu_put(PPM_VU_BASE + ch * 4, lvl);
 +        vu_put(PPM_VU_BASE + ch * 4 + 2, lvl);
++        if (idx) {
++            // the 8-byte event record sits after the vu_bars grid bytes; words
++            // 1..3 are (command, operand) and 0xFA sets the row period
++            u32 ev = ptr + vu_bars + (u32) idx * 8;
++            for (int k = 2; k < 8; k += 2)
++                if (vu_mb(ev + k) == 0xFA) vu_fa = vu_mb(ev + k + 1) & 0x0F;
++        }
 +    }
++
++    // this row's length: (vu_base + vu_fa) ticks of 10.01257 ms, the remainder
++    // carried in 1/100000 ms so the grid does not drift
++    u32 num = (u32) (vu_base + vu_fa) * 1001257u + vu_rem;
++    vu_due += num / 100000u;
++    vu_rem = num % 100000u;
 +
 +    if (++vu_row >= vu_bars) {
 +        vu_row = 0;
-+        if (++vu_seg >= vu_secs) vu_seg = 0;
++        if (++vu_seg >= vu_secs) vu_seg = vu_loop;
 +    }
 +}
 +
@@ -3004,7 +3025,7 @@ index 1a1de1d..b887d97 100644
      }
  }
  
-@@ -409,6 +752,7 @@ void cmd_8D_bgm_cfg() {
+@@ -409,6 +773,7 @@ void cmd_8D_bgm_cfg() {
  
      if (arg == 0 || arg == 8) {
          mdp_stop();

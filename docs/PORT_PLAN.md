@@ -1198,6 +1198,39 @@ The remaining consequence is the one in the known-issues list: the same audio
 setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
 0x1800/0x1801, and the port does nothing with it.
 
+#### The 0.2.3 Boom Box bars run 20% fast: the row clock was GPGX's, not the synth's
+
+The player's standing rule, restated 2026-09-15: **neither GPGX nor krikzz's
+mega-ppm is accurate to hardware on audio.** This is what it costs when that is
+forgotten. The 0.2.3 VU firmware steps a row every `header[0x07]` frames of 60 Hz
+with `header[0x0A] + 8` rows per pattern - both from GPGX's module walk - and its
+"verified on hardware" note (Stage Clear, 105 rows x 50 ms = 5.25 s) was never
+checked against the tempo law measured above. Checked now on the Stage Clear
+capture, which plays the jingle three times over:
+
+    hardware loop period   5.824 s      audio envelope autocorrelation, r = 0.46
+                           5.83-5.85 s  the bars themselves, decoded by vu_meter.py
+    synth law              97 rows x 2*3 ticks / 99.8745 Hz = 5.827 s
+    0.2.3 firmware         97 rows x 3 frames / 60 Hz       = 4.856 s   r = 0.06
+    the 0.2.3 note         105 rows x 50 ms                 = 5.257 s   r = 0.19
+
+Two errors, not one. The clock is 5/6 of the true period - a tick is 3/5 of a
+frame, so `2*h` ticks is `1.2*h` frames, not `h` - and the `+8` runs every
+pattern eight rows into its own null event record; header `0x0A` is the row
+count, which `mwmm.py` had already established on all 52 modules. Together they
+made 5.25 s look right. On the card the bars lap the music every ~30 s.
+
+Fixed in the firmware 2026-09-15: row period `2*header[0x07] + (0xFA & 0x0F)`
+ticks of 10.01257 ms with the remainder carried in 1/100000 ms; `0xFA` read from
+the event record on the row it occupies, as the renderer does; `0x0A` rows per
+pattern; and the loop returns to `header[0x09]` rather than 0. Firmware only:
+`mcu.txt` c62e2175 -> **f1882b0a**, 21,296 bytes, 11,472 spare; patch
+regenerated. **NOT fitted or deployed** - by the player's decision it rides with
+the synth's fit. `docs/GPGX_UNCERTAINTY_AUDIT.md` is reworded in the same
+commit: the rate table "proven by krikzz's FPGA" is two readings of the same
+data, not a measurement, and stays open. The README's 0.2.3 row still carries
+the 5.25 s claim; that is user-facing text for the release that ships the fix.
+
 #### The emulator's synth is DEAD CODE - it plays an MP3 of the album
 
 `paprium_music_synth()` at paprium.h:487 opens with an `#if 1` block that copies
