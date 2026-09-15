@@ -1198,6 +1198,48 @@ The remaining consequence is the one in the known-issues list: the same audio
 setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
 0x1800/0x1801, and the port does nothing with it.
 
+#### The emulator's command handler names five codes we never decoded
+
+`paprium_music_sheet()` in the emulator walks the module exactly as we do - order
+list at +0xD8, grid byte, 8-byte event - but it then reads the event as FOUR
+UNIFORM (code, arg) words, `code = word >> 8`, `arg = word & 0xFF`, with word 0
+no different from the rest. And its dispatch names codes we have been discarding:
+
+    0x01  volume, and keyon for wave voices      0x02  pan (we had this)
+    0x03  volume                                 0x05  volume
+    0x08  freq -> voice->type, the RATE index    0x0A  freq = 0
+    0x0E  stop (we had this)                     0x0F  program (we had this)
+
+volume is `255 - paprium_volume_table[arg]`, a 256-entry curve, applied as
+`sample * volume / 0x300`. So it is an ATTENUATION: operand 0 is full level and
+operand 255 is silence, with 0 the most common operand in the corpus.
+
+Two caveats before anyone builds on this. The author's own comments on those
+lines are `/* ?? */` and `/* z80 table ? */` - they were guessing. And the
+uniform reading cannot be wholly right for us, because code 0x01 in word 0 is a
+note in our model (pitch class C), which is validated on hardware by the sax A/B
+at 33 of 41 pitches within 0.6 semitone, while 0x01 in words 1-3 has operands
+spanning 0..255 and looks nothing like a note.
+
+TESTED, REFUTED: playing the pitch-range codes that sit in words 1-3 as extra
+notes. There are 20,400 of them corpus-wide, 10.6% of all pitch-range codes, and
+we discard every one - but rendering them makes Dark Rock's 35-42 s mid band
+slightly WORSE, 17.3% to 16.9% against the capture's 53.3%.
+
+TESTED, MIXED - and NOT shipped: applying 0x01/0x03/0x05 as volume through the
+cartridge's own table.
+
+    Tough Guy 0-90 s   250 Hz-1k 33.4% -> 35.6%  (hw 40.8%)
+                       below 250 Hz 53.8% -> 47.0%  (hw 49.0%)   BETTER on both
+    Dark Rock 0-90 s   250 Hz-1k 15.8% -> 14.3%  (hw 31.7%)      worse
+    Dark Rock 35-42 s  250 Hz-1k 17.3% -> 15.1%  (hw 53.3%)      worse
+
+Tough Guy moves toward the capture on both axes; Dark Rock moves away. Dark Rock
+carries only 80 such events against Tough Guy's 124, and its deficit is dominated
+by 0x0F having no sample, which no volume change can repair. So the command is
+probably real and the test is confounded - but mixed is mixed, and the player's
+ear decides before this ships.
+
 #### The twelve bank-less programs are not one category
 
 Each was tested with scripts/audible_test.py: find a track where the program has
