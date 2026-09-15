@@ -1198,6 +1198,53 @@ The remaining consequence is the one in the known-issues list: the same audio
 setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
 0x1800/0x1801, and the port does nothing with it.
 
+#### The sax-man A/B is the only true voice isolation the cartridge offers
+
+The player can enable the sax man on ten tracks from the Boom Box, which puts
+voices 23-25 on or off while everything else stays the same. Two captures of one
+track taken that way are **sample-locked**: the lag between them is constant to
+0.1 ms over 135 seconds. So ON minus OFF is those three voices alone, and it is
+the only per-voice hardware isolation in this game - the level meter never shows
+a single voice lit for as much as 150 ms anywhere.
+
+Waveform subtraction does not work, because each take is AAC-encoded separately
+and the two decode to correlations of only 0.3 to 0.7. What does work is
+comparing the two spectra at the same instants: the non-sax content is identical
+in both takes, so any excess in ON is the sax.
+
+What that confirms, on hardware and independently of the album:
+
+    program 0x56, Neon Rider voice 24   33 of 41 written notes land within
+                                        0.6 semitone of their predicted pitch,
+                                        median error 0.22 semitone
+    program 0x55, voice 23              8 of 13, median error 0.27
+
+The peak tracks the written note across two octaves, which is the first
+hardware confirmation of the pitch anchor `MIDI = 12*byte1 + byte0 + 11`.
+
+#### The C3-root hypothesis looked right and is refuted - do not retry it
+
+Program 0x94 is the one sax program whose sample is not at C3 - it measures at
+196.3 Hz, a perfect fifth above - and it does NOT play at its written pitch:
+4 of 27 notes, against 21 of 27 for the hypothesis that the driver assumes every
+sample is rooted at C3 and transposes `2^((note-48)/12)` from the sample's own
+base rate, median error -0.09 semitone.
+
+That was promising enough to implement. It is wrong. The 21/27 came from a
+search constrained to a half-octave window centred on the prediction; the
+end-to-end test - render voice 25 under that law and compare its output
+frequency against the same hardware notes, with no model in between and a wide
+search - gives **+24 semitones median error and 0 of 14 notes within 0.6**. The
+constrained search was finding the prediction because it was told where to look.
+
+Reverted. Two lessons worth keeping. A model test that searches near its own
+prediction proves very little; render the audio and measure it. And the second
+half of the 0x94 anomaly is still unexplained: whatever the driver does with
+that program, it is not the written pitch and it is not this.
+
+So the wave pitch law remains OPEN. What is now known is narrow but solid: the
+anchor is right, and it is right on hardware for samples that sit at C3.
+
 #### The released album: right for the notes, wrong for the synth
 
 Measured, because it is the obvious thing to reach for and it is only half
