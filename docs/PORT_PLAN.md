@@ -1198,6 +1198,97 @@ The remaining consequence is the one in the known-issues list: the same audio
 setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
 0x1800/0x1801, and the port does nothing with it.
 
+#### The emulator's synth is DEAD CODE - it plays an MP3 of the album
+
+`paprium_music_synth()` at paprium.h:487 opens with an `#if 1` block that copies
+a decoded MP3 of the released album into the output and RETURNS before it ever
+reaches the 26-voice loop. The keyon block that would load a voice from the wave
+bank sits inside `#if 0`. So NOTHING the emulator does with the music command
+stream has ever produced a sample; its dispatch is a reading, never a tested one.
+
+Worse for us: `for lcv < cmds` walks ALL FOUR words including word 0, so every
+handler is fed note pitch classes as if they were command codes. Our own model -
+word 0 is the note, confirmed on hardware by the sax A/B - and that one cannot
+both be right.
+
+Treat paprium.h as a source of hypotheses. Everything below was tested against
+the captures, and where they disagreed the captures won.
+
+#### 0x08 is a pitch effect at the attack, not a rate index
+
+Bracketed: 539 of 540 nonzero 0x08 operands are cancelled by a later 0x08 with
+operand 0 on the same voice, median 0.12 s later. Same grammar on 0x07
+(1301/1347) and 0x05 (107/107). On the sax layer 0x08 opens ON a note onset 85%
+of the time, 0x07 opens 0.24 s AFTER it, 0x05 later still - three places in one
+note's life.
+
+146 matched pairs across four sax captures, treated note against the nearest
+effect-free note of the same voice, program and written pitch:
+
+    PITCH 45-85 ms      +24.85 cents   p = 5.8e-06   <- the effect
+    PITCH 85-165 ms     +21.40 cents   p = 4.9e-04
+    ENVELOPE decay      -0.57 dB       p = 0.13      negative
+    LEVEL 0-45 ms       +0.69 dB       p = 0.63      negative
+    LEVEL 45-85 ms      +0.80 dB       p = 0.44      negative
+
+Sham control on effect-free notes: +4.2 cents, p = 0.13. Internal control -
+0x08 with operand 0 against notes carrying no 0x08 at all: +3.59 cents, p = 0.10,
+indistinguishable. The operand does not grade the effect within a track (pooled
+rho +0.03, p = 0.73); the cross-track grading is confounding.
+
+#### Program 0x34 does not play at its written pitch, and the ratios are integer
+
+Urban, voice 17, three clean written pitches in 0.6 s windows:
+
+    written MIDI 36 -> 36.54 Hz   (12-TET 65.41)   10.1 semitones flat
+    written MIDI 40 -> 41.02 Hz   (82.41)          12.1 flat
+    written MIDI 43 -> 43.62 Hz   (98.00)          14.0 flat
+
+The positive control sits on the SAME voice in the neighbouring slot of the same
+bar: in-bank program 0x07, written MIDI 55, measures 400.19 Hz against a nominal
+392.0, +0.36 semitone. The pipeline is right; the detune belongs to the program.
+
+The sounding ratios are 1 : 1.1253 : 1.1923 - not 12-TET's 1 : 1.2599 : 1.4983 -
+and reciprocal-integer-like: 1/18 : 1/16 : 1/15 fits to 0.02% and 0.67%. A
+written major third plus minor third comes out as a whole tone plus a semitone.
+That is what a coarse PERIOD DIVIDER does to a chromatic line, and it is the
+first direct evidence about the wave pitch law itself rather than one program.
+The integers are not pinned: 18/16/15, 38/34/32 and 63/56/53 all fit the error.
+
+Harmonic profile at the measured frequencies: h1:h2:h3 = 0.55 : 1.00 : 0.92, the
+SECOND harmonic loudest, reproduced on track 54 at h1/h2 = 0.56.
+
+#### 0x1A is FM modulation depth, not level
+
+4,483 events, every one on an FM voice, operands 9..64; twin 0x1B adds 86 at
+25..112. That union excludes every YM2612 field except TL (FB/LFO/DT 0..7, RS
+0..3, MUL/D1L/RR 0..15, AR/D1R/D2R 0..31). All 44 multi-event runs are strictly
+monotone ramps.
+
+Harmonic slope against the operand, track 59's FM-only intro, per-row note-context
+fixed effects:
+
+    h2 +0.026 (t=+0.4)  h3 +0.007 (t=+0.1)  h4 -0.037 (t=-0.5)
+    h6 -0.51  h8 -0.84  h10 -0.93  h12 -1.12  h16 -1.32  h22 -1.32   dB/unit
+
+A carrier TL or any per-note level moves every harmonic by the same dB. These low
+harmonics do not move at all. It is a TL write on a MODULATOR, so 0x1A cannot be
+the per-note FM level we are still missing.
+
+#### 0xE0 is an instrument-load setter, but not a per-program flag
+
+518 events, wave voices only, 62% in a pattern's first event, operand 93% constant
+per (track, voice), and 0x0F precedes it 235 times and never once follows. Every
+structural reading was refuted: 11 of the 15 programs it touches in more than one
+track take a different modal operand in different tracks, so it is not a property
+of the sample; type-field override, pitch transpose, gate time and sample size are
+refuted too.
+
+The high range splits into SETTERS (0xBB, 0x55, 0xE0, 0x11, 0x12, 0x10, 0xFA -
+first event, one operand held) and MODULATORS (0x1A, 0x1B, 0x15, 0x14, 0x16 -
+spread through the pattern, operand changing). The emulator dispatches none of
+them: 9,700 events across the corpus silently dropped.
+
 #### The emulator's command handler names five codes we never decoded
 
 `paprium_music_sheet()` in the emulator walks the module exactly as we do - order
