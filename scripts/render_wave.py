@@ -229,9 +229,42 @@ def load_timbres(path, grades=("A", "B", "C")):
     return out
 
 
-def measured_note(timbre, f, ns, rate):
+def patch_attack(patch):
+    """Attack time in seconds from the patch's own fastest carrier, or None.
+
+    fm_timbre.csv's `attack_ms` column is NOT an attack time. Against the real
+    attack rate in the cartridge's patch bank it measures Spearman -0.044 over
+    102 patches (p = 0.66) - no relationship at all - and 69 of those patches
+    have a carrier at AR >= 30, which on a YM2612 is near instantaneous, yet the
+    column gives them a median of 45 ms. Every patch in Dark Rock's opening
+    unison is AR 31, about 1.5 ms, and the column says 40 to 55 ms.
+
+    That matters twice over. A note ramped in over 50 ms has no transient, and
+    the transient is where the high-frequency energy of an attack lives - which
+    is why the opening measures four times too dark. And an onset detector keys
+    on a sharp rise, so a slow ramp is not counted as an onset at all, which is
+    where the "31% fewer onsets than hardware" came from. The notes were always
+    there; they were fading in.
+    """
+    try:
+        algo = patch["ALGO"] & 7
+        carriers = ALGO[algo][1]
+        ars = [patch["ops"][SLOT[c]]["AR"] for c in carriers if SLOT[c] < len(patch["ops"])]
+    except (KeyError, IndexError, TypeError):
+        return None
+    if not ars:
+        return None
+    rate = eg_rate_db_s(max(ars))
+    if rate <= 0:
+        return None
+    return float(np.clip(96.0 / rate, 0.0005, 0.25))
+
+
+def measured_note(timbre, f, ns, rate, attack=None):
     """Additive synthesis from a measured harmonic profile, at its measured level."""
     h, atk, dec, gain = timbre
+    if attack is not None:
+        atk = attack
     n = np.arange(ns)
     t = n / rate
     y = np.zeros(ns)
@@ -377,6 +410,7 @@ def event_timeline(m, seconds):
 
 
 def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl=None,
+           fm_low=0.0,
            vgain=None,
            sax=False, mute=None):
     n = int(seconds * rate)
@@ -418,8 +452,18 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
             # sounded synthetic no matter how exact the pitch was.
             pn = prog[v] if prog[v] is not None else 0
             meas = timbres.get(pn) if timbres else None
+            # A measured harmonic profile stops at its last measured harmonic, so
+            # it band-limits a note in proportion to how LOW that note is. Dark
+            # Rock opens on a three-voice unison at E1-F#2, 41 to 92 Hz, where a
+            # 24-harmonic profile holds nothing above 1 kHz - and the capture's
+            # spectral centroid there is 1226 Hz against our 299. Below that the
+            # profile stops describing the timbre, so fall through to the
+            # cartridge's own patch, which has no ceiling.
+            if meas is not None and fm_low and f * len(meas[0]) < fm_low and pn in fm:
+                meas = None
             if meas is not None:
-                seg = measured_note(meas, f, ns, rate) * 260.0
+                seg = measured_note(meas, f, ns, rate,
+                                    attack=patch_attack(fm[pn]) if pn in fm else None) * 260.0
             else:
                 patch = fm.get(pn)
                 if patch is None:
@@ -581,6 +625,10 @@ def main():
     ap.add_argument("--vu-gain", default=None,
                     help="per-voice gain table from scripts/vu_gain.py (JSON), measured "
                          "from the hardware capture's on-screen level meter")
+    ap.add_argument("--fm-low", type=float, default=0.0,
+                    help="below this top-harmonic frequency (Hz), render FM from the ROM "
+                         "patch instead of the measured profile, whose harmonic ceiling "
+                         "band-limits low notes. 0 disables.")
     ap.add_argument("--octave-fix", action="store_true",
                     help="apply the corpus octave correction of wave roots. OFF by default: "
                          "it is NOT validated and it moves 24 confidence-1.00 programs by up "
@@ -668,7 +716,7 @@ def main():
                  20 * np.log10(max(vgain.values()))))
     buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only=only, fm=fm,
                          timbres=timbres, wavelvl=wavelvl, vgain=vgain,
-                         sax=a.sax, mute=mute)
+                         fm_low=a.fm_low, sax=a.sax, mute=mute)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89
