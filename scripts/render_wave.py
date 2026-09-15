@@ -423,6 +423,27 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
     # The sax man stays off unless --sax, exactly as before; --mute only ever
     # adds to that set, so it can never switch him on by accident.
     muted = set() if sax else sax_voices(m)
+
+    # Per-program whole-octave offset, from this module's own use of each wave
+    # program. Only programs whose notes sit further than two octaves from their
+    # measured root get one; everything else stays at 0 and is untouched.
+    octave = {}
+    want = collections.defaultdict(list)
+    for v in range(10, 26):
+        pn = m.d[0x2A + (v ^ 1)] or None
+        for _, ev in m.timeline(v):
+            for k in (2, 4, 6):
+                if ev[k] == 0x0F:
+                    pn = ev[k + 1]
+            if ev[0] and ev[0] != 0x0E and pn is not None:
+                want[pn].append(12 * ev[1] + ev[0] + 11)
+    for pn, mids in want.items():
+        ent = progs.get(pn)
+        if not ent or ent[2] is None:
+            continue
+        d = np.median(np.asarray(mids, float) - ent[2])
+        if abs(d) > 24:
+            octave[pn] = int(round(d / 12.0))
     if mute:
         muted = muted | set(mute)
     placed = 0
@@ -459,7 +480,15 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
             # spectral centroid there is 1226 Hz against our 299. Below that the
             # profile stops describing the timbre, so fall through to the
             # cartridge's own patch, which has no ceiling.
-            if meas is not None and fm_low and f * len(meas[0]) < fm_low and pn in fm:
+            # --fm-low swaps a low note to the cartridge's own patch, because a
+            # measured profile band-limits a note in proportion to how low it is
+            # (Dark Rock's 41-92 Hz opening: 24 harmonics reach barely 1 kHz and
+            # the capture's centroid there is 1226 against our 299). It is OFF by
+            # default: it overshoots to 2035. Continuing the profile with the
+            # patch's own shape instead was tried and is WORSE - it puts 66% of
+            # the opening in 1-3 kHz where hardware has 5%. The FM darkness is
+            # not solved; both known fixes overshoot.
+            if meas is not None and fm_low and pn in fm and f * len(meas[0]) < fm_low:
                 meas = None
             if meas is not None:
                 seg = measured_note(meas, f, ns, rate,
@@ -497,10 +526,24 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
             # into sub-audio rumble, or screeching with aliasing. Those are
             # percussion entries and mis-detected roots, not instrument design,
             # so play them at their own rate rather than transposing wildly.
-            if len(sig) < 32 or root is None or abs(target - root) > 24:
+            if len(sig) < 32 or root is None:
                 step = sr / rate
             else:
-                step = (sr / rate) * 2.0 ** ((target - root) / 12.0)
+                # When the guard fires, SHIFT THE ROOT BY WHOLE OCTAVES rather
+                # than abandoning the transposition. The old fallback played the
+                # sample at its own rate, which gives every note of a part the
+                # same pitch - and Theme Of Paprium's voices 11/12/13 write a
+                # chord on program 0x21, MIDI 35/40/43, which came out as three
+                # byte-identical voices at ~1 kHz. Three different written notes
+                # cannot correctly produce identical audio, whatever the right
+                # root turns out to be, and those three alone were 46% of our
+                # 1-3 kHz energy in a section the capture says should be bass.
+                #
+                # `octave` is per PROGRAM, not per note, so the intervals inside
+                # a part are preserved exactly. The register may still be an
+                # octave out - the wave pitch law is open - but a chord stays a
+                # chord.
+                step = (sr / rate) * 2.0 ** ((target - root - 12.0 * octave.get(prog[v], 0)) / 12.0)
             if not np.isfinite(step) or step <= 0 or step > 40:
                 continue
             seg = take(sig, step, ns, loop)
