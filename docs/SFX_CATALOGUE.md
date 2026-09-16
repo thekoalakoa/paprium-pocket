@@ -1,5 +1,9 @@
 # Paprium SFX bank — identifications
 
+> **2026-09-16:** 87 of the 127 entries are now identified by name by direct comparison with
+> the original samples, and the rate table's last entry is measured as 4800 Hz, not 5333 -
+> see [SFX_BANK_MEASURED.md](SFX_BANK_MEASURED.md). The by-ear rows below all held.
+
 The cartridge holds **127 sound effects** as raw PCM in ROM at `0x25ECA4`
 (553 KB, 5333–48000 Hz, 4-bit and 8-bit). `scripts/dump_sfx.py` extracts them all;
 the id in each filename is what the game requests via mailbox command `0xD1`.
