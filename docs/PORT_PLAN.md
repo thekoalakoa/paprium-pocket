@@ -1198,6 +1198,48 @@ The remaining consequence is the one in the known-issues list: the same audio
 setting is command `0x88`, whose bit 0 is the DAC flag GPGX writes to cart RAM
 0x1800/0x1801, and the port does nothing with it.
 
+#### 2026-09-16: the composer's originals, the SFX bank measured, and what the root sweep did and did not settle
+
+**The composer's original audio reached the player** (final mixes of every track including
+unreleased ones, the original SFX samples at 44.1 kHz, every voice sample). It is WaterMelon's,
+it stays local, and nothing from it is in this repository; only measurements are.
+
+**Tempo, confirmed on the whole corpus from the composer's own renders.** 50 of the 52 modules'
+one-pass length under the tempo law, times 0.9987, equals the final mix's file length to the
+frame (the two exceptions are the "I am a new music module!" placeholders). The constant ratio
+means the studio tick is exactly 100.00 Hz and the cartridge's 99.8745 Hz is the NTSC master
+clock divided by 537,600 (99.8758 Hz) within the measurement's precision. Stage Clear: law
+5.827 s, composer's file 5.820 s.
+
+**Composer mix vs hardware vs our render, Techno Beats 30-50 s, bands relative to 200-1k:**
+40-200 Hz is +12.8 dB in the mix and +12.2 on hardware; our render sits at +3.3 - the bass
+deficit is ours. Above 6 kHz the cartridge is 7-15 dB darker than the mix (6-9 k -20.6 vs
+-14.0; 12-16 k -34.5 vs -21.3): that roll-off is the cart's own output path.
+
+**The SFX bank, measured against the originals** - see `SFX_BANK_MEASURED.md`. 87 of 127
+entries identified; the rate table's index 5 is 4800 Hz (48000/10), not 5333, so six effects
+play 11% sharp in this port, in mega-ppm and in GPGX; both 4-bit and 8-bit SFX entries are
+companded (15-level / 255-level sign-magnitude around the mid code, code 0 never used) and the
+inherited linear decode compresses every effect's dynamics about 3.3x; the music wave bank is
+linear 8-bit. Caveat carried in the doc: the originals prove what the bytes encode, not what the
+cartridge's player decodes - one isolated hardware SFX capture settles that before anything
+ships.
+
+**The hardware root sweep** (onset-signature method: the dB each onset of a program adds over
+the 60 ms before it, per band, on the capture and on renders with the program's root swept;
+recovery, null-spread, bootstrap and sham controls; every batch re-run by an independent
+verifier). Of 36 programs, six got an applied value: 0x37 nominal (the x6 shaker that was the
+"static"), 0x0A root 49, 0x15 51, 0x5F 49, 0x19 57, 0x61 49. 0x07 measured 50 at one site but
+applying it as a 12-TET rule on other tracks added 4-6 dB of 9-16 kHz and was refused. Stock
+roots 0x3F 106, 0x25 60, 0x29 36.5 and 0x0B 40 are refuted with no replacement. Twenty
+programs are undetermined, most because the per-voice level command 0x01 is unmodelled in the
+renderer and rate and level trade off in the signature. Two structural results: the fixed
+reference C4 = 60 is refuted (0 of 6), with five of six roots within a semitone of 50 - but
+those are written-60 sites, so that is the same statement as "x2 at written 60"; and the 40-120
+Hz deficit does not close at any root on any track: hardware's low end is not the bank's
+samples at any playback rate. The onset method is blind there by construction. A/B renders of
+the applied set were built for the player; the re-render changes little except the shaker.
+
 #### The 0.2.3 Boom Box bars run 20% fast: the row clock was GPGX's, not the synth's
 
 The player's standing rule, restated 2026-09-15: **neither GPGX nor krikzz's
