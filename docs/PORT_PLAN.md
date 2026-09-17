@@ -1150,6 +1150,22 @@ against a measured block-permutation null of **7.24% +/- 1.47** - z = 27, with
 patch's median rank is 2. Useful as corroboration, not as a substitute for the
 table.
 
+#### 2026-09-16: header program 0 is program 0x00 - 3,489 silent notes restored
+
+The player asked for an audit of the "PSG" voices, in case they were the missing
+instruments. They were, in two ways. First, every program voices 6-9 select is a live
+bank sample (`0x00` 66 notes, `0x01` 5,054, `0x02` 2,075, `0x03` 4,180, `0x04` 90, `0x08`
+32, `0x0C` 435) - nothing chip-like anywhere. Second, and larger: `render_wave.py` read
+each voice's header program byte as `... or None`, so a voice whose header program is 0
+and never receives a `0x0F` had every note skipped. Program `0x00` is real - a 246 ms
+tonal sample, selected explicitly by `0x0F 0x00` 268 times across the corpus. The
+skipped total is 3,489 notes: 2,791 on voices 10-25 and 698 on 6-9 - Urban v15 562,
+CyberFunk v10 396, Jazzy Shuffle v10 364, Bladerunner FM v10 302, Urban v16 220,
+Sadness v24 176, Tension v14 175, Urban v8 133, Cool Groove v11 126, Slow Mood v6 120,
+Techno Beats v14 96 (in the very window the player had been judging). Fixed: header 0
+is program 0x00. Techno Beats places 3,950 notes where it placed 3,772. The remaining
+silent notes are the twelve bank-less programs.
+
 #### CORRECTED 2026-09-16: the 26 voices are 6 FM + 20 wave - there are no PSG voices
 
 The 6 / 4 / 16 split below was GPGX's `ch<6 / ch<10 / else` branch, never a hardware
