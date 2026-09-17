@@ -12126,3 +12126,110 @@ so nothing an actor does differs from the build hardware passed. The only additi
 `queue_age` and `prev_next` live in the per-SLOT handle array and were not reset when a new object
 took the slot, so an object created with its follow-up already armed inherited the last tenant's age.
 `objID & 0x8000` now resets them.
+
+#### 2026-09-17: Theme Of Paprium gap census - the FM bass is an octave low, and why
+
+The player's ear on the 2026-09-16 renders: Gothic and Techno Beats now close to the OST, Theme
+"still missing things". Theme selects no bank-less program and no program 0, so its holes are a
+different class. Two new references made it unusually testable: the composer's own final mix of
+Theme is exactly ONE pass of module 57 at the studio tick (11 positions x 128 rows x 8 ticks /
+100.00 Hz = 112.640 s) and aligns to a 100 Hz-tick render at -0.002 s; the unreleased slow version
+is the same module at exactly HALF tempo (t -> 2t + 0.046 s), so every note is twice as long
+there. The cartridge capture sits at lag 1.2477 s and loops from position 3 with period 82.023 s.
+Eight strands (three voice-group censuses, 0x01, the 0x15+0x16 pair, 0xE0, the sparse commands,
+the two references), each with an adversarial verifier, then a synthesis and a critic; 18 agents.
+Every claim below rests on isolated onsets with a sensitivity control and a null; the one-pager
+with file names is outside the repo (listen/2026-09-17/theme_undet/THEME_GAP_CENSUS.md).
+
+**The FM bass sounds one octave BELOW the written note - on the composer mix, on the cart and
+on the slow version - and the renderer plays it at the written note.** Voices 0 and 1 (patches
+0x01 / 0x02, 921 notes each, written 33-57). On 508 unison onsets, 306 isolated: the f/2 rung is
++35 dB over its background in all three references against +2..+6 in the shifted-time null and
+in the written-pitch render. Two verifiers with independent methods agree; the second
+classifies the strongest added partial in [0.4, 1.3] f0 on 328 pitch-change onsets with no
+kit onset: composer 91 % at f/2, cart 96 %, the as-is render 89 % at the written note (so the
+method sees the octave), the shifted-time null 13 %. The ROM explains it: patch 0x01 is
+algorithm 3 with a single carrier whose MUL is 0, which a YM2612 plays at HALF frequency. The
+chip model in the renderer holds every carrier at the written note (an earlier whole-track
+chroma / band comparison preferred that - a method the evidence rules now forbid), and the
+measured additive profiles (fm_timbre.py reads harmonics at k x the written f) are, for such a
+patch, the true tone's EVEN harmonics mislabelled h1..h24. **104 of the 135 bank patches have a
+MUL-0 carrier** - corpus-wide, not a Theme quirk - but only the Theme bass is measured so far.
+
+What the true bass tone is (ladder of ADDED dB above the quarter-point background, median over
+clean onsets, rungs k x written f0): composer and cart both light k = 0.5, 1.5, 3.5, 4.0, 4.5,
+5.0, 5.5 (= harmonics 1, 3, 7, 8, 9, 10, 11 of the f/2 fundamental) and NOTHING at k = 1, 2,
+2.5, 3 (harmonics 2, 4, 5, 6) - an odd-rich FM spectrum with an h8/h10 shelf. Four renderer
+variants scored with the same two pipelines: the measured profile shifted down an octave lands
+the register (97 % at f/2) but invents h4 and h5 (-10..-12 dB) that the references lack; the
+chip model with carriers at their real MUL (the YM2612 law) gives 76 % at f/2 and has h7-h9 like
+the references but no h3; the "MUL 0 -> x0.5, else x1" rule fails (34 %) because it puts patch
+0x02 with its three carriers at the written f, a line neither reference has; and the YM law puts
+those carriers at 4f/8f/12f, which the references lack too (the 4 f0 rung is -38 dB). So the
+octave is established and the MUL-0 rule is established for 0x01; how the cart plays high-MUL
+carriers (0x02, and the leads) is NOT: the alternative "every FM carrier an octave below the
+current anchor, MUL ignored" also explains the bass and the composer's fundamental-heavier 0x02
+window, and predicts the leads an octave low - the lead strand found v2/v4/v3 at the written
+pitch (LIKELY 0.7) but its verifier could not re-measure them. Nothing changed in the renderer:
+the A/B cuts (composer / cart / as-is / octave-down profile / chip model) await the ear. The
+principled fix if the ear agrees is to re-measure the profiles with the fundamental at f/2 for
+MUL-0-carrier patches (fm_timbre.py), not to shift the existing ones.
+
+Other Theme findings, ranked by the synthesis (studio = composer mix, cart = hardware):
+* v22 program 0x32 written at MIDI 38 (24 notes/pass): a 0.3 s pitch dive from > 450 Hz to
+  ~70 Hz in studio and cart where we play a 64 ms click at nominal rate (0x32 is written only at
+  38/50/62, two octaves apart - a per-zone sample is the candidate). LIKELY: the strand had
+  attributed it to command 0x07 and its verifier refuted that (the dive appears at 20 rows without
+  0x07, four with the bass silent); no sensitivity control for the dive itself yet.
+* v6/v7 program 0x01 plucks (2,099 notes): pitch RIGHT in the repo (raw root, sounding = written).
+  Timbre: the studio and slow mixes carry an odd-harmonic square-like tone (h3 -10, h5 -14, h7
+  -17 dB, evens absent); the bank sample is a near-sine; on the cart only h3 rises above the
+  bass-bed floor. Envelope: the studio gates the 80 ms notes deeper than we do (-33 dB at
+  95-150 ms), the cart gates like us.
+* Noise-like programs pitched from bogus raw roots ON THIS TRACK: 0x07 (v16/v17, root 99.3)
+  plays at x0.05-0.26 native - effectively mute - where both references have the bursts; 0x11
+  (v10 kick, root 29.1) at x5.95 native, a 60 ms blip, where the fill hits of both references peak
+  at 36-44 Hz; 0x50 (snare/tom) wants half the repo rate. Per program, per track, by ear - not a
+  table rule (see the 2026-09-15 noise-root entry).
+* Level, three findings fitted against a defective bed (see below) and therefore LIKELY, not
+  confirmed: the 0x23 chord stabs on v21-23 (the voices carrying 0xE0 = 0x10) are >= 15 dB
+  quieter in both references than in our render while the same program on v24/25 (no 0xE0) sits
+  near unity; the v15 hat (0x1A, 807 notes at written 72) is 10-19 dB quieter and brighter (rises
+  to 16 kHz); the hard-left 80 ms echo of v24 on v25 is 3-8 dB weaker in both references.
+* Patch 0x12 partials BEAT in the composer stereo mix (null fraction 0.041), the lossless slow
+  file (0.055) and the cart (0.038) against 0.004 in the additive render - patch 0x12 carries DT
+  = 1 on two heavy modulators (algorithm 2, feedback 7), a chip property the measured-profile
+  path cannot produce. A renderer gap against all three references, not a cart property.
+* The brief items: **0x01** is CONFIRMED as a level at one site - the written-in echo on
+  v21/22/23 (program 0x23, operands 06/08 -> 11 -> 18 -> 22) decays on the cart at about -1.3 dB
+  per repeat, matching the provisional meter law (V0 = 202; V0 = 255 excluded by two of three
+  loop passes), while the composer mix decays the same echo 2.7x steeper (-4 dB per repeat) -
+  the OST dynamics are not cart law. No voice goes inaudible under the law (largest step -8.2 dB,
+  v16 under operand 0x3A). **0x15 + 0x16** UNDETERMINED: on the side channel of the cart capture
+  (which isolates the hard-panned lead copies) vibrato of +-10 cents is excluded at 26 of 30 lead
+  notes and +-7 cents at 21 of 30, portamento > 5 cents and a 120 ms echo >= -6 dB are excluded, a
+  3 dB tremolo has no line; +-5 cents and below is method blind; on the FM voices the pair is
+  inseparable from patch 0x12 (always written with it), and corpus-wide 0x16 never occurs without
+  0x15 in the same record (85 records, 6 tracks; 0x15 alone 742 times, mostly riding 0x1A ramps).
+  **0xE0**: no rate, pitch (to +-5 cents on 807 v15 notes), bandwidth or envelope effect
+  measurable; what correlates with it on Theme is LEVEL (the three findings above), and 0xE0
+  cannot be separated from 0x01 on this track. **The FM path** synthesises (all six Theme patches
+  are measured, grade A/B) but fails where chip law matters: the MUL-0 octave and the DT beating.
+* Cart vs studio (do not chase in the renderer): the cart is darker than the composer mix by one
+  roll-off common to the hat and the hat-free click, -4 / -7 / -9 / -12.5 dB at 6-8 / 8-12 /
+  12-16 / 16-20 kHz relative to 4-6 kHz (cause undetermined: output stage vs capture chain vs a
+  bright master); below 4 kHz the cart keeps the studio balance within ~3 dB on every unit that
+  could be checked. No off-grid echo >= -12 dB in either; reverb is unmeasurable on Theme (the
+  module never stops; largest gap 0.16 s) - the reverb capture session stands.
+
+**A tooling defect, confined to the census.** The census render helper called
+`render_wave.program_table(bank, moddir=...)`, which applies the RETRACTED `wave_roots.octave_fix`
+whenever `moddir` is given: 2,873 of the 3,569 wave notes of Theme played in the wrong octave in
+every strand render (0x01 plucks two octaves down, 0x23 an octave up, 0x11 three octaves down,
+0x07 three octaves up). Three verifiers found it independently; the synthesis re-cut its A/Bs on
+raw roots and the three level findings above are downgraded until re-run. Checked afterwards: the
+repo renderer, the level A/B renderer, the root-sweep tool and every listening set before
+2026-09-17 use raw roots (`main()` passes `moddir` only under `--octave-fix`), so no earlier ear
+verdict is affected. The critic also found that six voices (v9, v16-v20) and about a third of the
+notes of Theme have no controlled verdict at all - the ranked list is what could be measured, not
+a complete inventory. Nothing here is closed; the ear decides.
