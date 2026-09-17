@@ -1150,6 +1150,32 @@ against a measured block-permutation null of **7.24% +/- 1.47** - z = 27, with
 patch's median rank is 2. Useful as corroboration, not as a substitute for the
 table.
 
+#### CORRECTED 2026-09-16: the 26 voices are 6 FM + 20 wave - there are no PSG voices
+
+The 6 / 4 / 16 split below was GPGX's `ch<6 / ch<10 / else` branch, never a hardware
+measurement, and the one measurement that bore on it was talked away: voices 6-9's
+`0x0F` programs land on live wave-bank entries 249 times out of 249 ("coincidental
+overlap", below). They are not a coincidence. The samples those voices select are a
+coherent kit - `0x0C` a 1,146 ms tonal sample with a low root (a bass guitar), `0x01` a
+446 ms pluck, `0x04` a 2,913 ms sample with a loop point (the sustained pad the Boom Box
+meter held at a steady level for three minutes on Theme Of Paprium's voice 9), `0x02` /
+`0x03` / `0x08` noise hits - and the corpus writes them at 28-100.
+
+The player found it by ear: on Gothic 21-29 s "a low bass guitar is replaced by a high
+pitched synth sound - the wrong instrument is being played". Every wave-voice solo was
+ruled out; the FM solos were ruled out; voice 6 rendered as bank sample `0x0C` at its
+measured root 35.7, transposed to the written notes by the ordinary pitch law, "sounds
+like the bass guitar". The square wave the renderer had been producing for voices 6-9
+was the high synth.
+
+Consequences: `render_wave.py` now sends voices 6-25 down the wave path (the PSG branch
+is gone); the pitch anchor already held on voices 6-9 (sounding = written, n = 178),
+so nothing about pitch changes; the per-voice level's "PSG family" (V0 = 347, operands
+`0x48`-`0x90`) is a second sample family, not a chip; and every hardware root-sweep
+signature on a track where voices 6-9 play was measured against a background with
+square waves in it - those results need re-running. 12,632 notes across the corpus
+were being rendered as squares.
+
 #### The 26 voices are 6 FM + 4 PSG + 16 wave
 
 Measured by asking, per voice, how often its `0x0F` program argument lands on a

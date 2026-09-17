@@ -478,23 +478,14 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
                 if patch is None:
                     continue
                 seg = fm_note(patch, f, ns, rate) * 118.0
-        elif v < 10:
-            # PSG square, built from its odd harmonics so nothing lands past
-            # Nyquist. np.sign() is the same wave with infinite bandwidth, and at
-            # this sample rate its upper partials fold back as audible grit.
-            th = 2 * np.pi * f * np.arange(ns) / rate
-            seg = np.zeros(ns)
-            for h in range(1, 40, 2):
-                if h * f >= rate * 0.45:
-                    break
-                seg += np.sin(h * th) / h
-            seg *= 128.0
-            # NO fixed decay. A hard-coded exp(-n/(0.45*rate)) was here, and on a
-            # 4-second note it is 38 dB down by the end. The cartridge does not do
-            # that: its own level meter holds Theme Of Paprium's PSG voice 9 at a
-            # steady level 2 for 11,202 frames - three minutes of sustained pad.
-            # The note length already ends the note, and the shared release below
-            # shapes the tail, so let the voice hold.
+        # Voices 6-9 are WAVE voices, not PSG square waves. The 6 FM / 4 PSG / 16 wave
+        # split was GPGX's ch<6 / ch<10 / else branch, never a hardware measurement.
+        # Their 0x0F programs land on live bank samples 249 times out of 249 (0x0C is a
+        # 1.15 s bass-guitar sample, 0x04 a 2.9 s LOOPED pad - the three-minute
+        # steady meter level on Theme Of Paprium's voice 9), and on 2026-09-16 the
+        # player confirmed by ear that Gothic's voice 6 rendered as bank sample 0x0C
+        # at its measured root IS the bass guitar the square wave had replaced.
+        # Voices 6-25 therefore take the wave path below, same pitch law, same roots.
         else:
             entry = progs.get(prog[v])
             if entry is None:
@@ -599,7 +590,7 @@ def dry_list(m, seconds, only=None, mute=None, sax=False):
           % ("v", "kind", "state", "notes", "sounding s", "programs"))
     tot_n, tot_s = 0, 0.0
     for v in range(26):
-        kind = "FM" if v < 6 else ("PSG" if v < 10 else "wave")
+        kind = "FM" if v < 6 else "wave"
         if only is not None and v not in only:
             state = "off:-voices"
         elif v in (mute or ()):
