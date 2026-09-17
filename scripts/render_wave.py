@@ -418,7 +418,10 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
     right = np.zeros(n + rate)
     evs = event_timeline(m, seconds)
 
-    prog = {v: (m.d[0x2A + (v ^ 1)] or None) for v in range(26)}
+    # Header program 0 IS program 0x00 - a live 246 ms sample, selected explicitly by
+    # 0x0F 0x00 268 times in the corpus. Reading it as 'no program' silenced 3,489
+    # notes (Urban v15 562, CyberFunk v10 396, Techno Beats v14 96...). 2026-09-16.
+    prog = {v: (m.d[0x2A + (v ^ 1)]) for v in range(26)}
     pan = {v: 0x80 for v in range(26)}
     # The sax man stays off unless --sax, exactly as before; --mute only ever
     # adds to that set, so it can never switch him on by accident.
@@ -565,7 +568,7 @@ def dry_list(m, seconds, only=None, mute=None, sax=False):
     evs = event_timeline(m, seconds)
     saxv = sax_voices(m)
     muted = (set() if sax else set(saxv)) | set(mute or ())
-    prog = {v: (m.d[0x2A + (v ^ 1)] or None) for v in range(26)}
+    prog = {v: (m.d[0x2A + (v ^ 1)]) for v in range(26)}
     notes = collections.Counter()
     secs = collections.defaultdict(float)
     used = collections.defaultdict(list)
