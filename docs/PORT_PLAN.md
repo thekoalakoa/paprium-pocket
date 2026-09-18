@@ -1218,7 +1218,7 @@ correlation over the whole track from +0.634 to **+0.877**.
 #### How the hardware captures were made, and why it matters
 
 Confirmed by the player: the 52 boombox captures were recorded with the audio
-menu set to **DATENMEISTER** (not the YM chip) and with the **+10 dB** boost on.
+menu set to **DATENMEISTER** (not the YM chip) and with the **+6 dB** boost on (CORRECTED 2026-09-17 by the player: the option has always been +6 dB, never +10; no calculation used the figure - every measurement RMS-matches cuts or works in relative dB).
 Both matter to everything measured from them.
 
 DATENMEISTER is the cartridge's own DAC, so the captures carry the synth's
