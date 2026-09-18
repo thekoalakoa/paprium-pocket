@@ -277,6 +277,95 @@ def measured_note(timbre, f, ns, rate, attack=None):
     return y * env * gain / max(np.abs(h).sum(), 1e-9)
 
 
+def load_timbres_half(path, base, grades=("A", "B", "C")):
+    """FM profiles re-measured with the fundamental at HALF the written note.
+
+    2026-09-18. The Theme bass (patches 0x01/0x02) sounds one octave below the
+    written note on the cartridge, the composer's own mix and the half-tempo
+    version, and the player confirmed it by ear - bass and leads alone against
+    the cart. The octave is PER PATCH, not global: on the cart 0x01, 0x02, 0x4B,
+    0x3D, 0x79 and 0x5C carry their fundamental at f/2 with the odd harmonics of
+    f/2 belonging to the note, while 0x57, 0x06, 0x0E and 0x22 sit at the written
+    f with no f/2 line at the 0.3-3 % level (two strands, two independent
+    verifiers, controls passing). A MUL-0 carrier in the patch bytes is a
+    tendency, not the rule. So the table carries an `octave` column, and only
+    rows marked `half` with `use` = 1 take this path; every other patch renders
+    as before. The old profiles, read at k x f, are those tones' EVEN harmonics
+    mislabelled h1..h24; this table holds h1..h48 at f/2 (empty cell = unknown).
+
+    Level and envelope are deliberately the BASE (h24) entry's: the tone the
+    player confirmed as closer to the cart was exactly "new harmonic vector, old
+    decay, old per-patch scale gain/sum|h24|". The returned entry is therefore
+    [h (max 1), attack s, decay dB/s, gain, norm] with norm = sum|h24|, and
+    measured_note_half divides by that norm, not by the new vector's own sum
+    (which had equalised the two bass patches' fundamentals in a first build).
+    """
+    import csv
+    out = {}
+    for r in csv.DictReader(io.open(path, encoding="utf-8")):
+        if r.get("grade") not in grades:
+            continue
+        if str(r.get("use", "1")).strip() not in ("1", "true", "True"):
+            continue
+        if (r.get("octave") or "").strip().lower() != "half":
+            continue
+        h = []
+        for i in range(1, 49):
+            v = r.get("h%d_norm" % i)
+            if v is None:
+                break
+            try:
+                h.append(float(v) if v.strip() else 0.0)
+            except ValueError:
+                h.append(0.0)
+        if not h or max(h) <= 0:
+            continue
+        try:
+            pn = int(r["patch"], 16)
+        except (KeyError, ValueError):
+            continue
+        hv = np.array(h) / max(h)
+        b = base.get(pn) if base else None
+        if b is not None:
+            out[pn] = [hv, b[1], b[2], b[3], float(max(np.abs(b[0]).sum(), 1e-9))]
+        else:
+            # no h24 entry to borrow level and decay from: use the row's own,
+            # at unit gain, normalised like the old path
+            try:
+                atk = float(r["attack_ms"]) / 1000.0
+                dec = abs(float(r["decay_db_s"]))
+            except (KeyError, ValueError):
+                continue
+            if not np.isfinite(atk):
+                atk = 0.002
+            if not np.isfinite(dec):
+                dec = 0.0
+            out[pn] = [hv, max(atk, 0.002), dec, 1.0, float(max(np.abs(hv).sum(), 1e-9))]
+    return out
+
+
+def measured_note_half(timbre, f, ns, rate, attack=None):
+    """measured_note with the fundamental at f/2: harmonic i+1 sits at (i+1) x f/2.
+
+    Scale is gain / norm with norm the h24 entry's sum|h| (see
+    load_timbres_half), so the loudness is the old path's exactly.
+    """
+    h, atk, dec, gain, norm = timbre
+    if attack is not None:
+        atk = attack
+    n = np.arange(ns)
+    t = n / rate
+    y = np.zeros(ns)
+    f0 = 0.5 * f
+    for i, amp in enumerate(h):
+        fh = (i + 1) * f0
+        if amp <= 0.001 or fh >= rate * 0.45:
+            continue
+        y += amp * np.sin(2 * np.pi * fh * n / rate)
+    env = np.where(t < atk, t / max(atk, 1e-9), 10.0 ** (-dec * (t - atk) / 20.0))
+    return y * env * gain / max(norm, 1e-9)
+
+
 def program_table(b, conf=0.5, moddir=None):
     """program -> (samples, native rate, root MIDI or None, loop point or None)
 
@@ -412,7 +501,7 @@ def event_timeline(m, seconds):
 def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl=None,
            fm_low=0.0,
            vgain=None,
-           sax=False, mute=None):
+           sax=False, mute=None, timbres_half=None):
     n = int(seconds * rate)
     left = np.zeros(n + rate)
     right = np.zeros(n + rate)
@@ -473,7 +562,15 @@ def render(m, progs, C, seconds, rate, only=None, fm=None, timbres=None, wavelvl
             # not solved; both known fixes overshoot.
             if meas is not None and fm_low and pn in fm and f * len(meas[0]) < fm_low:
                 meas = None
-            if meas is not None:
+            # A patch whose fundamental the cartridge puts at HALF the written
+            # note (table column `octave` = half, ear-confirmed on the Theme bass
+            # and leads 2026-09-18) takes its re-measured f/2 profile; the octave
+            # is per patch, so everything else keeps the path below.
+            half = timbres_half.get(pn) if timbres_half else None
+            if half is not None:
+                seg = measured_note_half(half, f, ns, rate,
+                                         attack=patch_attack(fm[pn]) if pn in fm else None) * 260.0
+            elif meas is not None:
                 seg = measured_note(meas, f, ns, rate,
                                     attack=patch_attack(fm[pn]) if pn in fm else None) * 260.0
             else:
@@ -639,7 +736,12 @@ def main():
     ap.add_argument("--wave-levels", default=None,
                     help="MEASURED AND REJECTED - see the note in main(); leave unset")
     ap.add_argument("--timbres", default=None,
-                    help="fm_timbre.csv - measured FM timbres, preferred over the model")
+                    help="fm_timbre.csv - measured FM timbres, preferred over the model. "
+                         "Default: scripts/data/fm_timbre_h24.csv if present; 'none' disables")
+    ap.add_argument("--timbres-half", default=None,
+                    help="the f/2 FM timbre table (scripts/data/fm_timbre_half.csv by "
+                         "default if present; 'none' disables): patches whose fundamental "
+                         "the cartridge puts one octave below the written note, per patch")
     ap.add_argument("--rom", default=None,
                     help="paprium.md, to render FM voices from the real patch bank")
     ap.add_argument("--vu-gain", default=None,
@@ -687,9 +789,23 @@ def main():
         t = fm_patches.load(a.rom)
         fm = {p: fm_patches.decode(t[p]) for p in range(len(t))}
         print("FM bank: %d patches from %s" % (len(fm), a.rom))
-    timbres = load_timbres(a.timbres) if a.timbres else None
+    # Measured FM tables live in scripts/data/ (derived numbers only, no audio):
+    # fm_timbre_h24.csv, the profiles at the written note, and fm_timbre_half.csv,
+    # the profiles at f/2 for the patches the cartridge plays an octave down.
+    data = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    def _table(flag, name):
+        if flag is None:
+            p = os.path.join(data, name)
+            return p if os.path.exists(p) else None
+        return None if flag.lower() == "none" else flag
+    t24 = _table(a.timbres, "fm_timbre_h24.csv")
+    thalf = _table(a.timbres_half, "fm_timbre_half.csv")
+    timbres = load_timbres(t24) if t24 else None
     if timbres:
-        print("measured timbres: %d patches" % len(timbres))
+        print("measured timbres: %d patches (%s)" % (len(timbres), t24))
+    timbres_half = load_timbres_half(thalf, timbres) if thalf else None
+    if timbres_half:
+        print("f/2 timbres: %d patches an octave down (%s)" % (len(timbres_half), thalf))
     # Calibrating WAVE levels the way FM levels were calibrated does not work,
     # and the reason is instructive. FM needed a measured level because
     # load_timbres normalises each harmonic profile and throws the loudness
@@ -736,7 +852,8 @@ def main():
                  20 * np.log10(max(vgain.values()))))
     buf, placed = render(m, progs, a.anchor, a.seconds, a.rate, only=only, fm=fm,
                          timbres=timbres, wavelvl=wavelvl, vgain=vgain,
-                         fm_low=a.fm_low, sax=a.sax, mute=mute)
+                         fm_low=a.fm_low, sax=a.sax, mute=mute,
+                         timbres_half=timbres_half)
     peak = np.abs(buf).max()
     if peak > 0:
         buf = buf / peak * 0.89

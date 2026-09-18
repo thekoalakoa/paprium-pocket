@@ -12351,3 +12351,38 @@ assignment question stays open without a clean falsifier: header order, program-
 order list, program identity and the program table fields have each been tested; the one analysis
 left is an identity fit (which bank sample sounds on each voice rhythm in the composer mix), not run.
 The holds are notes, not renderer changes. Commits 1ad64b8 and 315f56a stand.
+
+#### 2026-09-18 (evening): SHIPPED - the per-patch FM octave and the f/2 timbre table
+
+The player heard the Theme bass and leads alone, at the written octave and one octave down,
+against the cart: one octave down both times. Then the re-measured profile: with the fundamental
+at f/2 the new tone was closer to the cart than the old profile shifted down, alone and in the full
+mix. Two things went into the renderer with that, and one deliberately did not.
+
+What shipped (scripts/render_wave.py, scripts/data/): a second table, harmonics 1..48 measured at
+half the written note on the composer mixes and on the cart captures (two strands, two independent
+verifiers, controls passing), with an explicit per-patch octave; the renderer synthesises a patch
+marked half from f/2 with that profile, keeping the h24 entry's level, decay and normalisation -
+exactly the render the ear confirmed (the shipped bass reproduces that file to the sample). Nine
+patches take the path after the audit: 0x01 0x02 0x1E 0x3D 0x4B 0x54 0x5C 0x79 from the cart, 0x72
+from the composer mix. Everything else renders as before, and the wave voices are untouched.
+
+What did NOT ship: a global octave for the FM voices. It was proposed after the bass and leads
+tests and held by the player for the tone pair; the measurement then refuted it - on the cart
+0x57 (Spiral's main FM patch), 0x06, 0x0E and 0x22 sit at the written note with no f/2 line at the
+0.3-3 % level. A MUL-0 carrier in the patch bytes predicts the octave in 8 of 10 determinate
+patches and is not the rule (0x02 has none and is the purest f/2 tone). So the octave is a
+measured per-patch fact in the table, not a rule in the code.
+
+The audit that gated the table (three passes): no cross-source scaling or filling (the first
+merge invented a ladder on 0x01 that no reference measured); a per-track leak gate (Indian
+Shuffle holds a wave voice at MIDI 36 for 9 s at a time and puts an f/2 line under nearly every
+patch measured on it - a general test, not a blacklist, trips only that track); thin octave calls
+(under 12 clean fundamental reads, one track without a verifier, written calls on uninformative
+bounds) set to unknown; grades from the evidence actually used (0x01 is B: 100 notes on one track);
+two rows the verifier flagged set to use 0 by hand for the ship (0x10: its cells are a three-patch
+unison sum; 0x18: rests on a leak-suspect track). 34 candidate rows became 16 in use, 9 of them half.
+
+Open, parked by the player: the bass balance (the cart's 0x02 sine sits 2.4x the 0x01 fundamental,
+ours 0.65x - a level item), the FM voices 12-18 dB above the sample voices in our mix, and the v6/v7
+pluck onsets (program 0x01 sixteenths) with excess 6-20 kHz edge against the cart's darker attacks.
