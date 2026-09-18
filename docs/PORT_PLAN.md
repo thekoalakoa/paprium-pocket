@@ -12233,3 +12233,62 @@ repo renderer, the level A/B renderer, the root-sweep tool and every listening s
 verdict is affected. The critic also found that six voices (v9, v16-v20) and about a third of the
 notes of Theme have no controlled verdict at all - the ranked list is what could be measured, not
 a complete inventory. Nothing here is closed; the ear decides.
+
+#### 2026-09-17 (evening): Spiral - the sample bed, one confirmed rate, and what the captures can and cannot isolate
+
+After the Theme census the player set the order: structural causes first, one question and two
+files at a time, no root-table spins at the ear, the two renderer commits of 2026-09-16 kept.
+Spiral (module 52) became the test track because the composer's mix of it exists (one pass,
+98.56 s, lag-free at the studio tick) and its capture has a fitted lag. Ear verdicts in order:
+
+* Header program array read straight (see the census entry above): melody right, instruments
+  still wrong - "one instrument playing everything". NOT the instrument fix; the straight read
+  stays out of the renderer for now (it changes 8,258 notes on 13 tracks; Theme has all-zero
+  headers and never tested it).
+* FM voices removed: still not the cart's separate sample parts - "static drums + a wrong horn".
+  The sample bed itself is wrong, not just the FM balance (the three active FM voices sit 12-18 dB
+  above every sample voice in our render, which is a real defect but not the collapse).
+* The four programs whose measured root sits 2-4 octaves above anything the composer writes for
+  them (0x3F, 0x21, 0x26, 0x19: eight of the seventeen sample voices in the window) played at
+  their own rate: the horn-drone became a high beep.
+* The beep is program 0x21 on voices 22-24: a bell sample whose true fundamental is C6 (harmonicity
+  0.93 at 1043 Hz) with a 10.07 kHz metallic ring, written by the composer at C2-A#2. From a base
+  note of C4: "nearly right rhythm, wrong octave".
+* **0x21 tracking the written note from C3 (root 48), rendered ALONE against the cart's side
+  channel: YES - "register matches the cart".** First cart rate measured and ear-confirmed for a
+  program of the bogus-root class. Held for Spiral; not in the renderer yet.
+
+How the rate was read, and what did NOT work. No captured track ever plays any of these programs
+alone (a search over every note of every captured module: zero solo moments), and the blank
+Boom Box slots do not isolate a voice either (see "The semitone test failed" above: they re-arm
+26 voices from a stale header and stall on a held tone). What isolates: PAN. 0x21 is hard-panned
+with nothing else on its side at 449 notes in five captured tracks; on the capture's side channel
+(L minus R) the centred mix cancels. Reader: the sample's eight strongest partials scaled by
+2^(k/12), scored by narrow-line strength on the onset-added spectrum. Controls: a render with 0x21
+at its own rate reads k = 0 (mad 2.5 on Spiral, -1 on Theme); a sham template reads elsewhere;
+the time-shifted null is contaminated because 0x21 repeats every ~0.4 s on three voices. Cart
+reading on Spiral: k* = -3 (mad 3), written minus k* = 48 (mad 4), 20 of 50 onsets within a
+semitone of root 48, none at nominal. Three other in-mix readers (band template, single marker
+line, waveform correlation) failed their own controls and were discarded; the partial reader also
+fails its control on noise-like samples (0x26, 0x07, 0x25, 0x37) and is NOT to be used there.
+
+Other facts settled on the way:
+* Codec: the music bank is 8-bit linear for the bogus-root class too. Nibble correlations ~0 (not
+  4-bit packed), companding and delta decodes make nothing musical; the class's raw bytes have
+  lag-1 autocorrelation 0.09-0.5 against 0.93-1.0 for tonal samples, i.e. genuine noise and metal.
+* The bogus-root class, structurally: corpus-wide the measured root sits a whole number of octaves
+  from the composer's median written note for 51 of 56 rooted programs (-3:2, -2:15, -1:13, 0:5,
+  +1:8, +2:5, +3:3, +4:5). Roots BELOW the written range (samples stored low, played up: 0x01,
+  0x0C, 0x11, 0x29) are the confirmed ones; roots far ABOVE it are detector artefacts on
+  noise-like samples, and 0x21 shows a third case: a real fundamental (C6) that the cart plays
+  three octaves lower than the pitch law from that fundamental would.
+* The resampler passes the 24 kHz image of a sample's high partials about 30 dB too strong at
+  exactly half rate (linear interpolation, step 0.5): a 13.8 kHz mirror of 0x21's 10 kHz line.
+  Minor, noted.
+* The Boom Box VU, the composer's mix and the cart agree on WHERE every voice plays; the open
+  questions are rate and kind, per program.
+
+Next, running as a verified census: presence and rate of all seventeen Spiral sample voices
+against the composer's mix and the cart, tonal programs with the partial reader, noise programs
+with the onset-signature method and its recovery/null/bootstrap/sham controls, ending in one
+falsifier pair.
