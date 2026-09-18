@@ -12386,3 +12386,30 @@ unison sum; 0x18: rests on a leak-suspect track). 34 candidate rows became 16 in
 Open, parked by the player: the bass balance (the cart's 0x02 sine sits 2.4x the 0x01 fundamental,
 ours 0.65x - a level item), the FM voices 12-18 dB above the sample voices in our mix, and the v6/v7
 pluck onsets (program 0x01 sixteenths) with excess 6-20 kHz edge against the cart's darker attacks.
+
+#### 2026-09-18 (night): the first lossless capture set, and no reverb on the music
+
+The player re-recorded the whole Boom Box sweep with the game's audio menu on the YM2612 path:
+52 tracks, PCM 16-bit 48 kHz stereo, one full pass plus the loop seam each, the +6 dB option as
+always (it was always +6, never the +10 an earlier note claimed). What the set is: effectively
+MONO (left and right correlate at 0.99, the side channel is 6-8 % of the mid, so this set offers
+no pan isolation - that will come from the DATENMEISTER set being recorded next), a noise floor of
+-78 dBFS, and 2-5 dB more energy above 2 kHz than the AAC capture of the same Theme passage while
+carrying the same performance (onset envelopes correlate 0.62 at -2 ms). Lags fit cleanly on Theme,
+Techno Beats, Tough Guy and, for the first time, Dark Rock; Spiral and Gothic fit poorly, as their
+dense hats always did.
+
+The reverb question, open since the synth work began, has its first measured answer. Continue
+(module 12) has 0.806 s of sequencer silence at the end of each 32.04 s pass, after voice 23 ends.
+In that gap the cart is at -78 dBFS from 0.1 s after the note end - the recording's own lead-in
+floor - and stays there; the echo scan over the last note and the gap shows nothing the dry render
+does not. Two passes agree. On the YM path the music carries no reverb and no echo. The DATENMEISTER
+path must be checked the same way before the port treats it as settled.
+
+Two capture notes for the record. The "blank slot after a track" recording is not an impulse
+response: its first 19 s are loud rhythmic music that aligns to nothing in the module (a render
+search and a capture-to-capture search both at chance), then a 20 dB drop in 110 ms to the blank
+slot's held residue at -28 dB. Whatever a blank slot plays is not the module's sequence. And
+Stage Clear, once thought to have a gap, does not: the next cycle's first onset lands 0.3 s after
+the last note-on, inside seven released voices' tails. No module in the corpus has a silent intro
+(House: 0.24 s); Continue's gap and Game Over's 0.49 s at 9.8 s are the only sequencer silences.
