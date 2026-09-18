@@ -12330,3 +12330,24 @@ renderer's pan law is not the cart's), and the hard-panned pair on Spiral is a t
 both 0x1D and 0x21, so every side-channel reading is of two notes at once. The cart's sample lines
 sit about +0.2 semitone above ours at the same root while its FM lines are exact to 0.03: a
 sample-clock or rate-law constant, open. Cart lag on Spiral 1.7268 s, confirmed.
+
+#### 2026-09-18: the Theme FM bass an octave down, confirmed by ear; Spiral rate pairs stopped
+
+The player heard the Theme bass (voices 0 and 1, patches 0x01 and 0x02) ALONE at the written octave
+and one octave down, against the cart: one octave down is the cart, high confidence (cart ~82 Hz,
+render ~164). This is the ear confirmation of the census finding above. Note what it says about the
+mechanism: voice 1 is on patch 0x02 in that window, whose carriers are MUL 4/8/12, not MUL 0, and it
+went down with the bass and matched. So the criterion may be a global FM anchor an octave low rather
+than the MUL-0 carrier; a leads test (voices 2-4, patches 0x83/0x84, no MUL-0 carrier) is out for
+the ear, and the profile re-measurement is being built so that it does not depend on the answer:
+every patch measured with the fundamental at f/2 and 48 harmonics, on the composer mixes and on the
+cart captures, with sensitivity and null controls; a patch whose fundamental really is at f then
+shows no odd harmonics of f/2.
+
+Spiral, closed for now by the player after five ear pairs: per-program rate holds (0x21, 0x1D, 0x11
+at root 48 by measurement and ear; 0x27 provisionally 48, weak) do not repair the bed - the parts
+still play the wrong instruments against the cart. No further rate or octave pairs on Spiral. The
+assignment question stays open without a clean falsifier: header order, program-select scope, the
+order list, program identity and the program table fields have each been tested; the one analysis
+left is an identity fit (which bank sample sounds on each voice rhythm in the composer mix), not run.
+The holds are notes, not renderer changes. Commits 1ad64b8 and 315f56a stand.
