@@ -12292,3 +12292,41 @@ Next, running as a verified census: presence and rate of all seventeen Spiral sa
 against the composer's mix and the cart, tonal programs with the partial reader, noise programs
 with the onset-signature method and its recovery/null/bootstrap/sham controls, ending in one
 falsifier pair.
+
+#### 2026-09-17 (night): Spiral sample-bed census - a second C3 root, and where the methods go blind
+
+Eight agents: three strands (tonal programs with the partial reader, noise programs with the
+onset-signature method, presence/level by a pattern regression of the reference's band power on our
+program-level solos), three adversarial verifiers, a synthesis that built one pair, a critic that
+audited it. One-pager with numbers outside the repo (listen/2026-09-17/spiral_bed/).
+
+**Ear-confirmed: program 0x1D, the three-voice pad (279 notes on Spiral), plays one octave too low
+in our render.** Table root 59.8; both the composer's mix and the cart carry it from root 48. The
+verifier's independent even-minus-odd-harmonic statistic on the cart's side channel: +14.3 dB at 51
+of 54 voice-23 onsets (a root-48 render with the cart's own leak added: +16.9 at 53/54; a root-60
+render: -1.5, 29/54 negative; time-shifted null +2.8; +-5 semitone shams +4.4/+4.2); the composer's
+mix +13.3 at 50/54; the voice-24 rows have weak controls, so the verdict rests on voice 23 and on
+the per-frame pitch track (97 of 159 frames at root 48, 2 at root 60). The player, on the pad pair
+alone against the cart's side channel: "same register". So two bogus-class programs now have an
+ear-confirmed cart root and both are 48 (C3): 0x21 from a measured C6, 0x1D from a measured C4.
+Held as render parameters on Spiral; not in the renderer.
+
+**Likely, not verified as a strand (the presence strand's verifier did not sign it off):** the
+busiest bed voices are wrong in rate rather than level. Voice 15's program 0x29 (594 notes, table
+root 36.5, transposed up 15-37 semitones) is a +9/+15/+15 dB burst at 4.8-16 kHz on every off-beat
+sixteenth, 33 % of the render's power above 6 kHz, that neither reference contains - the likeliest
+"static drums" the player heard (that absence IS verified); what the references carry instead sits
+near the sample's own rate. The kick 0x11 and the hat 0x3F likewise sit near their own rate in both
+references, about two octaves above our transposition. The bass 0x0C reads ~10 dB louder relative
+to the mix in both references than in ours (unverified); the 0x27 pad voices 8-10 dB too loud in
+ours or partly absent in the references.
+
+**Method blind, verified as such:** the partial-line reader on every centred tonal program (it does
+not find our own 0x0C in our own mix: 0 of 50 at its root), and the onset-added band signature on
+every noise program (0x3F, 0x12, 0x1E, 0x19, 0x02, 0x26), because our bed is wrong on exactly the
+off-beat slots those onsets occupy. Two structural facts came with that: the cart's side channel
+still carries the centred mix at about -9 dB (the composer's at -11, our render's at -46, so the
+renderer's pan law is not the cart's), and the hard-panned pair on Spiral is a two-note chord on
+both 0x1D and 0x21, so every side-channel reading is of two notes at once. The cart's sample lines
+sit about +0.2 semitone above ours at the same root while its FM lines are exact to 0.03: a
+sample-clock or rate-law constant, open. Cart lag on Spiral 1.7268 s, confirmed.
