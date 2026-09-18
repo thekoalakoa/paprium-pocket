@@ -67,3 +67,22 @@ a single run, before it cost a fit.
 
 The demo never picks a weapon back up, so anything needing player interaction
 still needs a person at the controls.
+
+
+## The music renderer and its two measured FM tables
+
+`render_wave.py` renders a music module with the cartridge's own samples and, for
+the six FM voices, additive profiles MEASURED from hardware captures (the cart
+renders FM in its own firmware; a YM2612 model of the decoded patch bytes does not
+reproduce it). The profiles are derived numbers only and live in `scripts/data/`:
+
+| file | what it holds |
+|---|---|
+| `fm_timbre_h24.csv` | per patch, harmonics 1..24 at the WRITTEN note, attack, decay, level (from the hardware captures) |
+| `fm_timbre_half.csv` | per patch, harmonics 1..48 at HALF the written note, with an `octave` column: `half` = the cartridge plays this patch one octave below the written note, `written` = at the written note, `unknown` = not measured; `use` = 1 only where the measurement passed its controls and an independent audit |
+
+Both load by default. Patches marked `half` with `use` = 1 (nine, 2026-09-18:
+0x01 0x02 0x1E 0x3D 0x4B 0x54 0x5C 0x72 0x79) take the f/2 profile with the
+h24 entry's level and decay; every other patch keeps the h24 path at the written
+note. The octave is PER PATCH: 0x57, 0x06, 0x0E, 0x22 measured at the written note
+with no f/2 line. `--timbres none` / `--timbres-half none` disable either table.
