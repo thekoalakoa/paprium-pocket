@@ -69,8 +69,9 @@ Your save lives at `/Saves/paprium/common/Paprium.sav` and is also a fixed name.
 If you are moving a save over from a build that used the file browser, that is
 where it goes.
 
-There is no region option in the menu either — this is a single-game core and the
-game is Japanese, so the region is fixed to Japan.
+There is no separate region option: from 0.2.6 the region follows the **Console**
+entry in the core menu. The default, Mega Drive, is Japan, the region every earlier
+release used.
 
 Eject the card, put it in the Pocket, and the core appears under
 **Openfpga → Others → Paprium**.
@@ -118,27 +119,37 @@ Reached through the Pocket's own menu while the core is running.
 | Setting | Notes |
 |---|---|
 | **Soft Reset (mini game)** | Restarts the console. This is how you get past the mini-game on first boot |
-| **Region (hard restart req'd)** | **Japan** (default) or **Export**. See below |
 | **Aspect Ratio** | Original or corrected |
+| **Little-Man** | The cheats: Health, Pills, Lives, or any combination. Off by default; applies at once |
+| **Arcade Stage Select**, **Arcade Stage Select 2** | Start the hidden Arcade Mode on a chosen stage; Select inserts a coin. Needs a Soft Reset |
+| **6-Button** | X, Y, Z and Mode reach the game, on L, X, R and Select. Applies at once |
+| **Console** | Mega Drive (default), Genesis, Mega Drive 2, Genesis Model 2, Genesis 3, Nomad, Mega Jet or Unknown. Sets the region. Needs a Soft Reset |
+| **Mega CD** | None (default) or one of eight units. With any unit except Unknown CD, the game's CPU MATE partner works. Needs a Soft Reset |
+| **32X Mode** | The game believes a 32X is attached. Needs a Soft Reset |
+| **MegaWire** | Off by default, as a real cartridge with nothing plugged in. Needs a Soft Reset |
 
-### Region needs a full restart
+What each one does, and CPU MATE: [Scum! and the console options](../README.md#scum-and-the-console-options)
+in the README, and [docs/SCUM.md](SCUM.md) for the details.
 
-The game reads the console region **once, at boot**, and a soft reset is not
-enough to change it — the core keeps data in memory across a reset. To change
-region, **exit the core completely** and relaunch it.
+### Console and Mega CD: change first, then Soft Reset
 
-If you change region and nothing seems different, this is why.
+The game reads the console, the Mega CD unit, 32X Mode and MegaWire **once, at
+boot**. Change the setting first, then use **Soft Reset (mini game)**. If the Boom
+Box shows the wrong console afterwards, or the screen stays black, Soft Reset once
+more: that is a known issue in 0.2.6.
 
-**Japan** gives you the Japanese cartridge's extras — song titles at the start of
-each level, and other easter eggs. **Export** doesn't. Both play the game fine.
+**Japan** (Mega Drive, Mega Drive 2, Mega Jet, Unknown) gives you the Japanese
+cartridge's extras — song titles at the start of each level, and other easter eggs.
+**USA** (Genesis, Genesis Model 2, Genesis 3, Nomad) doesn't. Both play the game fine.
+A combined Mega CD unit sets its own region: Wondermega and Aiwa CSD-GM1 are Japan, the
+CDX is USA.
 
-### There is no 6-button option
+### 6-Button
 
-Removed deliberately. Paprium's own controller read is a 3-button read, so X, Y, Z
-and Mode never did anything regardless of the setting - the option only looked like
-it worked. Tying it off also frees logic on a core that fits tightly.
-
-The game plays fully with three buttons; that is how it reads the pad.
+Off by default, and off the game behaves as it always has on this core: X, Y, Z and
+Mode never reach it. Paprium's own pad code does read a 6-button pad, but on this
+core, as on MiSTer and EverDrive, those buttons do not arrive; the **6-Button**
+switch hands them to the game directly. The game plays fully with three buttons.
 
 ### The in-game "VM DAC" option
 
@@ -246,8 +257,10 @@ missing file.
 
 There is one maintained list and this is not it: see
 [Known issues](../README.md#known-issues) in the README for what is open today, and
-[Fixed here](../README.md#fixed-here) for what has been closed since. As of 0.2.5 the
-open list is two items, both on the audio side. Everything below is the per-release
+[Fixed here](../README.md#fixed-here) for what has been closed since. As of 0.2.6 the
+open list is four items: two on the audio side, and two that come with the 0.2.6 menu
+options (the Hall of Fame name-entry bar with Arcade Stage Select or 6-Button on, and a
+Console or Mega CD change around a Soft Reset). Everything below is the per-release
 history this guide was written alongside, and is kept for that.
 
 (This section used to carry its own copy of the open list, which fell five releases
@@ -317,6 +330,10 @@ Expect it to play well, not to be cycle-accurate.
 | openFPGA-MegaDrive (Pocket port) | drizzt |
 | Paprium_MegaDrive_MiSTer | MisterPezz82 |
 | mega-ppm firmware | krikzz |
+| NEORV32 (the cartridge MCU) | Stephan Nolting |
+| Arcade unlock and Mode-button credit | adroxe |
 | Pocket port | Koala_Koa |
 
-Licensed under GPLv3 or later.
+Licensed under GPLv3 or later. The NEORV32 processor and the mega-ppm firmware are
+BSD-3-Clause; their notices are in `THIRD_PARTY_NOTICES.md`, in the repository and in
+the release package.
