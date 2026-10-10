@@ -1,23 +1,82 @@
 # Firmware patches against krikzz/mega-ppm
 
-`mega-ppm-pocket.patch` applies to a clean clone of
-[krikzz/mega-ppm](https://github.com/krikzz/mega-ppm) and produces the firmware
-this core ships in `rtl/PAPRIUM/mcu.txt`.
+`mega-ppm-pocket.patch` is our change to
+[krikzz/mega-ppm](https://github.com/krikzz/mega-ppm) at commit `84be6bd`. It
+produces the firmware this core ships in `rtl/PAPRIUM/` (`mcu.txt`,
+`mcu_ext.txt`, `wram_hi.txt`, `wram_lo.txt`).
 
 ```bash
-git clone https://github.com/krikzz/mega-ppm.git repos/mega-ppm
-cd repos/mega-ppm && git apply ../../paprium-pocket/patches/mega-ppm-pocket.patch
-cd ../../paprium-pocket && ./scripts/build_mcu.sh
+git clone https://github.com/krikzz/mega-ppm.git ../repos/mega-ppm
+./scripts/build_mcu.sh                      # applies the patch to 84be6bd itself
 ```
 
-`build_mcu.sh` installs into `rtl/PAPRIUM/mcu.txt` itself and reports whether the
-firmware actually changed. It used to only print that path as a "reference build
-for comparison", which cost a full Quartus fit built against stale firmware - see
-docs/BUILD_REFERENCE.md.
+`build_mcu.sh` reads the pinned commit with `git archive`, so the clone itself is
+never modified, applies the patch in its own build folder, and installs the four
+images into `rtl/PAPRIUM/`. It prints their md5s and whether they are a known
+build. It used to only print the path as a "reference build for comparison", which
+cost a full Quartus fit built against stale firmware - see docs/BUILD_REFERENCE.md.
+Variants, the md5 of every image, and the CPU MATE brain (a separate release
+download, not in this patch): docs/firmware/README.md.
 
 The patch is kept here rather than the built binary alone because GPLv3 asks that
-a distributed binary come with its corresponding source, and `mcu.txt` is a
-compiled work. This is the source of our changes to it.
+a distributed binary come with its corresponding source, and the images are a
+compiled work. This is the source of our changes to it. mega-ppm itself is
+BSD-3-Clause, Copyright (c) 2025 krikzz.
+
+## 0.2.6
+
+**Sprite cache, DMA budget and animation queue: the original cartridge's rules.**
+Every release before this one guessed at the cartridge's sprite handling from what
+the game asked for and what hardware showed, and each guess fixed one case and
+broke another (the history is below: the sticky switch, "chain only at an end",
+the fresh-queue window, "a prop is not an actor", the DMA floor). 0.2.6 replaces
+them with the cartridge's own rules, rule for rule, each behind a switch in
+`mame.h` that the comments in `mame.c` explain:
+
+- `PPM_CHIP_CACHE_LISTS`, `_CLAIM`, `_MISS`, `PPM_CHIP_LOAD_CAP`: per-slot
+  countdowns aged into free, idle and recently-used lists in place of mega-ppm's
+  least-recently-used eviction; slots claimed lowest first; a piece that cannot be
+  loaded is dropped alone instead of rewinding the whole object; at most 15 loads
+  per list.
+- `PPM_CHIP_BUDGET`, `PPM_CHIP_POSE_HOLD`, `PPM_CHIP_READY_FLAG`: the DMA budget
+  is charged and gated on the same words, by the same amounts; a pose that does
+  not fit is held (the previous pose is drawn) or pre-loaded over several frames;
+  the "object is on screen" flag the game's stage scripts wait on is cleared the
+  same way.
+- `PPM_CHIP_ANIM_QUEUE`, `PPM_CHIP_ANIM_END`: the queued animation moves into the
+  record at the draw, a re-armed queue cancels itself, the switch happens at the
+  end of the current cycle, and a terminal end clears the animation. This one rule
+  covers the dropped weapons and the walk-in that the four earlier heuristics
+  traded against each other; all four are compiled out.
+- `PPM_CHIP_EC`, `PPM_CHIP_B0`, `PPM_CHIP_81`: the three cache commands reset and
+  resize the cache as the cartridge does.
+
+**The ending float.** At the ending, a character floated during the transition
+walk. The sprite-table close (`AF`) now ends the table the cartridge's way: end
+mark at the entry count, the link byte of entry 79 cleared, count + 1 entries
+uploaded (`PPM_FLOAT_ENDMARK`). The cartridge's multiplex path for more than 80
+entries is not matched.
+
+**Console and MegaWire options.** The model bits and the MegaWire status the
+firmware reports at boot used to be fixed (MegaWire "plugged and connected").
+They now come from the core's Console and MegaWire menu options, through the MCU's
+GPIO input. The game reads them once, in its boot-time hardware check.
+
+**CPU MATE.** `buddy.h`, `zz_buddy.c` and `zz_buddy_trap.c` are the glue between
+the core's Mega CD link and the partner's brain: they take the game's request,
+run the brain, and hand the pad word back with the sub CPU's timing.
+`zz_buddy_brain.c` links the brain itself, which is not in this patch (see
+docs/firmware/README.md). Built without it, the glue switches itself off and the
+link keeps its plain stub answers.
+
+**Boom Box bars at the right tempo.** The row-clock correction described under
+"Boom Box VU bars" below (2026-09-15) was never in a release before this one.
+
+**Release and test builds.** `-DPPM_RELEASE=1` compiles the debug aids out (UART
+printf, SAT snapshot, object dump); the test build keeps them. The firmware no
+longer fits 32 KB with the brain, so the IROM gained a 22 KB extension and the
+glue runs from a write-locked code window in the cart WRAM
+(`scripts/firmware/paprium_mcu.ld`).
 
 ## What it contains
 
@@ -91,7 +150,7 @@ effect on the row it sits on; header `0x0A` is the rows per pattern (0 = 256) an
 `0x09` the position playback repeats from. The 0.2.3–0.2.5 firmware used GPGX's
 frames-per-row reading, plus 8 extra rows per pattern, and ran about 20% fast:
 Stage Clear loops every 5.82 s on hardware, 4.86 s under that reading. Corrected
-2026-09-15; not yet in a release.
+2026-09-15; first released in 0.2.6.
 
 The row tick lives in `ppm_start()`'s loop, which runs far faster than 60 Hz, so
 at most one row advances per call and a carried millisecond remainder keeps the

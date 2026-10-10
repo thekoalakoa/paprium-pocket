@@ -121,6 +121,10 @@ comparison", which reads like confirmation and is not. Quartus reads
 
     cp build_output/mcu/mcu.txt rtl/PAPRIUM/mcu.txt      # or the build is a no-op
 
+(Since fixed: `build_mcu.sh` installs what it builds, and since 0.2.6 that is four
+images, `mcu.txt`, `mcu_ext.txt`, `wram_hi.txt` and `wram_lo.txt`; see
+docs/firmware/README.md. The two-condition gate below still applies.)
+
 This cost a whole 25-minute fit, and the failure is invisible to the timing gate:
 ALM, M10K, setup and hold all came back **identical to shipping**, which is
 exactly what "firmware-only, no RTL touched" is supposed to look like. It was
