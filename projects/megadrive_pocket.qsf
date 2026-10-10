@@ -110,9 +110,34 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT HIGH
 set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 
-set_global_assignment -name SEED 5
+set_global_assignment -name SEED 2
 
 # --- FX68K is the shipping CPU from 0.2.2 (ijor/FX68K, GPL-3, vendored in rtl/fx68k) ---
 set_global_assignment -name VERILOG_MACRO "USE_FX68K=1"
 set_global_assignment -name QIP_FILE ../rtl/fx68k/fx68k.qip
 set_global_assignment -name SEARCH_PATH ../rtl/fx68k
+
+# pocket: xram stage 1. Every live SRAM / cram0 pin register goes into its IOE, so the
+# pad delays are the ones the controllers' wait states were planned against (xram facts probe);
+# the SDC budgets in core_constraints.sdc fail if one falls out. cram0_clk and cram0_ce1_n are
+# constants, not registers. Assignments on the ports of a variant that ties them off are ignored.
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to sram_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to sram_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to sram_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to sram_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to sram_lb_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to sram_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to sram_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to sram_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_cre
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+# pocket-end
