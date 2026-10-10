@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 #
 # Refuse the two operations that lose work irrecoverably: force-pushing a
-# protected branch, and deleting one.
+# protected branch, and deleting one. Also refuse, on every ref, to publish an
+# absolute path under a local user's home directory (C:/Users/<name>, C:\Users\<name>,
+# /c/Users/<name>, Quartus' /users/<name>, a tool's C--Users-<name>-... folder
+# names), in text (UTF-8 or UTF-16) and in binary files alike. The history was rewritten in 2026-10
+# to take those out; this keeps them from coming back.
 #
 # This is a LOCAL guard. It runs on this machine only and is not a substitute for
-# a GitHub ruleset - anyone pushing from anywhere else is unaffected, and it can
-# be skipped with --no-verify. It exists because this repository is private, and
-# GitHub gates branch protection and rulesets on private repositories behind a
-# paid plan. See docs/REPO_PROTECTION.md.
+# the GitHub rulesets - anyone pushing from anywhere else is unaffected, and it can
+# be skipped with --no-verify. It catches a slip before the server sees it, and it
+# covers what the rulesets do not (topic branches, content). See
+# docs/REPO_PROTECTION.md.
 #
 # Install:  ./scripts/install_git_hooks.sh
 #
@@ -31,10 +35,56 @@ is_protected() {
     return 1
 }
 
+# A drive, MSYS, WSL or Quartus prefix, then Users/<name> in any case and either
+# slash (with or without a slash after the name); or a tool's project folder name,
+# C--Users-<name>-.... A placeholder such as <name> or <HOME> does not match.
+HOME_PATH_RE='([A-Za-z]:[\\/]+|(^|[^A-Za-z0-9_.~-])/(mnt/)?([A-Za-z]/)?)[Uu][Ss][Ee][Rr][Ss][\\/]+[^\\/[:space:]"<>]|[A-Za-z]--[Uu][Ss][Ee][Rr][Ss]-[A-Za-z0-9]'
+
+# Print "<commit> <file>: <text around the hit>" for every added line in the
+# outgoing commits that names a home directory. --text makes binary files show
+# their bytes too (a compiled file can carry a source path), and dropping the NUL
+# bytes lets UTF-16 text (Windows PowerShell's default output) match as well.
+# Outgoing = not yet on the remote ref, or, for a new ref or a remote commit we do
+# not have, not on any remote-tracking ref.
+home_path_hits() {
+    local lsha=$1 rsha=$2
+    local -a range
+    if [ "$rsha" != "$ZERO" ] && git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+        range=("$rsha..$lsha")
+    else
+        range=("$lsha" --not --remotes)
+    fi
+    git log -p --text --no-color --no-ext-diff --no-textconv --format='commit %h' "${range[@]}" -- 2>/dev/null |
+        tr -d '\000' |
+        HOME_PATH_RE="$HOME_PATH_RE" LC_ALL=C awk '
+            BEGIN                { re = ENVIRON["HOME_PATH_RE"] }   # no -v: it would eat the backslashes
+            /^commit [0-9a-f]+$/ { c = $2; next }
+            /^\+\+\+ /           { f = substr($0, 7); next }
+            /^\+/ && match($0, re) {
+                s = RSTART - 40; if (s < 2) s = 2
+                t = substr($0, s, 160); gsub(/[^[:print:]]/, ".", t)
+                print c " " f ": " t; n++
+            }
+            END                  { exit (n > 0) ? 0 : 1 }'
+}
+
 fail=0
 
 while read -r local_ref local_sha remote_ref remote_sha; do
     [ -z "${remote_ref:-}" ] && continue
+
+    # Home-path guard, on every ref that is being created or updated.
+    if [ "$local_sha" != "$ZERO" ]; then
+        if hits=$(home_path_hits "$local_sha" "$remote_sha"); then
+            echo "pre-push: REFUSED - '$remote_ref' would publish a local home path:" >&2
+            printf '%s\n' "$hits" | head -n 10 | sed 's/^/  /' >&2
+            total=$(printf '%s\n' "$hits" | wc -l)
+            [ "$total" -gt 10 ] && echo "  ... $total lines in all" >&2
+            echo "  Make the path relative (or replace the prefix with <HOME>) and commit again." >&2
+            fail=1
+        fi
+    fi
+
     is_protected "$remote_ref" || continue
     branch=${remote_ref#refs/heads/}
 
