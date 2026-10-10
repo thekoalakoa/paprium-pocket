@@ -64,3 +64,10 @@ cdda-blob/
 
 # built by hand from tools/da-twin/da_twin.c; see docs/CRC_SNAPSHOT.md
 tools/da-twin/da_twin.exe
+
+# The CPU MATE brain is a separate release download, never part of the repository (docs/firmware/README.md).
+# Unpack it here, or anywhere else, and pass the folder to scripts/build_mcu.sh --brain.
+/cpu-mate-brain/
+brain.bin
+cf.bin
+rodata.bin

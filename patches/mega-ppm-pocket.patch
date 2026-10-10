@@ -1,8 +1,247 @@
+paprium-pocket: the Paprium MCU firmware changes against krikzz/mega-ppm
+(https://github.com/krikzz/mega-ppm), commit 84be6bdd0bff18bf143d9ab3cc7267a5954d5a70.
+
+scripts/build_mcu.sh applies this to that commit (read with git archive) and builds the four
+rtl/PAPRIUM images. mega-ppm is BSD-3-Clause (Copyright (c) 2025, krikzz); see THIRD_PARTY_NOTICES.md.
+The CPU MATE brain is not in this patch: zz_buddy_brain.c links it from the separate release download.
+Patch notes: patches/README.md. Build notes: docs/firmware/README.md.
+
+diff --git a/mcu/appmain.h b/mcu/appmain.h
+index d21263d..f8165e6 100644
+--- a/mcu/appmain.h
++++ b/mcu/appmain.h
+@@ -17,7 +17,14 @@
+ #include "mdp.h"
+ #include "everdrive.h"
+ 
++#if PPM_DEBUG_PRINTF
+ #define printf neorv32_uart_printf
++#else
++// 0.2.6 release: debug printf off (mame.h PPM_DEBUG_PRINTF). Not variadic-forwarding: the body is empty,
++// so GCC inlines it away; the arguments are still evaluated, so no read with a side effect is lost.
++static inline __attribute__((always_inline)) void ppm_printf_off(const char *format, ...) { (void) format; }
++#define printf ppm_printf_off
++#endif
+ 
+ void printHex(void *src, u32 size);
+ 
+diff --git a/mcu/buddy.h b/mcu/buddy.h
+new file mode 100644
+index 0000000..39f86ea
+--- /dev/null
++++ b/mcu/buddy.h
+@@ -0,0 +1,206 @@
++/*
++ * buddy.h - the hook-free CPU MATE buddy on the cart NEORV32 ("option D"), firmware glue.
++ * paprium-pocket 0.2.6. The brain itself is not in this source: see zz_buddy_brain.c.
++ *
++ * What the glue does (zz_buddy.c, zz_buddy_trap.c):
++ *   1. The main loop's existing FPGAIO ctrl read also sees the stub's "send pending" and "AI off" bits
++ *      (paprium_xlink LSTAT[7:0] -> fpgio ctrl[15:8]). Its test changes from (ctrl >> 3) & 1 to
++ *      (ctrl >> 3) & BUDDY_LOOP_MASK: the same four instructions, so with no Mega CD unit selected (no post,
++ *      no $A12001 write can ever reach the stub) every pass is the same instructions and cycles as 0.2.5.
++ *   2. A send runs the brain (H2 = the AI call with the counter, then H1 = the word) at the end of a pass
++ *      with reg_cmd == 0, as a task: MEIE + MTIE + MIE are set only while it runs. The mailbox post
++ *      interrupt runs the usual loop body (ppm_cmd_handler, sfx_player_update, ppm_music_vu_update) until
++ *      the mailbox is quiet, so a cart reply never waits behind the brain.
++ *   3. On finish: PEND, D_WORD, D_BUSY (forced >= D_WORD) and ARM; ARM is read back and re-sent if the
++ *      stub did not take it (review finding 1).
++ *   4. SRES 1 -> 0 (restart) and SBRQ 0 -> 1 (AI off): the call in flight is aborted (or discarded), and
++ *      at the release (SRES = 1, SBRQ = 0) the sub init's Word RAM pattern is written into the SRAM
++ *      mirror and the brain's restart flag is raised (the brain clears its AI block itself).
++ *   5. R-SFX: a rate-aware feeder on the MTIME interrupt, on an absolute grid (BUDDY_FEED_PERIOD): every channel
++ *      with samples left and a FIFO not full gets k = ceil((P + J) / T) + 1 pushes a tick (T = its sample period,
++ *      from the SFX table, rebuilt whenever the SFX base changes - 0xC6), in channel order, with a mailbox-interrupt
++ *      window (never a tick: MTIE is off inside a tick) between two channels; a tick late by m periods pushes
++ *      k * (1 + m); the run's first round runs at once with interrupts off, fused with the scan (after the usual
++ *      push pass at the slow path's entry); a channel started inside the run (a 0xD1 in the post ISR, also on a
++ *      channel that ended earlier in the run) gets its first batch in that ISR right after the command's service; a
++ *      post taken inside a tick's window leaves its scan and VU schedule to the tick's end, where windows sit between
++ *      the pieces; channels are topped up before a VU row. Same per-channel code as sfx_player_update
++ *      (register-cached; a glue unit test checks the values).
++ *   6. R-VU: the VU due check runs at the row's due instant (MTIME compare from a calibrated
++ *      FPGAIO-ms/MTIME phase), polling until the phase is known.
++ */
++/*
++ * INTEGRATION (what the build and the RTL must provide):
++ *   - build: objcopy --globalize-symbol=vu_due --globalize-symbol=vu_on paprium.c.o before the link (one line in
++ *     scripts/build_mcu.sh). paprium.c is NOT recompiled differently.
++ *   - brain ABI (BudEntry): H2 and H1 are plain RV-ABI calls with no arguments; they may use tp (the counter) but
++ *     must not write gp (the interrupt handlers run shipping C code that addresses data through gp); H1 returns
++ *     the word in a0; the counter leaves {c_hat, D_WORD, D_BUSY} at cnt_out and reads Wf at cnt_out + 12 (the glue
++ *     writes 0: W lives in the stub's 12.5 MHz tick). The flag halfword is raised by the glue before the first call
++ *     after a release; the brain clears it (its restart path).
++ *   - memory: the glue's state is WRAM .noinit.zz_buddy, right after the shipping .bss (see the linker script);
++ *     the rate hash uses the SRAM scratch (BUDDY_SCRATCH_ADDR, 3 KB); the sub-init restore writes the SRAM
++ *     mirror (records 4).
++ *   - RTL facts relied on: LSTAT/LCLR/D_WORD/D_BUSY/PEND/ARM/LCTRL as paprium_xlink.sv (stage 2); ctrl[15:8] =
++ *     {mbx_irq, sbrq, sres, busy, late, aioff, restart, send}; FPGAIO slot 6 clears the mailbox latch; the game's
++ *     every SRES 1 -> 0 edge comes with SBRQ = 1 (an AI-off edge, or AI off already held).
++ */
++#ifndef BUDDY_H
++#define BUDDY_H
++
++#include <stdint.h>
++
++/* ------------------------------------------------------------------ build switches */
++#ifndef BUDDY_STUB_BRAIN
++#define BUDDY_STUB_BRAIN        1       /* 1: placeholder brain linked into the IROM image (zz_buddy_stub.c, not shipped);
++                                           0: the brain comes from the PBUD image in the Pocket SRAM */
++#endif
++/* 1 = the real brain is linked into block RAM (rodata + text in the IROM rom0 tail + extension, the counting
++   helpers in the WRAM code window, both bitstream-initialised; data in WRAM and the Pocket SRAM). The entry table
++   is zz_buddy_brain.c. No PBUD loader. The 0.2.6 release firmware is built this way. */
++#ifndef BUDDY_LINKED_BRAIN
++#define BUDDY_LINKED_BRAIN      0
++#endif
++#if BUDDY_LINKED_BRAIN && BUDDY_STUB_BRAIN
++#error "BUDDY_LINKED_BRAIN needs BUDDY_STUB_BRAIN = 0"
++#endif
++/* 1 = built WITHOUT the brain (scripts/build_mcu.sh when the brain files are not given): no brain code, no PBUD
++   loader. The glue disables itself at its first event, so the link keeps the stub's answers (BUSY 0, COMSTAT2 0) and
++   the CPU MATE gets no input from the cart. Everything else in the firmware is the same source. */
++#ifndef BUDDY_NO_BRAIN
++#define BUDDY_NO_BRAIN          0
++#endif
++#if BUDDY_NO_BRAIN && (BUDDY_LINKED_BRAIN || BUDDY_STUB_BRAIN)
++#error "BUDDY_NO_BRAIN needs BUDDY_LINKED_BRAIN = 0 and BUDDY_STUB_BRAIN = 0"
++#endif
++
++/* ------------------------------------------------------------------ the main loop's test */
++/* (ctrl >> 3): bit 0 = md_rst_status (ctrl[3]), bit 5 = send pending (ctrl[8] = LSTAT[0]),
++   bit 7 = AI off (ctrl[10] = LSTAT[2]). The restart flag (ctrl[9]) powers up 1 and is NOT in the mask. */
++#define BUDDY_LOOP_MASK         0xA1u
++
++void buddy_event(uint32_t ctrl);        /* the slow path: called from ppm_start with the ctrl word */
++
++/* ------------------------------------------------------------------ MMIO */
++#define BUD_FPGAIO_CTRL         0x01000000u
++#define BUD_FPGAIO_TIME         0x01000004u
++#define BUD_FPGAIO_IRQCLR       0x01000018u     /* slot 6: write bit 0 = 1 clears the mailbox latch */
++#define BUD_RAMDP_REGCMD        0x02001FEAu
++#define BUD_SFX_BASE            0x06000000u
++#define BUD_FLASH_BASE          0x04000000u
++#define BUD_SRAM_BASE           0x08000000u
++#define BUD_XLINK_BASE          0x0A000000u
++
++#define XL_XCFG                 0x00
++#define XL_ID                   0x04
++#define XL_LSTAT                0x20
++#define XL_LCLR                 0x24
++#define XL_DWORD                0x28
++#define XL_DBUSY                0x2C
++#define XL_PEND                 0x30
++#define XL_ARM                  0x34
++#define XL_TICK                 0x38
++#define XL_LCTRL                0x3C
++#define XLINK_ID_STAGE2         0x58524D32u     /* 'XRM2' */
++#define XCFG_LOCK               (1u << 16)      /* SRAM image lock: MCU writes below SRAM byte 0x10000 dropped */
++
++/* LSTAT[7:0] = {sbrq, sres, armed, busy, late, AI off, restart, send pending}; [15:8] late count; [31:16] posts */
++#define LS_SEND                 0x01u
++#define LS_RESTART              0x02u
++#define LS_AIOFF                0x04u
++#define LS_LATE                 0x08u
++#define LS_BUSY                 0x10u
++#define LS_ARMED                0x20u
++#define LS_SRES                 0x40u
++#define LS_SBRQ                 0x80u
++
++/* fpgio ctrl read = {16'd0, mbx_irq, sbrq, sres, busy, late, AI off, restart, send, ctrl[7:0]} */
++#define CT_MDRST                (1u << 3)
++#define CT_SEND                 (1u << 8)
++#define CT_RESTART              (1u << 9)
++#define CT_AIOFF                (1u << 10)
++#define CT_SRES                 (1u << 13)
++#define CT_SBRQ                 (1u << 14)
++
++#define MTIME_LO_ADDR           0xFFFFFF90u
++#define MTIME_HI_ADDR           0xFFFFFF94u
++#define MTIMECMP_LO_ADDR        0xFFFFFF98u
++#define MTIMECMP_HI_ADDR        0xFFFFFF9Cu
++
++/* ------------------------------------------------------------------ R-SFX feeder (MODELLED constants) */
++#define BUDDY_FEED_PERIOD       7168u           /* grid period, MCU cycles (24 kHz consumes 3.20 samples per period) */
++#define BUDDY_FEED_JITTER       400u            /* tick lateness allowed for in k (trap entry, longest bus access) */
++#define BUDDY_FEED_K_UNKNOWN    5u              /* rate not known: priced as 24 kHz, the fastest rate in the bank */
++#define BUDDY_FEED_CATCHUP      6u              /* a tick late by m whole periods pushes k * (1 + m), m <= 6 */
++#define BUDDY_FEED_KMAX         48u             /* pushes per channel in one tick at most */
++#define BUDDY_FEED_VU_TOPUP     3u              /* rounds pushed right before a VU row (a row blocks for 6-15k) */
++#define BUDDY_FEED_RESCAN       65536u          /* re-check channels that were full (a full FIFO lasts >= 573k) */
++#define BUDDY_RATE_SLOTS        256u            /* rate hash in the SRAM scratch (open addressing, 8 B a slot) */
++
++/* ------------------------------------------------------------------ R-VU */
++#define BUDDY_MS_CYCLES         53693u          /* fpgio.sv: ctr_c counts 0..CLK_FREQ/1000-1 = 53,693 clocks a ms */
++#define BUDDY_VU_POLL           512u            /* poll spacing while the ms phase is not yet known */
++#define BUDDY_VU_CAL_MAX        1024u           /* phase window narrower than this = calibrated */
++
++/* ------------------------------------------------------------------ slices of boot-time work, per main-loop pass */
++#define BUDDY_SLICE_WORDS       16u             /* restore / copy: words per slice (~300-500 cycles) */
++#define BUDDY_SLICE_CRC_BYTES   16u
++#define BUDDY_SLICE_RATE        2u              /* SFX table entries per slice */
++
++/* ------------------------------------------------------------------ layout */
++/* SRAM map: image 0x00000-0x0FFFF, PRG tables 0x10000, scratch 0x18000, Word RAM mirror
++   0x20000 (direct window: 68000 $600000 + o -> SRAM byte 0x20000 + o). */
++#define BUDDY_IMG_ADDR          (BUD_SRAM_BASE + 0x00000u)
++#define BUDDY_SCRATCH_ADDR      (BUD_SRAM_BASE + 0x18000u)
++#define BUDDY_MIRROR_ADDR       (BUD_SRAM_BASE + 0x20000u)
++/* WRAM window the PBUD fast section may be copied into (checked); the firmware's .data/.bss end at
++   __crt0_bss_end and its stack grows down from the top of the 32 KB WRAM. */
++#define BUDDY_WRAM_CODE_HI      0x80007000u     /* leaves 4 KB of stack (the worst firmware stack + the
++                                                   brain frames + one trap frame + a command handler) */
++
++/* PBUD header (an SRAM-loaded brain image; not used by the 0.2.6 build), little-endian, at BUDDY_IMG_ADDR */
++typedef struct {
++    uint32_t magic;             /* 'PBUD' 0x44554250 */
++    uint16_t version;           /* 1 */
++    uint16_t flags;
++    uint32_t length;            /* payload bytes (after this 32-byte header) */
++    uint32_t crc32;             /* IEEE CRC-32 of the payload */
++    uint32_t entry_off;         /* payload offset of the entry table below */
++    uint32_t fast_lma;          /* payload offset of the section copied into WRAM */
++    uint32_t fast_vma;          /* its WRAM address */
++    uint32_t fast_len;          /* bytes (0 = nothing to copy) */
++} BudPbudHdr;
++#define PBUD_MAGIC              0x44554250u
++
++/* Entry table (ABI v1). Addresses are MCU addresses. */
++typedef struct {
++    uint32_t magic;             /* 'PBE1' 0x31454250 */
++    uint32_t h2;                /* ENTRY_h2: one AI call ($3C10) + the counter; RV ABI, uses tp, no args */
++    uint32_t h1;                /* ENTRY_h1: the word, zero-extended in a0 (runs the restart if the flag is set) */
++    uint32_t cnt_out;           /* counter block: +0 c_hat, +4 D_WORD, +8 D_BUSY (out), +12 Wf = floor(W * 2^32) (in) */
++    uint32_t flag;              /* the brain's "sub restarted" halfword: bit 0 = 1 -> H1/H2 clear the AI block */
++    uint32_t code_lo, code_hi;  /* the brain's code range (an exception there aborts the call and disables the buddy) */
++    uint32_t nrestore;          /* sub init Word RAM pattern records below */
++    struct { uint32_t addr, bytes, fill16; } restore[4];
++    /* (appended; zero in the stub / PBUD entries): copies done at every release after the restore, as
++       halfwords (src, dst, bytes even) - the captured sub tables, SRAM PRG capture -> the brain's WRAM cap region -
++       and the counter's T16 key, cleared at every aborted call and every release (a T16 build cut by an abort would
++       otherwise leave a stale key over a half-written table) */
++    uint32_t ncopy;
++    struct { uint32_t src, dst, bytes; } copy[3];
++    uint32_t t16_key;
++} BudEntry;
++#define PBE_MAGIC               0x31454250u
++
++/* ------------------------------------------------------------------ diagnostics block (WRAM, read by a debugger / a
++   measurement image; nothing reads it in play) */
++typedef struct {
++    uint32_t events, inits, sends, calls, published, discarded, aborted, ignored_halted, ignored_notready;
++    uint32_t restarts, aioffs, releases, restores_done, rearms, dbusy_fixed, late_seen, arm_lost;
++    uint32_t mbx_isr, mbx_cmds, ticks, pushes, catchups, vu_rows, vu_polls, rescans, exc_brain, exc_fw;
++    uint32_t run_cycles_last, run_cycles_max, feed_mask_max, rate_hits, rate_miss;
++    uint32_t cal_width, cal_samples, img_state, img_crc_calc, first_batches;
++} BudStats;
++extern BudStats bud_stats;
++
++#endif /* BUDDY_H */
 diff --git a/mcu/mame.c b/mcu/mame.c
-index b568843..8bb981f 100644
+index b568843..3ec6801 100644
 --- a/mcu/mame.c
 +++ b/mcu/mame.c
-@@ -4,6 +4,252 @@
+@@ -4,21 +4,662 @@
  #include "appmain.h"
  
  #define PPM_DATA_START_ADDR     0x10000	// base sdram unpack address
@@ -255,7 +494,223 @@ index b568843..8bb981f 100644
  #define PPM_MAX_VRAM_SLOTS      64
  #define PPM_OBJECTS_COUNT       64
  #define PPM_MAX_OBJ_BLOCKS      32
-@@ -15,6 +261,61 @@ uint16_t ppm_vram_load_block(uint16_t num);
+ 
++// ---------------------------------------------------------------------------
++// CHIP SPRITE CACHE (0.2.6): PPM_CHIP_CACHE_LISTS, PPM_CHIP_CACHE_CLAIM, PPM_CHIP_CACHE_MISS
++//
++// These switches make the sprite cache behave the way the original cartridge's
++// own cache does, rule for rule, in place of mega-ppm's least-recently-used
++// eviction. "The chip" / "the cart" below means the original cartridge.
++//
++// The cart keeps its cache state per VRAM id, and our slot x is the cart's slot
++// n = x + 1 (slot 0 is id 0, which never holds a block):
++//   a countdown byte per slot, $20 on use or load ............ ppm_chip_cd[x]
++//   list A (free) and its count ............................... ppm_chip_list[0], ppm_chip_n[0]
++//   list B (idle) and its count ............................... ppm_chip_list[1], ppm_chip_n[1]
++//   list C (used last frame) and its count .................... ppm_chip_list[2], ppm_chip_n[2]
++//   block -> id and id -> block maps .......................... ppm_vram_slots[x].block_num (searched)
++//   the load (stream) list count .............................. ppm_chip_loads
++//
++// PPM_CHIP_CACHE_LISTS: countdown := $20 on every use or load; every AE ages
++//     the slots into lists A/B/C; a miss takes list A, then B, then the piece's
++//     related block, then C, and only then drops the piece. Replaces the LRU
++//     victim search; PPM_PIN_FALLBACK's pinning is compiled out while it is on.
++// PPM_CHIP_CACHE_CLAIM: every list is popped from its END, which is the lowest
++//     slot (the aging walks the slots downwards), and slot -> VRAM id follows the
++//     cart's own slot table (PPM_SLOT_ID below). Claim order only exists on the
++//     lists, so this needs PPM_CHIP_CACHE_LISTS. Set to 0 (with the lists on) the
++//     lists are popped from their FRONT, highest slot first, and our old slot -> id
++//     map is used. CLAIM also writes a load's DMA descriptor words in the cart's
++//     order. The register words still come before the two command words in either
++//     order, so the VDP ends up doing the same transfer.
++// PPM_CHIP_CACHE_MISS: a piece that cannot be loaded is dropped alone - no SAT
++//     entry, the object's other pieces are drawn, its animation advances. No
++//     whole-object rewind and no ppm_vram_find_block, so never VRAM tile 0.
++// PPM_CHIP_LOAD_CAP: part of the cart's miss path: no load once 15 are listed.
++//     0 = off. Needs PPM_CHIP_CACHE_MISS. The count is cleared at AE and by the
++//     load-list flush, which both AF and B1 run: see ppm_chip_flush_loads().
++// The four switch defaults are in mame.h, so that paprium.c's B1 handler sees them.
++// Left as ours: clipping and the attribute word. The animation queue and the
++// terminal end are matched under PPM_CHIP_ANIM_QUEUE and PPM_CHIP_ANIM_END: see CHIP
++// ANIMATION QUEUE below. The DMA budget gate (no floor), the pose pre-check and hold
++// and the $1F1A ready flag have their own switches: see CHIP DMA BUDGET AND POSE HOLD
++// below. EC, B0 and 81 are matched under PPM_CHIP_EC, PPM_CHIP_B0 and PPM_CHIP_81:
++// see CHIP EC, B0 AND 81 below. With PPM_CHIP_EC off, only EC's list rebuild after a
++// shrink is kept (ppm_chip_rebuild, from ppm_vram_set_budget); the EC gate and the
++// flush of slot n itself (the cart's flush starts AT the new count, so our slot
++// count-1 keeps its block) are not.
++#if PPM_CHIP_CACHE_CLAIM && !PPM_CHIP_CACHE_LISTS
++#error PPM_CHIP_CACHE_CLAIM is the pop end of the cart lists, so it needs PPM_CHIP_CACHE_LISTS
++#endif
++#if PPM_LIST_ORDER_VRAM && (PPM_CHIP_CACHE_LISTS || PPM_CHIP_CACHE_MISS)
++#error the cart cache switches assume the slot loader, not the retired PPM_LIST_ORDER_VRAM stream
++#endif
++
++// ---------------------------------------------------------------------------
++// CHIP DMA BUDGET AND POSE HOLD (0.2.6): PPM_CHIP_BUDGET, PPM_CHIP_POSE_HOLD
++//
++// The cart's sprite composer reads five RAMDP words once when an AD starts and
++// works on its own copies for the whole AD:
++//   $1F12  the frame budget                 (read only)
++//   $1F14  the whole-frame budget           (read only)
++//   $1F10  words used: +$110 per load       (stored back at the end)
++//   $1F18  SAT entries                      (stored back at the end)
++//   $1F16  DMA descriptors: +1 per load     (stored back at the end)
++// Nothing on the cart writes $1F12 or $1F14, and its AE touches neither $1F10 nor
++// $1F14: the game itself resets $1F10 at AE and writes $1F14 = $1F12 - $1F10 after
++// its own DMA appends (ROM $3304C-$33056).
++//
++// PPM_CHIP_BUDGET:
++//   gate    no load when $1F12 <= $1F10 + $10F, i.e. $1F12 - $1F10 < $110, a signed
++//           compare of the zero-extended words (the same in the H-flipped path and
++//           in the pre-load pass)
++//   charge  $1F10 += $110 kept to 16 bits
++//   ppm_chip_f10 / ppm_chip_f12 are those copies of $1F10 / $1F12: read where our
++//   composer starts (ppm_obj_render, before the pose is looked at), $1F10 written
++//   back at its exits.
++//   Replaces our gate on $1F14 >= $110, $1F14 -= $110 per load, the AE rewrite
++//   $1F14 = $1F12 - $1F10 (ppm_dma_refresh) with its u16 wrap, and the
++//   PPM_DMA_FLOOR_BLOCKS floor (forced to 0 in mame.h).
++//
++// PPM_CHIP_POSE_HOLD (needs PPM_CHIP_BUDGET, the cart lists, the per-piece miss and
++// the sticky switch):
++//   n = frame word bits 24-28, the blocks the pose declares
++//   $1F10 + n*$110 <= $1F12: the pose is drawn
++//   else n*$110 <= $1F14: HOLD
++//   else PROGRESSIVE: a pose with no pieces is drawn; otherwise one pass over its
++//        pieces, no SAT: resident -> countdown $20; missing -> gate, 15-load cap,
++//        list A, list B (no related block, no list C), claim. No piece missing ->
++//        the pose is drawn and the frame advances; else HOLD
++//   HOLD: the previous frame (handle+4) is drawn through the normal per-piece path,
++//        the frame pointer stays; no previous frame -> nothing drawn. Returns 0.
++//   Ours draws after advancing, so "the pose about to be drawn" is the frame
++//   handle->anim_offset points at after the switch / advance, and a HOLD is the
++//   existing rewind (blocks_available = false): the previous pose is drawn and the
++//   frame stays. A held switch stays pending through PPM_STICKY_SWITCH (on the cart
++//   the restart already sits in the handle's frame pointer).
++//   "The previous pose" is the cart's handle+4, kept in handle->lastDisplayedOffset:
++//   the frame the normal path last drew, 0 after a restart with objID bit 15, and NOT
++//   cleared by a terminal end.
++//   A hold with no previous frame clears objID bit 15 all the same: the cart clears
++//   it in the restart path before the composer runs, held or not.
++//   With PPM_CHIP_ANIM_QUEUE ours keeps the cart's own frame pointer instead:
++//   anim_offset is handle+0, the frame to draw next, stepped when a pose is drawn; a
++//   HOLD draws handle+4 and leaves handle+0 alone, with no rewind and no sticky switch
++//   (see CHIP ANIMATION QUEUE, before ppm_obj_render).
++//   Not matched: the cart's 50 Hz skip.
++//
++// PPM_CHIP_READY_FLAG (needs PPM_CHIP_POSE_HOLD): the composer returns 0 for every
++// hold and 1 for a drawn pose. The AD handler keeps handle+$C: := 0 by a +$A restart,
++// := 1 by a drawn return or an empty frame pointer. A 0 return with handle+$C still 0
++// writes $1F1A := 0. The game sets $1F1A to 1 at every AE ($30F92) and its ready gate
++// ($7CD32, polled at $7EA3C, 141 stage-script call sites) waits on it, so a stage
++// script waits until a newly started object is actually on screen. handle+$C is kept
++// in ppm_chip_shown[] (not in ppm_obj, whose layout the switches leave alone).
++#if PPM_CHIP_POSE_HOLD && !PPM_CHIP_BUDGET
++#error PPM_CHIP_POSE_HOLD reads the cart budget words ($1F10 with every load counted in it, $1F14 as the game wrote it), so it needs PPM_CHIP_BUDGET
++#endif
++#if PPM_CHIP_POSE_HOLD && !(PPM_CHIP_CACHE_LISTS && PPM_CHIP_CACHE_MISS)
++#error PPM_CHIP_POSE_HOLD pre-loads from the cart lists A and B and draws a held pose through the per-piece miss path, so it needs PPM_CHIP_CACHE_LISTS and PPM_CHIP_CACHE_MISS
++#endif
++#if PPM_CHIP_POSE_HOLD && !PPM_STICKY_SWITCH && !PPM_CHIP_ANIM_QUEUE
++#error PPM_CHIP_POSE_HOLD keeps a held switch pending through PPM_STICKY_SWITCH (or by the frame pointer of the cart, PPM_CHIP_ANIM_QUEUE); without either a held switch is lost, which the cart never does
++#endif
++#if PPM_CHIP_BUDGET && PPM_LIST_ORDER_VRAM
++#error PPM_CHIP_BUDGET assumes the slot loader, not the retired PPM_LIST_ORDER_VRAM stream
++#endif
++#if PPM_CHIP_READY_FLAG && !PPM_CHIP_POSE_HOLD
++#error PPM_CHIP_READY_FLAG clears $1F1A on a pose hold, so it needs PPM_CHIP_POSE_HOLD
++#endif
++#if PPM_CHIP_READY_FLAG && !PPM_ANIM_FLAG_SEMANTICS
++#error PPM_CHIP_READY_FLAG reads +$A as the one-shot restart flag of the game, so it needs PPM_ANIM_FLAG_SEMANTICS
++#endif
++
++// ---------------------------------------------------------------------------
++// CHIP EC, B0 AND 81 (0.2.6): PPM_CHIP_EC, PPM_CHIP_B0, PPM_CHIP_81
++//
++// The cart's sprite engine has an engine flag, a slot count (our ppm_vram_max_slot)
++// and 64 object handles of four words: +0 frame pointer (our anim_offset), +4 last
++// drawn frame (lastDisplayedOffset), +8 the queued anim's first frame (chip_queued,
++// ours' handle bytes 12-15; none with PPM_CHIP_ANIM_QUEUE off), +$C drawn since
++// restart (ppm_chip_shown).
++//
++// Engine flag (EC and B0): set to 1 by the engine init, which the C6 setup job runs
++// (with C6's 6th and 7th longs); cleared only when the cart powers up.
++// Ours: ppm_chip_engine_ready in paprium.c, set at the end of cmd_C6_setup_data and
++// never cleared (power-on bss). EC and B0 are refused while it is 0.
++// The engine init begins with the same steps as B0, so with PPM_CHIP_B0 ours' C6
++// runs ppm_chip_b0_reset() before it raises the flag. The cart does that for the
++// FIRST C6 only: a later C6 completes without queuing the setup job, until the cart
++// is reset. So ours resets the engine only while the flag is still 0. (Ours re-runs
++// its data setup on a later C6, which the cart does not: a C6 difference, not
++// matched here.)
++//
++// PPM_CHIP_EC. The gate (paprium.c cmd_EC_vram_budget; one handler for $AC and $EC):
++//   engine flag set, bit 14 of the posted word set (the $EC form), arg0 == 0,
++//   arg1 <= $80; then the count change, ppm_chip_ec_count() below:
++//   old := count, count := new
++//   old <= new: return. A grow stores the count only; the new slots join the lists
++//        at the next AE aging.
++//   shrink: for cart slots s = new .. old INCLUSIVE: if the slot holds a block, the
++//        block is dropped from both maps and the slot's countdown := 0. Slot new
++//        itself is flushed although it stays inside the count. Cart slot s is our
++//        x = s - 1; cart slot 0 is id 0, which never holds a block.
++//   shrink: the list rebuild, ppm_chip_rebuild() (count 0: all three lists empty)
++//   Deviation, the count range: the gate takes counts up to $80. The cart's aging then
++//   skips every AE (count above $35), and a later shrink would walk past the end of
++//   its 54-entry slot table. Ours keeps the $35 cap (64 slots, PPM_SLOT_ID defined to
++//   slot $34). The game never posts above $35: the 24 ROM call sites of its EC post
++//   routine $3106E push arg0 0 and a count from $01..$35, and every captured EC is
++//   $EC00, arg0 0, $01..$35.
++//   Not matched: the refusal's $1FE6 bit 9 and error codes. The cart clears bit 9
++//   again at the next command start, which our command handler does not, so a copied
++//   bit would stick.
++//
++// PPM_CHIP_B0. paprium.c cmd_B0_sprite_init (one handler for $B0 and $F0; no bit-14
++//   or argument test): engine flag 0 -> refused; else ppm_chip_b0_reset() below:
++//   load-list count := 0 ......................................... ppm_chip_loads
++//   list counts A, B, C := 0 ..................................... ppm_chip_n[]
++//   id->block, countdowns, block->id := 0 ........................ ppm_vram_reset_blocks(0)
++//   all 64 handles: +0, +4, +8 := 0, +$C := 0 .................... ppm_object_handles[]
++//                                                                    (+8: chip_queued),
++//                                                                    ppm_chip_shown[]
++//   slot count := 0, until the next EC ........................... ppm_vram_max_slot
++//   B0 writes no RAMDP, so the $1F20-$1F8F clear (GPGX's paprium_sprite_init) goes with
++//   the switch on. Not matched (no counterpart here): an AE aging call (its lists and
++//   countdowns are cleared right after), the cart's AE counter, a cart FPGA register
++//   write and $1FE4 bit 8 cleared. Of ours' handle, only the cart's own fields are
++//   cleared: +0 (anim_offset), +4 (lastDisplayedOffset), +8 (chip_queued, ours' bytes
++//   12-15, with PPM_CHIP_ANIM_QUEUE) and +$C (ppm_chip_shown). Ours' crtAnim and
++//   counter (and, with PPM_CHIP_ANIM_QUEUE off, prev_next and queue_age in bytes
++//   12-15) are not cart fields; they mirror the game's object record, which B0 leaves
++//   alone, so they are kept. At the next AD an object the game has not restarted takes
++//   ours' next-frame path, finds anim_offset 0 and draws nothing (ppm_chip_shown := 1),
++//   as the cart does: frame pointer 0 and +$A == 0 -> +$C := 1, nothing drawn. (With
++//   PPM_CHIP_ANIM_QUEUE a queued anim still moves into +8 and the record first, as on
++//   the cart.)
++//
++// PPM_CHIP_81: the cart's 81 sets flags only and touches no sprite state and no
++//   RAMDP: see paprium.c cmd_81_init.
++
++#if PPM_CHIP_CACHE_CLAIM
++// slot -> VRAM id, the cart's slot table: slot n <= $31 -> id n, slots $32..$35
++// -> ids $7F, $7E, $7D, $7C. Our slot x = n - 1. VRAM byte address = id << 9.
++#define PPM_SLOT_ID(x)          ((x) <= 0x30 ? (x) + 1 : 0xB0 - (x))
++#else
++#define PPM_SLOT_ID(x)          ((x) + ((x) <= 0x30 ? 1 : 0x4b))
++#endif
++
+ void ppm_vram_reset_blocks(uint16_t last_block);
+ void ppm_close_sprite_table();
+ void ppm_obj_render(uint16_t obj_slot);
++#if PPM_CHIP_CACHE_LISTS
++// the piece's size byte rides along for the related-block rule
++uint16_t ppm_vram_load_block(uint16_t num, uint8_t size);
++#define PPM_LOAD_BLOCK(num, size)   ppm_vram_load_block((num), (size))
++#else
+ uint16_t ppm_vram_load_block(uint16_t num);
++#define PPM_LOAD_BLOCK(num, size)   ppm_vram_load_block(num)
++#endif
  uint16_t ppm_vram_find_block(uint16_t num);
  
  ppm_vram_slot ppm_vram_slots[PPM_MAX_VRAM_SLOTS];
@@ -317,7 +772,139 @@ index b568843..8bb981f 100644
  uint8_t ppm_drawList[PPM_OBJECTS_COUNT]; // contains slot #
  uint8_t *ppm_drawListPtr;
  uint16_t ppm_vram_max_slot;
-@@ -37,7 +338,7 @@ uint32_t *ppm_gfx_blocks_offsets;
+ 
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++static uint8_t ppm_chip_loads;          // loads listed since the last AE or flush (AF, B1)
++#endif
++#if PPM_CHIP_BUDGET
++static uint16_t ppm_chip_f10;           // the composer's copy of $1F10: read at entry, +$110 per load, stored at exit
++static uint16_t ppm_chip_f12;           // the composer's copy of $1F12: read at entry, the frame budget
++#endif
++#if PPM_CHIP_POSE_HOLD
++static uint16_t ppm_chip_f14;           // the composer's copy of $1F14: read at entry, the whole-frame budget
++static uint8_t ppm_chip_ab_only;        // set during the pose-hold pre-load pass: claims from lists A and B only
++#endif
++#if PPM_CHIP_READY_FLAG
++static uint8_t ppm_chip_shown[PPM_OBJECTS_COUNT];   // the cart's handle+$C, 0 = restarted and not drawn since
++#endif
++// The cart's handle+8 (the queued animation's first frame, 0 = none) is ppm_obj.chip_queued (mame.h),
++// bytes 12-15 of ours' handle, with PPM_CHIP_ANIM_QUEUE: no array of its own.
++#if PPM_CHIP_CACHE_LISTS
++#define PPM_CHIP_A              0       // free: countdown 0 (never used, or idle ~31 frames)
++#define PPM_CHIP_B              1       // idle: countdown 1..$1E after aging (2..$1F minus 1)
++#define PPM_CHIP_C              2       // used last frame: countdown $1F after aging
++static uint8_t ppm_chip_cd[PPM_MAX_VRAM_SLOTS];                 // countdown per slot
++static uint8_t ppm_chip_list[3][PPM_MAX_VRAM_SLOTS];            // lists A / B / C
++static uint8_t ppm_chip_n[3];                                   // their counts
++
++// AE aging, the cart's way:
++//   slot count above $35: nothing is aged
++//   walk the cart's slots count..1, each once:
++//     countdown $20   -> countdown $1F, append to list C
++//     countdown 0, 1  -> countdown 0,   append to list A
++//     2..$1F          -> countdown - 1, append to list B
++//   store the three counts
++// Appending while walking down leaves the highest slot first and slot 1 last.
++static void ppm_chip_age(void) {
++    uint8_t na = 0, nb = 0, nc = 0;
++    if (ppm_vram_max_slot > 0x35) {
++        return;
++    }
++    for (uint16_t x = ppm_vram_max_slot; x-- > 0;) {
++        uint8_t c = ppm_chip_cd[x];
++        if (c == 0x20) {
++            ppm_chip_cd[x] = 0x1F;
++            ppm_chip_list[PPM_CHIP_C][nc++] = (uint8_t) x;
++        } else if (c <= 1) {
++            ppm_chip_cd[x] = 0;
++            ppm_chip_list[PPM_CHIP_A][na++] = (uint8_t) x;
++        } else {
++            ppm_chip_cd[x] = c - 1;
++            ppm_chip_list[PPM_CHIP_B][nb++] = (uint8_t) x;
++        }
++    }
++    ppm_chip_n[PPM_CHIP_A] = na;
++    ppm_chip_n[PPM_CHIP_B] = nb;
++    ppm_chip_n[PPM_CHIP_C] = nc;
++}
++
++// EC shrink, the list rebuild: walk slots count..1 again, countdowns untouched:
++// $1F -> C, 0 -> A, else -> B; store the counts. (EC grow stores the count only.)
++static void ppm_chip_rebuild(void) {
++    uint8_t na = 0, nb = 0, nc = 0;
++    for (uint16_t x = ppm_vram_max_slot; x-- > 0;) {
++        uint8_t c = ppm_chip_cd[x];
++        if (c == 0x1F) {
++            ppm_chip_list[PPM_CHIP_C][nc++] = (uint8_t) x;
++        } else if (c == 0) {
++            ppm_chip_list[PPM_CHIP_A][na++] = (uint8_t) x;
++        } else {
++            ppm_chip_list[PPM_CHIP_B][nb++] = (uint8_t) x;
++        }
++    }
++    ppm_chip_n[PPM_CHIP_A] = na;
++    ppm_chip_n[PPM_CHIP_B] = nb;
++    ppm_chip_n[PPM_CHIP_C] = nc;
++}
++
++// Take one slot from a list: pop the last entry; it is taken if its countdown allows
++// (A: == 0, B and C: <= $1F, i.e. not used this frame), else it is discarded and
++// the next one popped. The shortened count is stored back, also when the list runs
++// out.
++static int ppm_chip_take(uint8_t l, uint8_t max_cd) {
++    while (ppm_chip_n[l]) {
++#if PPM_CHIP_CACHE_CLAIM
++        uint8_t x = ppm_chip_list[l][--ppm_chip_n[l]];          // the end: lowest slot first (PPM_CHIP_CACHE_CLAIM)
++#else
++        uint8_t x = ppm_chip_list[l][0];                        // comparison only: the front, highest slot first
++        memmove(&ppm_chip_list[l][0], &ppm_chip_list[l][1], --ppm_chip_n[l]);
++#endif
++        if (ppm_chip_cd[x] <= max_cd) {
++            return x;
++        }
++    }
++    return -1;
++}
++
++// Miss: which slot the piece may take (the H-flipped path follows the same rules).
++static int ppm_chip_victim(uint16_t num, uint8_t size) {
++    int x;
++    if ((x = ppm_chip_take(PPM_CHIP_A, 0)) >= 0) {              // 1. list A
++        return x;
++    }
++    if ((x = ppm_chip_take(PPM_CHIP_B, 0x1F)) >= 0) {           // 2. list B
++        return x;
++    }
++#if PPM_CHIP_POSE_HOLD
++    if (ppm_chip_ab_only) {                                     // pose-hold pre-load pass: list A, list B,
++        return -1;                                              // then the next piece: no related block,
++    }                                                           // no list C
++#endif
++    {                                                           // 3. related block:
++        uint16_t rel = (uint16_t) (num + (size >> 4) - 9);      //    block + (size byte >> 4) - 9, 16 bits
++        if (rel != num && rel != 0) {                           //    same block -> skip; block->id[0] is never set
++            ppm_vram_slot *slot = ppm_vram_slots;
++            for (uint16_t i = 0; i < ppm_vram_max_slot; slot++, i++) {
++                if (slot->block_num == rel) {                   //    resident ...
++                    if (ppm_chip_cd[i] <= 0x1F) {               //    ... and not used this frame: take its slot
++                        return i;
++                    }
++                    break;
++                }
++            }
++        }
++    }
++    if ((x = ppm_chip_take(PPM_CHIP_C, 0x1F)) >= 0) {           // 4. list C
++        return x;
++    }
++    return -1;                                                  // 5. none: the piece is dropped
++}
++#endif
++
+ uint32_t *ppm_bgm_tracks_offsets;
+ uint32_t ppm_bgm_tracks_base_addr;
+ uint32_t ppm_bgm_unpack_addr;
+@@ -37,7 +678,7 @@ uint32_t *ppm_gfx_blocks_offsets;
  uint32_t ppm_gfx_blocks_base_addr;
  uint32_t ppm_max_gfx_block;
  
@@ -326,7 +913,17 @@ index b568843..8bb981f 100644
  ppm_obj ppm_object_handles[PPM_OBJECTS_COUNT]; // matching intf objs
  uint8_t ppm_scale_stamp[64][32];
  
-@@ -66,6 +367,24 @@ void ppm_obj_reset() {
+@@ -54,6 +695,9 @@ void ppm_vram_reset_blocks(uint16_t last_block) {
+         slot->block_num = 0;
+         slot->usage = 0;
+         slot->age = 0;
++#if PPM_CHIP_CACHE_LISTS
++        ppm_chip_cd[i] = 0;
++#endif
+     }
+ }
+ 
+@@ -66,14 +710,103 @@ void ppm_obj_reset() {
  }
  
  void ppm_vram_set_budget(uint16_t blocks) {
@@ -351,7 +948,86 @@ index b568843..8bb981f 100644
      // temp failsafe
      if (blocks > 0x35) {
          printf("Allocation error (0x%x blocks)\n", blocks);
-@@ -207,47 +526,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+         blocks = 0x35;
+     }
++#if PPM_CHIP_CACHE_LISTS
++    uint16_t old_count = ppm_vram_max_slot;
++#endif
+     ppm_vram_reset_blocks((ppm_vram_max_slot = blocks));
++#if PPM_CHIP_CACHE_LISTS
++    if (old_count > blocks) {
++        ppm_chip_rebuild();                 // the cart's list rebuild after a shrink
++    }
++#endif
+ }
+ 
++#if PPM_CHIP_EC
++// PPM_CHIP_EC: the cart's EC count change, called by the gate in paprium.c
++// cmd_EC_vram_budget with arg1 as the new count.
++// See CHIP EC, B0 AND 81 above.
++void ppm_chip_ec_count(uint16_t n) {
++
++    if (n > 0x35) {                         // deviation: ours caps the count at $35, the last
++        n = 0x35;                           // entry of the cart's slot table
++    }
++    uint16_t old = ppm_vram_max_slot;       // old := count
++    ppm_vram_max_slot = n;                  // count := new
++    if (old <= n) {                         // grow or same: the count only
++        return;
++    }
++    // shrink: cart slots new..old INCLUSIVE, our x = new-1 .. old-1
++    uint16_t x = n ? n - 1 : 0;
++    ppm_vram_slot *slot = &ppm_vram_slots[x];
++    for (; x < old; slot++, x++) {
++        if (slot->block_num) {              // the slot holds a block
++            slot->block_num = 0;            // dropped from both maps
++#if PPM_CHIP_CACHE_LISTS
++            ppm_chip_cd[x] = 0;             // countdown := 0
++#endif
++        }
++        slot->usage = 0;                    // ours' LRU fields (no chip counterpart), cleared
++        slot->age = 0;                      // as ppm_vram_reset_blocks clears them
++    }
++#if PPM_CHIP_CACHE_LISTS
++    ppm_chip_rebuild();                     // walk count..1 into A/B/C
++#endif
++}
++#endif
++
++#if PPM_CHIP_B0
++// PPM_CHIP_B0: the cart's B0 reset, called by the entry in paprium.c
++// cmd_B0_sprite_init. See CHIP EC, B0 AND 81 above.
++void ppm_chip_b0_reset(void) {
++
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++    ppm_chip_loads = 0;                     // load-list count := 0
++#endif
++#if PPM_CHIP_CACHE_LISTS
++    ppm_chip_n[PPM_CHIP_A] = 0;             // list counts A, B and C := 0
++    ppm_chip_n[PPM_CHIP_B] = 0;
++    ppm_chip_n[PPM_CHIP_C] = 0;
++#endif
++    ppm_vram_reset_blocks(0);               // id->block, countdowns and block->id := 0
++    for (uint16_t x = 0; x < PPM_OBJECTS_COUNT; x++) {             // all 64 handles
++        ppm_object_handles[x].anim_offset = 0;                      // +0, the frame pointer
++        ppm_object_handles[x].lastDisplayedOffset = 0;              // +4, the last drawn frame
++#if PPM_CHIP_ANIM_QUEUE
++        ppm_object_handles[x].chip_queued = 0;                      // +8, the queued animation
++#endif
++    }                                       // crtAnim, counter (and prev_next, queue_age with
++                                            // PPM_CHIP_ANIM_QUEUE off) are ours' mirrors of
++                                            // the game's record, not cart fields: kept (see above)
++#if PPM_CHIP_READY_FLAG
++    memset(ppm_chip_shown, 0, sizeof (ppm_chip_shown));             // handle+$C := 0
++#endif
++    ppm_vram_max_slot = 0;                  // slot count := 0, until the next EC
++}
++#endif
++
+ void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file) {
+ 
+     uint32_t unpack_addr = PPM_DATA_START_ADDR;
+@@ -207,47 +940,127 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
              }
              break;
  
@@ -463,11 +1139,7 @@ index b568843..8bb981f 100644
 +                    lz += packed_data[source_addr++ ^ 1] << 6;
 +                    lz += 16384;
 +                    if (lz == 16384) break;          // end of stream
-                 }
--                while (copy_size--)
--                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
--                while (literal_size--)
--                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
++                }
 +                else {                               // code_00
 +                    if (state == 0) {
 +                        raw_n = c & 0x0F;
@@ -513,12 +1185,16 @@ index b568843..8bb981f 100644
 +                        raw_n--;
 +                    }
 +                    else break;
-+                }
+                 }
+-                while (copy_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = unpacked_data[copy_addr++ ^ 1];
+-                while (literal_size--)
+-                    unpacked_data[dest_addr++ ^ 1] = packed_data[source_addr++ ^ 1];
 +            }
              }
              break;
  
-@@ -260,12 +659,487 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
+@@ -260,12 +1073,501 @@ uint32_t ppm_unpack_scal(uint32_t source_addr, uint32_t dest_addr, u8 is_scaling
  }
  
  void ppm_obj_add(uint8_t num) {
@@ -526,7 +1202,13 @@ index b568843..8bb981f 100644
 +    // Compose now, exactly as GPGX's `case 0xAD: paprium_sprite(data)` does, so
 +    // the sprites the 68000 asked for before it writes its masks are actually in
 +    // the table when it writes them.
++#if PPM_CHIP_ANIM_QUEUE
++    if (ppmio.ramdp->obj_data[num].objID) {     // objID word 0: the cart's AD does nothing (returns 0):
++        ppm_obj_render(num);                    // no restart, queue, draw, handle+$C or $1F1A (CHIP ANIMATION QUEUE)
++    }
++#else
 +    ppm_obj_render(num);
++#endif
 +    hb_w8(9, 9);
 +#else
      *ppm_drawListPtr++ = num;
@@ -565,8 +1247,12 @@ index b568843..8bb981f 100644
 +static u16 snap_switch_refused = 0;     // animation switch refused for budget/slot, kept pending
 +static u16 snap_switch_retry_ok = 0;    // a pending switch that completed on a later draw
 +static u16 snap_floor_frames = 0;       // frames where the game's own DMA left < 1 block and the floor lifted it
++#if PPM_DMA_FLOOR_BLOCKS
 +static u16 snap_floor_run = 0, snap_floor_run_max = 0;   // consecutive such frames, and the longest run
 +static u8 ppm_floor_used = 0;            // PPM_DMA_FLOOR_BLOCKS: loads granted from the floor this frame
++#else
++static u16 snap_floor_run_max = 0;       // no floor (PPM_CHIP_BUDGET): stays 0 in the snapshot
++#endif
 +// EVICTION AUDIT - the firmware-only question for the elevator corruption (#8).
 +//
 +// A slot is evicted when nobody REQUESTED its block this frame (usage is cleared
@@ -927,7 +1613,11 @@ index b568843..8bb981f 100644
 +#if PPM_SAT_SNAPSHOT
 +    snap_cnt_refresh++;
 +#endif
-+#if PPM_DMA_OVERBUDGET
++#if PPM_CHIP_BUDGET
++    // PPM_CHIP_BUDGET: nothing to refresh. The cart's AE touches neither $1F10 nor
++    // $1F14, and nothing on the cart writes $1F14 at all; the game writes it itself
++    // before the 0xAD stream (ROM $3304C-$33056).
++#elif PPM_DMA_OVERBUDGET
 +    // paprium-pocket: DMA OVERBUDGET PROBE, DIAGNOSTIC. OFF BY DEFAULT.
 +    //
 +    // Hypothesis from the tester, and it inverts the assumption this file has
@@ -1006,10 +1696,18 @@ index b568843..8bb981f 100644
  
      // all blocks unused
      ppm_vram_slot *slot = ppm_vram_slots;
-@@ -275,18 +1149,572 @@ void ppm_obj_frame_start() {
+@@ -273,20 +1575,589 @@ void ppm_obj_frame_start() {
+     for (uint16_t x = 0; x < PPM_MAX_VRAM_SLOTS; slot++, x++) {
+         slot->usage = 0;
      }
- }
- 
++#if PPM_CHIP_CACHE_LISTS
++    ppm_chip_age();                         // the cart's AE ages the cache first thing
++#endif
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++    ppm_chip_loads = 0;                     // load list cleared at AE
++#endif
++}
++
 +// paprium-pocket: SAT SNAPSHOT, DIAGNOSTIC. NOT FOR SHIPPING - set to 0.
 +//
 +// Reads the sprite list THIS firmware builds at 0xB00, on real hardware, and
@@ -1485,8 +2183,8 @@ index b568843..8bb981f 100644
 +    }
 +    evt_armed = 1;
 +    evt_frame++;
-+}
-+
+ }
+ 
 +// Written INSTEAD of the object table and owner map - the timeline is worth more
 +// than either, and there is not room for both.
 +void ppm_snapshot_events(void) {
@@ -1515,6 +2213,15 @@ index b568843..8bb981f 100644
 +
 +#if PPM_SFX_QUIET_DMA
 +volatile u8 ppm_list_pending;
++#endif
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++// B1: on the cart (engine flag set) B1 runs the load-list flush, which ends with the
++// list count := 0, so the 15-load cap starts again after a B1. The flush's only other
++// caller is the AF close, which ppm_obj_frame_end does inline. Only the count is
++// matched here: the list itself is the cart's hand-off to its own FPGA.
++void ppm_chip_flush_loads(void) {
++    ppm_chip_loads = 0;                     // the flush: count := 0
++}
 +#endif
  void ppm_obj_frame_end() {
 +#if PPM_SFX_QUIET_DMA
@@ -1581,8 +2288,13 @@ index b568843..8bb981f 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
-@@ -299,7 +1727,22 @@ void ppm_obj_frame_end() {
+@@ -297,12 +2168,74 @@ void ppm_obj_frame_end() {
+         }
+     }
  
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++    ppm_chip_loads = 0;                     // the AF close runs the load-list flush: count := 0
++#endif
      ppm_close_sprite_table();
      //ppm_sdram_pointer = &ppm_sdram[0x9000 / 2];
 -    FPGAIO->sdram_ptr = 0x9000;
@@ -1604,12 +2316,59 @@ index b568843..8bb981f 100644
 +    }
  }
  
++// 0.2.6 (the ending float fix): the cart's own sprite-table close (AF) for
++// $1F18 <= $50. 0 builds the old close below, for comparison runs.
++#ifndef PPM_FLOAT_ENDMARK
++#define PPM_FLOAT_ENDMARK       1
++#endif
++
  void ppm_close_sprite_table() {
-@@ -333,6 +1776,21 @@ void ppm_close_sprite_table() {
++#if PPM_FLOAT_ENDMARK
++    // Matches the original cartridge's close:
++    //   end mark at entry[count]: Y = 0, link byte 0, size kept
++    //   entry 79 link byte 0 ([$D7A] &= $0F00)
++    //   upload count+1 entries to VRAM $F000, $1F10/$1F16 bumped
++    //   count == $50: upload 80, not 81
++    // Not matched: the cart's $1F1C = 0, its second 14-entry DMA, its $1F20 stash,
++    // and its count > $50 multiplex path (the old close below runs).
++    uint16_t count = ppmio.ramdp->sat_count;
++    if (count <= 0x50) {
++        ppm_sat_item *end = &ppmio.ramdp->sat_data[count];        // $B00 + count*8, at most $D80
++        end->posY = 0;
++        end->sizeNext &= 0x0f00;
++        ppmio.ramdp->sat_data[79].sizeNext &= 0x0f00;
++        uint16_t n = count + 1;
++        uint16_t len_lo, len_hi, words;
++        if (n == 0x51) {
++            len_lo = 0x9340; len_hi = 0x9401; words = 0x150;
++        } else {
++            uint16_t w = n << 2;
++            len_lo = 0x9300 + (w & 0xff);
++            len_hi = 0x9400 + (w >> 8);
++            words  = (n + 4) << 2;
++        }
++        ppm_dma_cmd *d = &ppmio.ramdp->dma_cmd[ppmio.ramdp->dma_cmd_count];   // $1400 + $1F16*16
++        d->autoinc = 0x8f02;    // word 0   (struct names follow mame.h order,
++        d->lenH    = len_lo;    // word 1    values and order follow the cart)
++        d->lenL    = 0x9580;    // word 2
++        d->srcH    = len_hi;    // word 3
++        d->srcM    = 0x9700;    // word 4
++        d->srcL    = 0x9605;    // word 5
++        d->cmdH    = 0x7000;    // word 6   VRAM $F000
++        d->cmdL    = 0x0083;    // word 7
++        ppmio.ramdp->dma_total += words;
++        ppmio.ramdp->dma_cmd_count++;
++        return;
++    }
++#endif
+ 
+     ppm_sat_item *sat_entry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
+ 
+@@ -333,19 +2266,272 @@ void ppm_close_sprite_table() {
      dma_entry->cmdL = 0x0083;
  }
  
-+#if PPM_PIN_FALLBACK
++#if PPM_PIN_FALLBACK && !PPM_CHIP_CACHE_LISTS
 +// Mark a resident block as used this frame so the LRU will not hand its slot to
 +// a later object. A miss is silently ignored: nothing is loaded here.
 +static void ppm_vram_touch_block(uint16_t num) {
@@ -1624,13 +2383,154 @@ index b568843..8bb981f 100644
 +}
 +#endif
 +
++#if PPM_CHIP_POSE_HOLD
++// Pre-load pass, hit test: block->id != 0; a resident block
++// is marked used, countdown := $20, exactly as the hit path of
++// ppm_vram_load_block marks it. Searched once here, so a resident piece costs one
++// slot search, not two.
++static bool ppm_chip_preload_hit(uint16_t num) {
++    ppm_vram_slot *slot = ppm_vram_slots;
++    for (uint16_t x = 0; x < ppm_vram_max_slot; slot++, x++) {
++        if (slot->block_num == num) {
++            slot->usage++;
++            slot->age = 0;
++            ppm_chip_cd[x] = 0x20;
++            return true;
++        }
++    }
++    return false;
++}
++
++// PPM_CHIP_POSE_HOLD, the PROGRESSIVE case: one pass over the pose's pieces, nothing
++// drawn. True when no piece was missing (the pose is then drawn and advances);
++// false = hold. Out of line:
++// it runs for a few big poses only, and keeps ppm_obj_render's registers free.
++static bool __attribute__((noinline)) ppm_chip_preload(ppm_spr_data_hdr *spr_info) {
++    bool complete = true;
++    ppm_spr_data *sd = &spr_info->sprites[0];
++    ppm_chip_ab_only = 1;
++    for (uint16_t x = 0; x < spr_info->count; sd++, x++) {            // every piece, to the end
++        if (!sd->blockNum) {
++            continue;
++        }
++        if (ppm_chip_preload_hit(sd->blockNum)) {                      // resident: countdown := $20, next
++            continue;
++        }
++        complete = false;                                              // any missing piece clears the flag,
++                                                                       // loaded or not
++        // missing: gate, 15-load cap, list A, list B, claim ($1F10 += $110),
++        // else left for a later frame
++        PPM_LOAD_BLOCK(sd->blockNum, sd->size);
++    }
++    ppm_chip_ab_only = 0;
++    return complete;
++}
++
++// PPM_CHIP_POSE_HOLD, the pose budget pre-check. fw = the frame word of the pose about
++// to be drawn, spr_info = its pose data. True = the cart holds this draw (the previous
++// pose is drawn, the frame does not advance); false = the pose is drawn.
++static inline bool ppm_chip_pose_hold(uint32_t fw, ppm_spr_data_hdr *spr_info) {
++    int32_t need = (int32_t) ((fw >> 24) & 0x1F) * 0x110;              // n = bits 24-28: n*256 + n*16
++    if ((int32_t) ppm_chip_f10 + need <= (int32_t) ppm_chip_f12) {     // signed compare: drawn
++        return false;
++    }
++    if (need <= (int32_t) ppm_chip_f14) {                              // n*$110 <= $1F14: hold
++        return true;
++    }
++    if (!spr_info->count) {                                            // piece count 0: drawn
++        return false;
++    }
++    return !ppm_chip_preload(spr_info);                                // PROGRESSIVE
++}
++#endif
++
++// ---------------------------------------------------------------------------
++// CHIP ANIMATION QUEUE AND TERMINAL END (0.2.6): PPM_CHIP_ANIM_QUEUE, PPM_CHIP_ANIM_END
++//
++// How the original cartridge runs an AD for object slot s. The record is RAMDP
++// $0F80 + 16*slot (+0 anim, +2 nextAnim, +4 objID, +$A the restart flag); the cart's
++// handle for the slot holds +0 the frame to draw NEXT, +4 the frame drawn last, +8 the
++// first frame of the queued animation, +$C the ready flag (PPM_CHIP_READY_FLAG). Per AD:
++//   objID word 0: nothing at all (return 0): no restart, no queue step, no draw, no
++//        handle+$C or $1F1A write. Matched with PPM_CHIP_ANIM_QUEUE, because ours' queue
++//        step now writes the record and must not for objID 0. The test sits in
++//        ppm_obj_add, before ppm_obj_render is called: inside ppm_obj_render the early
++//        return made GCC's code for the whole function ~19% slower (MODELLED), for one
++//        compare.
++//   +$A != 0: the restart: handle+0 := the first frame of record anim, handle+8 := 0,
++//        handle+$C := 0, +$A := 0; objID bit 15 also clears handle+4
++//   QUEUE: nextAnim 0 = nothing queued. $FFFF or nextAnim >= the object's anim count
++//        CANCELS: handle+8 := 0. Otherwise handle+8 := the first frame of nextAnim and
++//        record anim := nextAnim. Both ways nextAnim := 0.
++//   handle+0 == 0: nothing drawn (handle+$C := 1)
++//   else the composer runs.
++// Composer, after the pose-hold pre-check passes: handle+4 := handle+0, then the FRAME
++// STEP, before the pose is drawn:
++//   frame word bit 31 set: more frames -> handle+0 += 4
++//   last frame and handle+8 != 0: END-OF-CYCLE SWITCH, whether the animation loops or
++//        not: handle+0 := handle+8, handle+8 := 0. The record is not written here.
++//   else handle+0 := the loop target (the next word, 19 bits)
++//   loop target 0 = TERMINAL END: record anim := 0. handle+0 is 0, so nothing is drawn
++//        after this frame until a restart.
++// A HOLD (PPM_CHIP_POSE_HOLD) draws handle+4 and writes neither handle+0 nor handle+8.
++//
++// The game's setAnim ($31024-$3106C) compares against the record: a plain call with the
++// running anim does nothing ($31054-$31056); a queue call (bit 14) with the record's anim
++// writes nextAnim := $FFFF ($31046-$31048, $31064), which the cart takes as a cancel. So
++// on the cart a re-armed queue cancels itself and the walk-in keeps walking, and a single
++// queue (a dropped weapon) switches at the end of the current cycle. Ours left the record
++// alone, so the re-arm wrote the queued anim again; the timing heuristics
++// PPM_STICKY_SWITCH, PPM_CHAIN_ONLY_AT_END, PPM_CHAIN_FRESH_QUEUE and PPM_CHAIN_PROP_ANIMS
++// worked around that.
++//
++// PPM_CHIP_ANIM_QUEUE matches the queue move, the cancel rule and the frame step. Ours'
++// handle then holds the cart's: handle->anim_offset = handle+0 (the frame to draw next),
++// handle->lastDisplayedOffset = handle+4 (the frame drawn last, also the pose hold's), and
++// handle->chip_queued = handle+8 (ppm_obj's bytes 12-15, which hold prev_next and
++// queue_age with this switch off; those serve only PPM_CHAIN_FRESH_QUEUE, compiled out
++// here). The frame is stepped where the cart steps it, when a pose is drawn, so the
++// end-of-cycle switch sees the queue as it stands at that AD (ours used to decide at the
++// next AD). A held pose leaves handle+0 and handle+8 alone, so a held restart is not lost:
++// this replaces PPM_STICKY_SWITCH. The four heuristics are compiled out (mame.h).
++// PPM_CHIP_ANIM_END matches the terminal end's record anim := 0.
++// Ours keeps its restart rule (not matched: ours restarts on objID bit 15, a changed anim
++// or +$A; the cart only on +$A). So that ours' own record writes (the queue move, the
++// terminal end) are not read back as the game's, crtAnim follows them.
++// B0 (PPM_CHIP_B0, ppm_chip_b0_reset) clears handle+8 with the rest of the handle.
++// Not matched (none reachable on the recorded streams): the restart trigger; the cart
++// stores objID & $3FFF at a bit-15 restart, ours clears bit 15 only; the cart checks the
++// anim and objID ranges only in its restart and indexes its count table with the raw objID
++// word, ours checks anim & $FF on every AD and indexes with objID & $FF (equal for all 241
++// objects of the shipped data); the cart's 50 Hz skip.
++#if PPM_CHIP_ANIM_QUEUE && (PPM_STICKY_SWITCH || PPM_CHAIN_ONLY_AT_END || PPM_CHAIN_FRESH_QUEUE || PPM_CHAIN_PROP_ANIMS)
++#error PPM_CHIP_ANIM_QUEUE replaces PPM_STICKY_SWITCH and PPM_CHAIN_*: the cart has one queue rule and no timing or object-class rule
++#endif
++#if PPM_CHIP_ANIM_END && !PPM_CHIP_ANIM_QUEUE
++#error PPM_CHIP_ANIM_END is a branch of the frame step of the cart, taken at the AD that draws the last frame; ours without PPM_CHIP_ANIM_QUEUE finds the end one AD later, so it needs PPM_CHIP_ANIM_QUEUE
++#endif
++#if PPM_CHIP_ANIM_QUEUE && !PPM_ANIM_FLAG_SEMANTICS
++#error PPM_CHIP_ANIM_QUEUE reads +$A as the cart does, the one-shot restart flag it clears; the old counter reading writes the word of the game every draw, so it needs PPM_ANIM_FLAG_SEMANTICS
++#endif
++#if PPM_CHIP_ANIM_QUEUE && PPM_LIST_ORDER_VRAM
++#error PPM_CHIP_ANIM_QUEUE assumes the slot loader, not the retired PPM_LIST_ORDER_VRAM stream
++#endif
++#if PPM_CHIP_ANIM_QUEUE && !PPM_INLINE_COMPOSE
++#error PPM_CHIP_ANIM_QUEUE moves the queue at the AD itself, so it needs PPM_INLINE_COMPOSE; a render at AF would read the record after the later writes of the game in the same frame
++#endif
++#if PPM_CHIP_ANIM_QUEUE
++_Static_assert(sizeof (ppm_obj) == 16 && __builtin_offsetof(ppm_obj, chip_queued) == 12,
++               "D06 keeps the chip's handle+8 in ppm_obj's bytes 12-15; ppm_obj stays 16 bytes");
++#endif
++
  void ppm_obj_render(uint16_t obj_slot) {
  
      ppm_intf_obj *intf_obj = &ppmio.ramdp->obj_data[obj_slot]; // interface obj
-@@ -340,12 +1798,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+     ppm_obj *handle = &ppm_object_handles[obj_slot]; // internal handle
  
      if ((intf_obj->anim & 0xff) > ppm_anim_max_index[intf_obj->objID & 0xff]) {
++#if PPM_ANIMOVER_PRINTF
          printf("anim over for ID %x: 0x%x/0x%x\n", intf_obj->objID & 0xff, intf_obj->anim & 0xff, ppm_anim_max_index[intf_obj->objID & 0xff]);
++#endif
 +#if PPM_SAT_SNAPSHOT
 +        // Silent drop, now counted - see snap_animover_* for why.
 +        if (snap_animover_hits != 0xffff) snap_animover_hits++;
@@ -1642,7 +2542,72 @@ index b568843..8bb981f 100644
      }
  
      uint32_t offset, data_offset;
++#if PPM_CHIP_ANIM_QUEUE
++    // PPM_CHIP_ANIM_QUEUE, see CHIP ANIMATION QUEUE above. anim_offset is the cart's handle+0
++    // (the frame to draw next), lastDisplayedOffset its handle+4, chip_queued its handle+8.
++#if PPM_SAT_SNAPSHOT
++    bool restarted = false;                     // diagnostics only: a restart held on this draw
++#endif
++    // restart: ours' rule, not the cart's (not matched); what it does is the cart's
++    // restart
++    if ((intf_obj->objID & 0x8000) || (intf_obj->anim != handle->crtAnim) || (intf_obj->animCounter != handle->counter)) {
++        if (intf_obj->objID & 0x8000) {
++            handle->lastDisplayedOffset = 0;    // handle+4 := 0
++            intf_obj->objID &= 0x7fff;          // before the composer, held or not. The cart stores objID & $3FFF;
++                                                // ours clears bit 15 only (not matched)
++        }
++        offset = ppm_anim_data[(intf_obj->objID & 0xff) + 1]; // obj offset
++        handle->anim_offset = ppm_anim_data[(offset >> 2) + (intf_obj->anim & 0xff)];  // handle+0 := first frame
++        handle->chip_queued = 0;                // handle+8 := 0
++        handle->crtAnim = intf_obj->anim;
++        handle->counter = intf_obj->animCounter;
++#if PPM_CHIP_READY_FLAG
++        if (intf_obj->animCounter) {
++            ppm_chip_shown[obj_slot] = 0;       // +$A != 0 is a restart: handle+$C := 0
++        }
++#endif
++        if (intf_obj->animCounter == 1) {       // PPM_ANIM_FLAG_SEMANTICS: the restart flag is consumed,
++            intf_obj->animCounter = 0;          // +$A := 0
++            handle->counter = 0;
++        }
++#if PPM_SAT_SNAPSHOT
++        restarted = true;
++#endif
++    }
++    // queue: the queue moves into the handle at once
++    {
++        uint16_t queued = intf_obj->nextAnim;
++        if (queued) {                           // 0 = nothing queued
++            if (queued == 0xffff ||             // cancel
++                    queued >= (uint16_t) (ppm_anim_max_index[intf_obj->objID & 0xff] + 1)) {   // >= the anim count: cancel
++                handle->chip_queued = 0;        // handle+8 := 0
++            } else {
++                offset = ppm_anim_data[(intf_obj->objID & 0xff) + 1];
++                handle->chip_queued = ppm_anim_data[(offset >> 2) + queued];          // handle+8 := its first frame
++                intf_obj->anim = queued;        // record anim := queued
++                handle->crtAnim = queued;       // ours' restart rule must not read our own write as the game's
++            }
++            intf_obj->nextAnim = 0;
++        }
++    }
++    if (!(offset = handle->anim_offset)) {      // no frame to draw
++#if PPM_CHIP_READY_FLAG
++        ppm_chip_shown[obj_slot] = 1;           // handle+$C := 1
++#endif
++        return;
++    }
++    data_offset = ppm_anim_data[offset >> 2] & 0xffffffu; // the pose of handle+0
++#else
++#if PPM_CHIP_POSE_HOLD
++    // PPM_CHIP_POSE_HOLD: a hold draws the cart's handle+4, the frame its normal path
++    // last drew. It survives a terminal end, where the cart clears only the frame
++    // pointer and ours clears anim_offset, so after a terminal end and a held restart
++    // the cart still draws the old last frame.
++    // Kept in the handle's unused lastDisplayedOffset; equal to anim_offset otherwise.
++    uint32_t previous_offset = handle->lastDisplayedOffset;
++#else
      uint32_t previous_offset = handle->anim_offset;
++#endif
      uint16_t previous_counter = handle->counter;
 +#if PPM_CHAIN_FRESH_QUEUE
 +    // How long has the game's queue been standing? Armed on this draw = 0. A
@@ -1672,10 +2637,25 @@ index b568843..8bb981f 100644
  
      //	printf("Slot 0x%02x (ID 0x%04x): ", obj_slot, intf_obj->objID);
  
-@@ -363,6 +1853,19 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -354,6 +2540,9 @@ void ppm_obj_render(uint16_t obj_slot) {
+         // fresh obj?
+         if (intf_obj->objID & 0x8000) {
+             previous_offset = 0, previous_counter = 1;
++#if PPM_CHIP_POSE_HOLD
++            handle->lastDisplayedOffset = 0;    // restart with objID bit 15: handle+4 := 0
++#endif
+         }
+ 
+         offset = ppm_anim_data[(intf_obj->objID & 0xff) + 1]; // obj offset
+@@ -363,12 +2552,34 @@ void ppm_obj_render(uint16_t obj_slot) {
          handle->anim_offset = offset;
          handle->crtAnim = intf_obj->anim;
          handle->counter = intf_obj->animCounter;
++#if PPM_CHIP_READY_FLAG
++        if (intf_obj->animCounter) {
++            ppm_chip_shown[obj_slot] = 0;   // +$A != 0 is a restart: handle+$C := 0
++        }
++#endif
 +#if PPM_ANIM_FLAG_SEMANTICS
 +        // The animation has just been (re)loaded from its first frame, which is
 +        // exactly what a restart request asks for - so acknowledge it by writing
@@ -1692,7 +2672,18 @@ index b568843..8bb981f 100644
      } else {
          // move to next frame
  
-@@ -377,11 +1880,30 @@ void ppm_obj_render(uint16_t obj_slot) {
+         // get current offset (previous frame)
+-        if (!(offset = handle->anim_offset))
++        if (!(offset = handle->anim_offset)) {
++#if PPM_CHIP_READY_FLAG
++            ppm_chip_shown[obj_slot] = 1;   // no frame pointer: handle+$C := 1
++#endif
+             return;
++        }
+         // read data pointer
+         data_offset = ppm_anim_data[offset >> 2];
+ 
+@@ -377,11 +2588,30 @@ void ppm_obj_render(uint16_t obj_slot) {
              offset += 4;
          } else {
              // anim is over, do we have fallback anim?
@@ -1723,7 +2714,14 @@ index b568843..8bb981f 100644
                  return;
              } else {
                  // no, take anim loop
-@@ -395,13 +1917,23 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -391,56 +2621,192 @@ void ppm_obj_render(uint16_t obj_slot) {
+ 
+         if (!(handle->anim_offset = offset)) {
+             // store offset
++#if PPM_CHIP_READY_FLAG
++            ppm_chip_shown[obj_slot] = 1;   // terminal end, no frame pointer: handle+$C := 1
++#endif
+             return;
          }
  
          data_offset = ppm_anim_data[offset >> 2] & 0xffffffu;
@@ -1736,6 +2734,7 @@ index b568843..8bb981f 100644
          handle->counter++;
 +#endif
      }
++#endif
  
      // render sprite to SAT
      // > data might not be 4 bytes aligned, access via ppm_sdram <
@@ -1747,7 +2746,15 @@ index b568843..8bb981f 100644
      ppm_sat_item *satEntry = &ppmio.ramdp->sat_data[ppmio.ramdp->sat_count];
      int16_t posX = intf_obj->posX;
      int16_t posY = intf_obj->posY;
-@@ -410,6 +1942,11 @@ void ppm_obj_render(uint16_t obj_slot) {
+ 
++#if PPM_CHIP_BUDGET
++    ppm_chip_f10 = ppmio.ramdp->dma_total;          // the composer's copy of $1F10
++    ppm_chip_f12 = ppmio.ramdp->dma_budget;         // the composer's copy of $1F12
++#endif
++#if PPM_CHIP_POSE_HOLD
++    ppm_chip_f14 = ppmio.ramdp->dma_remaining;      // the composer's copy of $1F14 (the game's word)
++#endif
+     bool blocks_available = true;
      // load new spr data
      ppm_spr_data *spr_data = &spr_info->sprites[0];
  
@@ -1755,16 +2762,36 @@ index b568843..8bb981f 100644
 +    uint16_t stream_tiles[64];
 +    if (spr_info->count > 64) blocks_available = false;
 +    else blocks_available = ppm_stream_walk(spr_info, stream_tiles);
++#elif PPM_CHIP_CACHE_MISS
++    // PPM_CHIP_CACHE_MISS: no separate load pass and no all-or-nothing verdict. Each
++    // piece is found or loaded in the compose loop below, one at a time, as the cart
++    // does, so blocks_available stays true and the whole-object rewind below never
++    // runs - except for a pose hold (PPM_CHIP_POSE_HOLD), which uses it to draw the
++    // previous pose.
 +#else
      for (uint16_t x = 0; x < spr_info->count; spr_data++, x++) {
  
          if (!spr_data->blockNum) {
-@@ -421,26 +1958,69 @@ void ppm_obj_render(uint16_t obj_slot) {
+             continue;
+         }
+ 
+-        if (!ppm_vram_load_block(spr_data->blockNum)) {
++        if (!PPM_LOAD_BLOCK(spr_data->blockNum, spr_data->size)) {
+             blocks_available = false;
              // break; need to iterate all to keep resevations?
          }
      }
+-
 +#endif
- 
++
++#if PPM_CHIP_POSE_HOLD
++    // PPM_CHIP_POSE_HOLD: pre-check the pose about to be drawn, and pre-load it if it
++    // can never fit one frame. A hold is the rewind below: previous pose drawn, frame
++    // not advanced, a switch kept pending.
++    if (ppm_chip_pose_hold(ppm_anim_data[handle->anim_offset >> 2], spr_info)) {
++        blocks_available = false;
++    }
++#endif
 +#if PPM_STICKY_SWITCH && PPM_SAT_SNAPSHOT
 +    if (switched && blocks_available && previous_crtAnim == PPM_ANIM_PENDING) {
 +        if (snap_switch_retry_ok != 0xffff) snap_switch_retry_ok++;
@@ -1772,6 +2799,11 @@ index b568843..8bb981f 100644
 +#endif
 +    hb_w8(9, 7);
      if (!blocks_available) {
++#if PPM_CHIP_READY_FLAG
++        if (!ppm_chip_shown[obj_slot]) {
++            ppmio.ramdp->unk_1f1a = 0;      // held (returns 0) before its first draw since
++        }                                   // the restart: $1F1A := 0
++#endif
 +#if PPM_STICKY_SWITCH
 +        // See PPM_STICKY_SWITCH in mame.h. The game's anim word and its one-shot
 +        // reset stay exactly as it wrote them; the sentinel makes the next draw
@@ -1784,8 +2816,18 @@ index b568843..8bb981f 100644
 +#endif
 +        }
 +#endif
++#if PPM_CHIP_ANIM_QUEUE
++        // PPM_CHIP_ANIM_QUEUE: HOLD. handle+0 and handle+8 stay as they are (a held
++        // restart or a pending switch is kept by them, not by a sentinel); the frame drawn
++        // last, handle+4, is drawn again.
++        uint32_t previous_offset = handle->lastDisplayedOffset;
++#if PPM_SAT_SNAPSHOT
++        if (restarted && snap_switch_refused != 0xffff) snap_switch_refused++;     // a restart held on its first draw
++#endif
++#endif
  
          if (previous_offset) {
++#if !PPM_CHIP_ANIM_QUEUE
              // restore offset/counter
              handle->anim_offset = previous_offset;
              handle->counter = previous_counter;
@@ -1798,9 +2840,10 @@ index b568843..8bb981f 100644
 +#endif
              intf_obj->animCounter = previous_counter;
 +#endif
++#endif
              data_offset = ppm_anim_data[previous_offset >> 2] & 0xffffff;
              spr_info = (ppm_spr_data_hdr *) & ppmio.sdram[(ppm_anim_data_base_addr + data_offset)];
-+#if PPM_PIN_FALLBACK
++#if PPM_PIN_FALLBACK && !PPM_CHIP_CACHE_LISTS
 +            {
 +                ppm_spr_data *fb = &spr_info->sprites[0];
 +                for (uint16_t x = 0; x < spr_info->count; fb++, x++) {
@@ -1812,9 +2855,46 @@ index b568843..8bb981f 100644
 +#endif
  
          } else {
++#if PPM_CHIP_BUDGET
++            // held with no previous frame: $1F10 is stored all the same (the pose-hold
++            // pre-load pass may have loaded)
++            ppmio.ramdp->dma_total = ppm_chip_f10;
++#endif
++#if PPM_CHIP_POSE_HOLD
++            intf_obj->objID &= 0x7fff;      // the cart clears bit 15 before the composer, held or not
++#endif
              return;
          }
      }
++#if PPM_CHIP_POSE_HOLD || PPM_CHIP_ANIM_QUEUE
++    else {
++        handle->lastDisplayedOffset = handle->anim_offset;  // drawn: handle+4 := this frame (before the pieces)
++#if PPM_CHIP_ANIM_QUEUE
++        // PPM_CHIP_ANIM_QUEUE frame step, done where the cart does it: at the draw, before the pieces
++        {
++            uint32_t next = handle->anim_offset;
++            if (ppm_anim_data[next >> 2] & 0x80000000u) {   // bit 31 set, more frames follow
++                next += 4;                                  // (the cart's 50 Hz skip is not matched)
++            } else if (handle->chip_queued) {               // last frame, an animation queued:
++                next = handle->chip_queued;                 // switch at this cycle end, looping or terminal
++                handle->chip_queued = 0;                    // handle+8 := 0
++            } else {
++                next = ppm_anim_data[(next + 4) >> 2] & 0x7ffffu;   // the loop target, 19 bits
++#if PPM_CHIP_ANIM_END
++                if (!next) {                                // terminal end (PPM_CHIP_ANIM_END)
++                    intf_obj->anim = 0;                     // record anim := 0
++                    handle->crtAnim = 0;                    // ours' restart rule must not read our own write as the game's
++                }
++#endif
++            }
++            handle->anim_offset = next;                     // handle+0
++        }
++#endif
++#if PPM_CHIP_READY_FLAG
++        ppm_chip_shown[obj_slot] = 1;       // drawn, the composer returns 1: handle+$C := 1
++#endif
++    }
++#endif
  
 +#if PPM_LIST_ORDER_VRAM
 +    // No re-walk on fallback: a second walk advanced the cursor twice and shifted
@@ -1829,7 +2909,24 @@ index b568843..8bb981f 100644
  
          posX += (intf_obj->attrs & 0x0800) ? spr_data->flipPosX : spr_data->posX;
          posY += spr_data->posY;
-@@ -461,7 +2041,44 @@ void ppm_obj_render(uint16_t obj_slot) {
+@@ -448,6 +2814,16 @@ void ppm_obj_render(uint16_t obj_slot) {
+         if (!spr_data->blockNum) {
+             continue;
+         }
++#if PPM_CHIP_CACHE_MISS
++        // Per piece, before the clip test (the cart marks and loads off-screen pieces
++        // too): hit -> countdown $20; miss -> claim. When nothing can be claimed
++        // (budget, the 15-load cap or no slot) the piece is dropped: on to the next
++        // piece, no SAT entry.
++        uint16_t piece_tile = PPM_LOAD_BLOCK(spr_data->blockNum, spr_data->size);
++        if (!piece_tile) {
++            continue;
++        }
++#endif
+ 
+         // clipping
+         if ((posX >= 320 + 128) ||
+@@ -461,14 +2837,62 @@ void ppm_obj_render(uint16_t obj_slot) {
          satEntry->posX = posX & 0x1ff;
          satEntry->posY = posY & 0x3ff;
          satEntry->sizeNext = ((spr_data->size & 0xf) << 8) + (ppmio.ramdp->sat_count & 0xff);
@@ -1839,6 +2936,8 @@ index b568843..8bb981f 100644
 +            uint16_t objAttr  = intf_obj->attrs;
 +#if PPM_LIST_ORDER_VRAM
 +            uint16_t tileIdx  = stream_tiles[x];
++#elif PPM_CHIP_CACHE_MISS
++            uint16_t tileIdx  = piece_tile + spr_data->offset;     // id*16 + offset, as on the cart
 +#else
 +            uint16_t tileIdx  = ppm_vram_find_block(spr_data->blockNum) + spr_data->offset;
 +#endif
@@ -1851,6 +2950,8 @@ index b568843..8bb981f 100644
 +
 +            satEntry->attrs = pri | pal | flip | tile;
 +        }
++#elif PPM_CHIP_CACHE_MISS
++        satEntry->attrs = ((spr_data->attrs & 0xf8) << 8) ^ intf_obj->attrs ^ (piece_tile + spr_data->offset);
 +#else
          satEntry->attrs = ((spr_data->attrs & 0xf8) << 8) ^ intf_obj->attrs ^ (ppm_vram_find_block(spr_data->blockNum) + spr_data->offset); // whole attr word?
 +#endif
@@ -1874,20 +2975,43 @@ index b568843..8bb981f 100644
          satEntry++;
      }
  
-@@ -482,12 +2099,34 @@ uint16_t ppm_vram_load_block(uint16_t num) {
++#if PPM_CHIP_BUDGET
++    ppmio.ramdp->dma_total = ppm_chip_f10;          // $1F10 stored at exit
++#endif
+     intf_obj->objID &= 0x7fff;
+ }
+ 
++#if PPM_CHIP_CACHE_LISTS
++uint16_t ppm_vram_load_block(uint16_t num, uint8_t size) {
++#else
+ uint16_t ppm_vram_load_block(uint16_t num) {
++#endif
+ 
+     if (!num) {
+         return 0;
+@@ -482,16 +2906,63 @@ uint16_t ppm_vram_load_block(uint16_t num) {
          if (slot->block_num == num) {
              slot->usage++;
              slot->age = 0;
+-            return ((x + (x <= 0x30 ? 1 : 0x4b)) << 4);
++#if PPM_CHIP_CACHE_LISTS
++            ppm_chip_cd[x] = 0x20;          // hit: countdown := $20
++#endif
 +#if PPM_LIST_ORDER_VRAM
 +            return x + 1;                                  // cache slot + 1; the walk places tiles
 +#else
-             return ((x + (x <= 0x30 ? 1 : 0x4b)) << 4);
++            return (PPM_SLOT_ID(x) << 4);
 +#endif
          }
      }
  
      // enough DMA budget?
 -    if (ppmio.ramdp->dma_remaining < 0x110) {
++#if PPM_CHIP_BUDGET
++    // PPM_CHIP_BUDGET gate (the same in the H-flipped path and the pose-hold pre-load):
++    // no load when $1F12 <= $1F10 + $10F, a signed compare.
++    if ((int32_t) ppm_chip_f12 <= (int32_t) ppm_chip_f10 + 0x10F) {
++#else
 +    bool floor_grant = false;
 +#if PPM_DMA_FLOOR_BLOCKS && !PPM_LIST_ORDER_VRAM
 +    // See PPM_DMA_FLOOR_BLOCKS in mame.h: the shared word is spent (by the game's
@@ -1901,6 +3025,7 @@ index b568843..8bb981f 100644
 +#else
 +    if (ppmio.ramdp->dma_remaining < 0x110 && !floor_grant) {
 +#endif
++#endif
 +#if PPM_SAT_SNAPSHOT
 +        if (snap_dma_starved != 0xffff) snap_dma_starved++;
 +#endif
@@ -1910,7 +3035,31 @@ index b568843..8bb981f 100644
          return 0;
      }
  
-@@ -505,24 +2144,68 @@ uint16_t ppm_vram_load_block(uint16_t num) {
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++    // no load once 15 are in the load list
++    if (ppm_chip_loads >= PPM_CHIP_LOAD_CAP) {
++        return 0;
++    }
++#endif
+ 
++#if PPM_CHIP_CACHE_LISTS
++    // PPM_CHIP_CACHE_LISTS: list A, list B, the related block, list C
++    uint16_t block_index = 0xffff;
++    {
++        int v = ppm_chip_victim(num, size);
++        if (v >= 0) {
++            block_index = (uint16_t) v;
++        }
++    }
++#else
+     // find oldest slot to load into
+     uint32_t max_age = 0;
+     uint16_t block_index = 0xffff;
+@@ -502,32 +2973,100 @@ uint16_t ppm_vram_load_block(uint16_t num) {
+             max_age = slot->age;
+             block_index = x;
+         }
++#endif
  
      // no slot available?
      if (block_index == 0xffff) {
@@ -1922,6 +3071,7 @@ index b568843..8bb981f 100644
  
      // found slot & have budget, unpack and DMA the block
      slot = &ppm_vram_slots[block_index];
+-    slot->block_num = num;
 +#if PPM_SAT_SNAPSHOT
 +    // Count only evictions that DESTROY something: the slot held a real block and
 +    // is being handed to a different one. Re-taking a slot for the same block is
@@ -1943,10 +3093,17 @@ index b568843..8bb981f 100644
 +        }
 +    }
 +#endif
-     slot->block_num = num;
++    slot->block_num = num;              // claim: old block out, new block in
      slot->usage++;
      slot->age = 0;
- 
+-
++#if PPM_CHIP_CACHE_LISTS
++    ppm_chip_cd[block_index] = 0x20;    // countdown := $20
++#endif
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++    ppm_chip_loads++;                   // block appended to the load list
++#endif
++
 +#if PPM_SAT_SNAPSHOT
 +    snap_loads_ok++;                    // counted here, control flow untouched
 +#if PPM_ONSET_RING
@@ -1967,12 +3124,28 @@ index b568843..8bb981f 100644
  
      ppm_dma_cmd *dma_entry = &ppmio.ramdp->dma_cmd[ppmio.ramdp->dma_cmd_count++];
  
++#if PPM_CHIP_BUDGET
++    ppm_chip_f10 = (uint16_t) (ppm_chip_f10 + 0x110);  // PPM_CHIP_BUDGET: $1F10 += $110, kept to 16 bits
++                                                    // (the same in the H-flipped path and the pre-load)
++#else
 +#if PPM_DMA_FLOOR_BLOCKS
 +    if (floor_grant) {
 +        ppm_floor_used++;               // carried by the floor; the shared word is already spent
 +    } else
 +#endif
      ppmio.ramdp->dma_remaining -= 0x110;
++#endif
++#if PPM_CHIP_CACHE_CLAIM
++    // the cart's word order (mame.h field names, the cart's values and order):
++    // 8F02, 9300, 9500, 9401, 9700, 9660 = 0x100 words from $C000, then the two command
++    // words of the cart's per-id tables (= the formula below, checked id 0..$7F)
++    dma_entry->autoinc = 0x8f02;    // word 0
++    dma_entry->lenH = 0x9300;       // word 1
++    dma_entry->lenL = 0x9500;       // word 2
++    dma_entry->srcH = 0x9401;       // word 3
++    dma_entry->srcM = 0x9700;       // word 4
++    dma_entry->srcL = 0x9660;       // word 5
++#else
      dma_entry->autoinc = 0x8f02;
      dma_entry->lenH = 0x9401;
 -    dma_entry->lenL = 0x9300; // 0x200 words size
@@ -1980,7 +3153,14 @@ index b568843..8bb981f 100644
      dma_entry->srcH = 0x9700;
      dma_entry->srcM = 0x9660;
      dma_entry->srcL = 0x9500; // 0xc000 source
-@@ -536,6 +2219,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
++#endif
+ 
+-    block_index += (block_index <= 0x30 ? 1 : 0x4b); // translate index
++    block_index = PPM_SLOT_ID(block_index); // translate index
+     uint32_t command = (((block_index << 25) | (block_index >> 5)) & 0x3fff0003) | 0x40000080;
+ 
+     dma_entry->cmdH = command >> 16;
+@@ -536,6 +3075,7 @@ uint16_t ppm_vram_load_block(uint16_t num) {
      //printf("vram %x %x\n", block_index, command);
  
      return (block_index << 4);
@@ -1988,7 +3168,7 @@ index b568843..8bb981f 100644
  }
  
  u32 ppm_block_addr(u32 num) {
-@@ -549,6 +2233,9 @@ u32 ppm_bgm_addr(u32 num) {
+@@ -549,6 +3089,9 @@ u32 ppm_bgm_addr(u32 num) {
  }
  
  uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
@@ -1998,26 +3178,81 @@ index b568843..8bb981f 100644
  
      ppm_vram_slot *slot = ppm_vram_slots;
  
+@@ -556,7 +3099,7 @@ uint16_t ppm_vram_find_block(uint16_t num) { // return tile index
+ 
+         if (slot->block_num == num) {
+ 
+-            return ((x + (x <= 0x30 ? 1 : 0x4b)) << 4);
++            return (PPM_SLOT_ID(x) << 4);
+         }
+     }
+     return 0;
 diff --git a/mcu/mame.h b/mcu/mame.h
-index 06ccf59..2dfbf8e 100644
+index 06ccf59..a6757ca 100644
 --- a/mcu/mame.h
 +++ b/mcu/mame.h
-@@ -131,6 +131,8 @@ typedef struct {
+@@ -126,11 +126,26 @@ typedef struct {
+     uint16_t length;
+ } ppm_sfx;
+ 
++// PPM_CHIP_ANIM_QUEUE is set here, before ppm_obj, because it decides what ppm_obj's
++// bytes 12-15 hold. Its notes are with PPM_CHIP_ANIM_END below (CHIP ANIMATION QUEUE AND
++// TERMINAL END) and in mame.c (CHIP ANIMATION QUEUE). Can be overridden with -D.
++#ifndef PPM_CHIP_ANIM_QUEUE
++#define PPM_CHIP_ANIM_QUEUE     1       // queue moved into the handle at AD (record anim := queued), cancel rule, end-of-cycle switch
++#endif
++
+ typedef struct {
+     uint32_t anim_offset; //
      uint32_t lastDisplayedOffset; //
      uint16_t crtAnim;
      uint16_t counter;
++#if PPM_CHIP_ANIM_QUEUE
++    uint32_t chip_queued;  // the cart's handle+8, the queued animation's first frame (0 = none).
++                           // Bytes 12-15: prev_next/queue_age's with the switch off, which serve only
++                           // PPM_CHAIN_FRESH_QUEUE (forced to 0 by PPM_CHIP_ANIM_QUEUE). ppm_obj stays 16 bytes.
++#else
 +    uint16_t prev_next;    // nextAnim as of the previous draw
 +    uint8_t  queue_age;    // draws since the queue was armed; 255 = no queue
++#endif
  } ppm_obj;
  
  typedef struct { //byteswapped (endianess fix)
-@@ -152,9 +154,446 @@ typedef struct { //byteswapped (endianess fix)
+@@ -152,11 +167,570 @@ typedef struct { //byteswapped (endianess fix)
  void ppm_init_mame();
  u32 swapshorts(u32 val);
  void ppm_setup_data(uint32_t bgm_file, uint32_t unk1_file, uint32_t smp_file, uint32_t unk2_file, uint32_t sfx_file, uint32_t anm_file, uint32_t blk_file);
++// 0.2.6: the debug aids (PPM_SAT_SNAPSHOT, PPM_OBJ_DUMP, PPM_DEBUG_PRINTF) are ON
++// in every test/development build and OFF in the RELEASE build only: build it with -DPPM_RELEASE=1.
++// Each aid can still be overridden alone with -D<switch>=0/1.
++#ifndef PPM_RELEASE
++#define PPM_RELEASE             0
++#endif
++// printf to the cart MCU's UART. 0 = printf is an empty inline function (appmain.h): no call, no
++// format strings, nothing on the UART; arguments are still evaluated.
++#ifndef PPM_DEBUG_PRINTF
++#if PPM_RELEASE
++#define PPM_DEBUG_PRINTF        0
++#else
++#define PPM_DEBUG_PRINTF        1
++#endif
++#endif
++// The "anim over" printf in ppm_obj_render (stock mega-ppm; fires on any AD whose record anim is past
++// the object's anim count). Each hit costs ~33,900 MCU cycles at 921,600 baud (~3.8 % of a frame) and
++// the cart has no such output, so it is OFF in BOTH variants. The silent drop itself is unchanged and
++// still counted by snap_animover_* under PPM_SAT_SNAPSHOT. 1 = the old printf (0.2.5 and earlier).
++#ifndef PPM_ANIMOVER_PRINTF
++#define PPM_ANIMOVER_PRINTF     0
++#endif
 +// Diagnostic capture. In the HEADER because it guards code in both mame.c and
 +// paprium.c, and a guard that cannot see its own #define is silently false.
++#ifndef PPM_SAT_SNAPSHOT
++#if PPM_RELEASE
++#define PPM_SAT_SNAPSHOT        0
++#else
 +#define PPM_SAT_SNAPSHOT        1
++#endif
++#endif
 +
 +// Per-frame ring of load refusals over the last PPM_ONSET_FRAMES in-game frames.
 +// The elevator band is a TIMED event - a few background tiles look misplaced,
@@ -2099,6 +3334,17 @@ index 06ccf59..2dfbf8e 100644
 +// one DMA per listed block streams them to tile 16 + 16k, charged 0x110 each
 +// against the game's own dma_budget - exactly what the retail cart spends.
 +#define PPM_LIST_ORDER_VRAM     0
++// CHIP ANIMATION QUEUE AND TERMINAL END (0.2.6). What each switch matches on the original
++// cartridge is in mame.c (CHIP ANIMATION QUEUE). Each can be overridden with -D. With
++// PPM_CHIP_ANIM_QUEUE on, the four animation heuristics below - PPM_STICKY_SWITCH,
++// PPM_CHAIN_ONLY_AT_END, PPM_CHAIN_FRESH_QUEUE and PPM_CHAIN_PROP_ANIMS (the props <= 29 /
++// actors >= 39 count rule) - are compiled out: the cart's rule replaces all four.
++// PPM_CHIP_ANIM_END needs PPM_CHIP_ANIM_QUEUE (an #error in mame.c says so).
++// PPM_CHIP_ANIM_QUEUE's default (1) is set above ppm_obj, whose bytes 12-15 it assigns (with
++// it on they hold the cart's handle+8, chip_queued).
++#ifndef PPM_CHIP_ANIM_END
++#define PPM_CHIP_ANIM_END       1       // a terminal end writes record anim := 0
++#endif
 +// STICKY ANIMATION SWITCH (2026-09-06). The game's set-animation routine (ROM
 +// 0x031024) writes the record's word +0xA to 1 exactly once per animation
 +// change - a one-shot request, GPGX's `reset` - then the new anim number. This
@@ -2113,7 +3359,11 @@ index 06ccf59..2dfbf8e 100644
 +// switch leaves the game's request untouched and parks a sentinel in crtAnim so
 +// the restart re-fires on the next draw; the object shows its previous frame
 +// for that one frame, exactly as the advance-path rewind already does.
++#if PPM_CHIP_ANIM_QUEUE
++#define PPM_STICKY_SWITCH       0       // PPM_CHIP_ANIM_QUEUE: a held restart stays in the cart's frame pointer, handle+0
++#else
 +#define PPM_STICKY_SWITCH       1
++#endif
 +#define PPM_ANIM_PENDING        0xFFFF   // never a real anim: the game masks to 12 bits
 +// At a rewind the SAT is about to point at the fallback frame's tiles. On the
 +// FIRST refused frame those slots are safe anyway: they were used last frame,
@@ -2124,6 +3374,47 @@ index 06ccf59..2dfbf8e 100644
 +// blocks that are still resident keeps them at age 0 for as long as the object
 +// is stuck. Lookups only, no loads, so no budget is spent.
 +#define PPM_PIN_FALLBACK        1
++// CHIP SPRITE CACHE (0.2.6). What each switch matches on the original cartridge is in
++// mame.c (CHIP SPRITE CACHE). The defaults live here so that paprium.c's B1 handler
++// sees them. Each can be overridden with -D. With PPM_CHIP_CACHE_LISTS on, the
++// PPM_PIN_FALLBACK pinning above is compiled out.
++#ifndef PPM_CHIP_CACHE_LISTS
++#define PPM_CHIP_CACHE_LISTS    1       // countdowns, lists A / B / related block / C
++#endif
++#ifndef PPM_CHIP_CACHE_CLAIM
++#define PPM_CHIP_CACHE_CLAIM    1       // lowest slot first, the cart's slot -> VRAM id table
++#endif
++#ifndef PPM_CHIP_CACHE_MISS
++#define PPM_CHIP_CACHE_MISS     1       // a piece that cannot be loaded is dropped alone
++#endif
++#ifndef PPM_CHIP_LOAD_CAP
++#define PPM_CHIP_LOAD_CAP       15      // the cart's 15 loads per load list; 0 = off
++#endif
++// CHIP DMA BUDGET AND POSE HOLD (0.2.6).
++// What each matches on the original cartridge is in mame.c (CHIP DMA BUDGET AND POSE
++// HOLD). PPM_CHIP_POSE_HOLD needs PPM_CHIP_BUDGET (an #error says so).
++#ifndef PPM_CHIP_BUDGET
++#define PPM_CHIP_BUDGET         1       // gate $1F12 - $1F10 >= $110, $1F10 += $110 per load, $1F14 never written, no floor
++#endif
++#ifndef PPM_CHIP_POSE_HOLD
++#define PPM_CHIP_POSE_HOLD      1       // pose pre-check; hold the previous pose, or pre-load over several frames
++#endif
++#ifndef PPM_CHIP_READY_FLAG
++#define PPM_CHIP_READY_FLAG     1       // $1F1A := 0 when a held object was restarted and not drawn since (needs PPM_CHIP_POSE_HOLD)
++#endif
++// CHIP EC, B0 AND 81 (0.2.6).
++// What each matches on the original cartridge is in mame.c (CHIP EC, B0 AND 81) and at
++// the three handlers in paprium.c. Each can be overridden with -D; with all three at 0
++// (and PPM_CHIP_ANIM_QUEUE and PPM_CHIP_ANIM_END at 0) the image is the budget/pose-hold one.
++#ifndef PPM_CHIP_EC
++#define PPM_CHIP_EC             1       // EC gate and count change (a shrink flushes slots new..old INCLUDING new)
++#endif
++#ifndef PPM_CHIP_B0
++#define PPM_CHIP_B0             1       // B0 resets cache, lists, loads, handle +0/+4/+8/+$C, slot count := 0; no RAMDP; also the first C6
++#endif
++#ifndef PPM_CHIP_81
++#define PPM_CHIP_81             1       // 81 sets flags only: no sprite state, no RAMDP
++#endif
 +// DMA FLOOR (2026-09-06, second candidate; corrected the same morning). The DMA
 +// list is shared: the game appends its own descriptors (dma_total += 0x10 +
 +// words, ROM 0x09D430) and a screen transition carries up to 34 of them a frame
@@ -2145,6 +3436,13 @@ index 06ccf59..2dfbf8e 100644
 +// ~3,670 usable words against the game's 2,816; two blocks (0x220 = 544 words)
 +// fit even under a transition's descriptor overhead. 0 = off.
 +#define PPM_DMA_FLOOR_BLOCKS    2
++#if PPM_CHIP_BUDGET
++// PPM_CHIP_BUDGET: the cart has no floor. Its gate refuses every load once
++// $1F12 - $1F10 < $110 and nothing is granted past it, so the floor is off whenever
++// the cart's budget is on.
++#undef PPM_DMA_FLOOR_BLOCKS
++#define PPM_DMA_FLOOR_BLOCKS    0
++#endif
 +// QUEUED FOLLOW-UP ONLY AT A TERMINAL END (2026-09-06). The game queues a
 +// follow-up animation with bit 14 of its set-anim call (ROM 0x03103C: nextAnim
 +// = d1, no reset). Stock mega-ppm - and GPGX (paprium.h:1288-1297) - take that
@@ -2202,7 +3500,11 @@ index 06ccf59..2dfbf8e 100644
 +// captured play it chains 0 of 821 chain requests: EVERY animation the game ever
 +// arms a follow-up on has a nonzero loop target, so in practice this is "never
 +// chain". That is why every dropped item spins.
++#if PPM_CHIP_ANIM_QUEUE
++#define PPM_CHAIN_ONLY_AT_END   0       // PPM_CHIP_ANIM_QUEUE: the cart switches at the end of the current cycle, looping or terminal
++#else
 +#define PPM_CHAIN_ONLY_AT_END   1
++#endif
 +// CHAIN AT A LOOPING END ONLY WHEN THE QUEUE WAS ARMED AT THAT END (2026-09-10).
 +//
 +// The spawn-animation reading that stood here was REFUTED before it reached
@@ -2237,7 +3539,14 @@ index 06ccf59..2dfbf8e 100644
 +//
 +// STILL A GUESS as to the cartridge's actual mechanism, but it is the only rule
 +// that fits both hardware-confirmed cases. See docs/PORT_PLAN.md.
++// 0.2.6: the cartridge's own rule is now matched (PPM_CHIP_ANIM_QUEUE). The game's
++// re-arm of the same queue CANCELS it on the cart (its setAnim compares against the
++// record anim the cart already set), so no timing window is involved.
++#if PPM_CHIP_ANIM_QUEUE
++#define PPM_CHAIN_FRESH_QUEUE   0       // replaced by the cart's queue move and cancel rule
++#else
 +#define PPM_CHAIN_FRESH_QUEUE   1
++#endif
 +#define PPM_CHAIN_FRESH_WINDOW  1
 +// A PROP IS NOT AN ACTOR (2026-09-11, hardware).
 +//
@@ -2277,7 +3586,12 @@ index 06ccf59..2dfbf8e 100644
 +// This is a containment boundary, not a discovery - if the cartridge's actual
 +// rule is ever found, it replaces this. What it buys is that the failure that
 +// came back twice cannot come back a third time from a rule we cannot see into.
++// 0.2.6: the cartridge's own rule is now matched (PPM_CHIP_ANIM_QUEUE) and it has no object classes.
++#if PPM_CHIP_ANIM_QUEUE
++#define PPM_CHAIN_PROP_ANIMS    0       // PPM_CHIP_ANIM_QUEUE: the cart treats every object alike
++#else
 +#define PPM_CHAIN_PROP_ANIMS    32
++#endif
 +// obj_data+0x0A IS THE GAME'S ONE-SHOT RESTART FLAG, NOT OUR COUNTER (2026-09-10).
 +// This firmware called it animCounter and INCREMENTED it every drawn frame, in
 +// memory the 68000 owns and reads back. It is a flag, and the game writes 1 to
@@ -2317,8 +3631,14 @@ index 06ccf59..2dfbf8e 100644
 +// capture decide rather than another guess.
 +//
 +// 64 objects x 6 bytes = 384 bytes at SNAP_OFF_ARENA, which the onset and epoch
-+// rings leave free while they are off. Diagnostic; 0 for a shipping build.
++// rings leave free while they are off. Diagnostic; 0 for a shipping build (PPM_RELEASE).
++#ifndef PPM_OBJ_DUMP
++#if PPM_RELEASE
++#define PPM_OBJ_DUMP            0
++#else
 +#define PPM_OBJ_DUMP            1
++#endif
++#endif
 +// Crash-context heartbeat: a 40-byte record in battery RAM (bram 0xF70..0xF97,
 +// the free gap between the onset ring's meta and the dispatch block) rewritten
 +// at every command entry/exit, per object, per walked sprite, per stream DMA,
@@ -2453,11 +3773,22 @@ index 06ccf59..2dfbf8e 100644
 +extern u32 snap_cnt_ae, snap_cnt_af, snap_cnt_ad, snap_cnt_refresh;
  void ppm_obj_frame_start();
  void ppm_obj_frame_end();
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++void ppm_chip_flush_loads(void);        // B1: the cart's load-list flush, count part (mame.c)
++#endif
 +void ppm_snapshot_boot(void);   // paprium-pocket: DIAGNOSTIC, see mcu/mame.c
 +void ppm_snapshot_sat(void);
  void ppm_obj_reset();
  void ppm_vram_set_budget(uint16_t blocks);
++#if PPM_CHIP_EC
++void ppm_chip_ec_count(uint16_t n);     // PPM_CHIP_EC: the cart's EC count change (mame.c)
++#endif
++#if PPM_CHIP_B0
++void ppm_chip_b0_reset(void);           // PPM_CHIP_B0: the cart's B0 reset (mame.c)
++#endif
  u32 ppm_block_addr(u32 num);
+ u32 ppm_bgm_addr(u32 num);
+ uint32_t ppm_unpack(uint32_t source_addr, uint32_t dest_addr);
 diff --git a/mcu/mdp.c b/mcu/mdp.c
 index 0678fb9..90c45a8 100644
 --- a/mcu/mdp.c
@@ -2494,21 +3825,21 @@ index fec3a4e..f570c7f 100644
  void mdp_set_vol(u8 vol);
  
 diff --git a/mcu/paprium.c b/mcu/paprium.c
-index 1a1de1d..91d2c9b 100644
+index 1a1de1d..186ecdb 100644
 --- a/mcu/paprium.c
 +++ b/mcu/paprium.c
-@@ -1,6 +1,10 @@
+@@ -1,5 +1,10 @@
  
  #include "appmain.h"
- 
++#include "buddy.h"  // paprium-pocket 0.2.6: CPU MATE glue (zz_buddy.c)
++
 +// paprium-pocket: initialise the YM2612 DAC stream buffer. SHIPPING - this is
 +// the fix for the VM DAC static, not a probe. See cmd_88_audio_cfg.
 +#define PPM_DAC_STREAM_FILL     1
-+
+ 
  
  void ppm_reset();
- void ppm_md_rst(u8 rst);
-@@ -11,8 +15,13 @@ void cmd_unknown_muted();
+@@ -11,8 +16,13 @@ void cmd_unknown_muted();
  void cmd_00();
  void cmd_81_init();
  void cmd_84_sdram_off();
@@ -2522,20 +3853,50 @@ index 1a1de1d..91d2c9b 100644
  void cmd_AD_obj_add();
  void cmd_AE_frame_start();
  void cmd_AF_frame_end();
-@@ -52,9 +61,12 @@ void ppm_start() {
+@@ -41,6 +51,14 @@ u32 tick_ctr;
+ 
+ void (*cmp_ptr[256])();
+ 
++#if PPM_CHIP_EC || PPM_CHIP_B0
++// PPM_CHIP_EC, PPM_CHIP_B0: the cart's sprite-engine flag. Set to 1 by the engine
++// init, which the C6 setup job runs; cleared only when the cart powers up, i.e. our
++// power-on bss. EC and B0 are refused while it is 0. The first C6 also resets the
++// sprite engine (PPM_CHIP_B0): see cmd_C6_setup_data and mame.c, CHIP EC, B0 AND 81.
++static u8 ppm_chip_engine_ready;
++#endif
++
+ void ppm_start() {
+ 
+     tick_ctr = 0;
+@@ -52,10 +70,24 @@ void ppm_start() {
  
          ppm_cmd_handler();
          sfx_player_update();
 +        ppm_music_vu_update();
          tick_ctr++;
+-
+-        if (FPGAIO->ctrl.md_rst_status) {
+-            return;
 +        ppm_hb_idle();
- 
-         if (FPGAIO->ctrl.md_rst_status) {
-+            ppm_hb_exit();
-             return;
++
++        // paprium-pocket 0.2.6 (CPU MATE): the same ctrl read and the same four instructions; the
++        // test also sees the Mega CD stub's send-pending and AI-off bits (ctrl[8], ctrl[10]). Neither can be
++        // set with no Mega CD unit selected, so every pass is the 0.2.5 one. buddy_event = zz_buddy.c.
++        {
++            u32 ctrl = *(vu32 *) &FPGAIO->ctrl, hit;
++            // srli + andi kept as two instructions (gcc would fold them into one andi): today's exact cost
++            __asm__ ("srli %0, %1, 3\n\tandi %0, %0, %2" : "=r" (hit) : "r" (ctrl), "i" (BUDDY_LOOP_MASK));
++            if (hit) {
++                if (ctrl & CT_MDRST) {
++                    ppm_hb_exit();
++                    return;
++                }
++                buddy_event(ctrl);
++            }
          }
      }
-@@ -64,7 +76,15 @@ void ppm_reset() {
+ }
+@@ -64,7 +96,15 @@ void ppm_reset() {
  
      ppm_md_rst(1);
      FPGAIO->ctrl.sdram_en = 1;
@@ -2552,19 +3913,31 @@ index 1a1de1d..91d2c9b 100644
  
      printf("ppm init...\n");
  
-@@ -77,7 +97,11 @@ void ppm_reset() {
+@@ -77,9 +117,20 @@ void ppm_reset() {
      memcpy(ppmio.ramdp, ppmio.flash, 8192);
  
      ppmio.ramdp->reg_cmd = 0;
+-    ppmio.ramdp->reg_status_1 = 0;
+-    ppmio.ramdp->reg_status_2.word = 0;
+-    ppmio.ramdp->reg_status_2.bits.mwire_status = 7; // let's pretend MW is plugged & connected
++    {
++        // paprium-pocket 0.2.6: the OSD's Console and MegaWire options, from the core's option registers
++        // on the MCU GPIO input (paprium_cart.sv). [10:8] and [6] = the console's $1FE4 model bits: 0x700 Model 2,
++        // 0x000 Genesis 3, 0x400 Nomad, 0x600 Mega Jet, bit 6 unknown console, 0 for Model 1 and for every combined
++        // Mega CD unit. [18:16] = the $1FE6 MegaWire status: 7 plugged and signed in (the old fixed value), 0 none,
++        // as on the original cartridge. The game reads both once, in its hardware check ($BC944) at boot.
++        u32 opt = GPIO_INPUT;
 +#if PPM_BUSY_REST
-+    ppmio.ramdp->reg_status_1 = 0x0004;   // busy at rest, as the retail hardware evidently is
++        ppmio.ramdp->reg_status_1 = 0x0004 | (u16) opt;   // busy at rest, as the retail hardware evidently is
 +#else
-     ppmio.ramdp->reg_status_1 = 0;
++        ppmio.ramdp->reg_status_1 = (u16) opt;
 +#endif
-     ppmio.ramdp->reg_status_2.word = 0;
-     ppmio.ramdp->reg_status_2.bits.mwire_status = 7; // let's pretend MW is plugged & connected
++        ppmio.ramdp->reg_status_2.word = opt >> 16;
++    }
  
-@@ -133,7 +157,7 @@ void ppm_init_cmd_ptr() {
+     // boot check
+     ((u16 *) ppmio.ramdp)[0x1d1c / 2] = 0x0004; //SWAP_WORD(0x0004); // 0xc00004
+@@ -133,7 +184,7 @@ void ppm_init_cmd_ptr() {
      }
  
      cmp_ptr[0x83] = cmd_unknown_muted; // unk startup thing
@@ -2573,7 +3946,7 @@ index 1a1de1d..91d2c9b 100644
      cmp_ptr[0x95] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0x96] = cmd_unknown_muted; // (bgm related)
      cmp_ptr[0xA4] = cmd_unknown_muted; // megawire settings
-@@ -142,7 +166,7 @@ void ppm_init_cmd_ptr() {
+@@ -142,7 +193,7 @@ void ppm_init_cmd_ptr() {
      cmp_ptr[0xD6] = cmd_unknown_muted; //???
  
      //unknown stuff
@@ -2582,10 +3955,19 @@ index 1a1de1d..91d2c9b 100644
      cmp_ptr[0xD0] = cmd_unknown_muted;
  
      cmp_ptr[0x00] = cmd_00;
-@@ -161,6 +185,12 @@ void ppm_init_cmd_ptr() {
+@@ -161,6 +212,21 @@ void ppm_init_cmd_ptr() {
      cmp_ptr[0xE0] = cmd_E0_eep_wr;
      cmp_ptr[0xE7] = cmd_E7_mwire;
      cmp_ptr[0xEC] = cmd_EC_vram_budget;
++#if PPM_CHIP_EC
++    cmp_ptr[0xAC] = cmd_EC_vram_budget;     // PPM_CHIP_EC: on the cart one handler serves $AC and $EC; its gate refuses $AC
++#endif
++#if PPM_CHIP_B0
++    cmp_ptr[0xF0] = cmd_B0_sprite_init;     // PPM_CHIP_B0: on the cart one handler serves $B0 and $F0 alike
++#endif
++#if PPM_CHIP_81
++    cmp_ptr[0xC1] = cmd_81_init;            // PPM_CHIP_81: on the cart one handler serves $81 and $C1 alike
++#endif
 +    // paprium-pocket: 0xF2 RESTORED to stock. Muting it was tested on hardware
 +    // and changed nothing - consistent with krikzz's comment calling it the
 +    // "sprites test menu" unpack, i.e. it likely never fires in normal play.
@@ -2595,7 +3977,7 @@ index 1a1de1d..91d2c9b 100644
      cmp_ptr[0xF2] = cmd_F2_unpack;
      cmp_ptr[0xF4] = cmd_F4_unpack_scal;
      cmp_ptr[0xF5] = cmd_F5_stamp_rescale;
-@@ -185,16 +215,62 @@ void ppm_cmd_handler() {
+@@ -185,16 +251,62 @@ void ppm_cmd_handler() {
      ppmio.ramdp->reg_status_1 |= 0x0004;
      ppmio.ramdp->reg_status_2.bits.busy = 1;
  
@@ -2660,7 +4042,25 @@ index 1a1de1d..91d2c9b 100644
  }
  
  void cmd_unknown() {
-@@ -233,18 +309,31 @@ void cmd_84_sdram_off() {
+@@ -223,8 +335,17 @@ void cmd_81_init() {
+     // finding arcade mode sends 0x810f
+ 
+     FPGAIO->ctrl.sdram_en = 1;
++#if PPM_CHIP_81
++    // PPM_CHIP_81: on the cart, 81 (no engine gate, no argument test) only sets four
++    // internal flags from bits 1-4 of the posted word and completes. Those flags drive
++    // cart features that do not exist here. It touches no sprite state and no RAMDP:
++    // the slot count, the cache, the handles and the 68000's object records
++    // $0F80-$137F are left as they are. sdram_en above is ours' own FPGA mapper bit
++    // (the pair of 84), not a cart field, and stays.
++#else
+     ppm_vram_set_budget(0);
+     ppm_obj_reset();
++#endif
+ }
+ 
+ void cmd_84_sdram_off() {
+@@ -233,18 +354,31 @@ void cmd_84_sdram_off() {
  
  void cmd_AD_obj_add() {
  
@@ -2692,7 +4092,19 @@ index 1a1de1d..91d2c9b 100644
      // frame finish
      // af01: no scaling ongoing
      // af02: must reserve bandwith for scaling buffer?
-@@ -261,6 +350,10 @@ void cmd_B1_sprite_pause() {
+@@ -254,6 +388,11 @@ void cmd_AF_frame_end() {
+ 
+ void cmd_B1_sprite_pause() {
+ 
++#if PPM_CHIP_CACHE_MISS && PPM_CHIP_LOAD_CAP
++    // PPM_CHIP_CACHE_MISS: on the cart B1 runs the load-list flush,
++    // which empties the list, so the 15-load cap starts again (mame.c).
++    ppm_chip_flush_loads();
++#endif
+     if (ppmio.ramdp->sat_count == 0) {
+         memset(&ppmio.ramdp->sat_data[0], 0, 8);
+     }
+@@ -261,6 +400,10 @@ void cmd_B1_sprite_pause() {
  
  void cmd_C6_setup_data() {
  
@@ -2703,7 +4115,25 @@ index 1a1de1d..91d2c9b 100644
      // load/setup base data
  
      u32 time = FPGAIO->time;
-@@ -290,13 +383,76 @@ void cmd_DA_unpack() {
+@@ -281,6 +424,17 @@ void cmd_C6_setup_data() {
+     time = FPGAIO->time - time;
+     printf("setup time: %i\n", time); //just for mcu core speed test
+     printf("======================\n");
++#if PPM_CHIP_EC || PPM_CHIP_B0
++    // The cart's C6 job runs the engine init for the first C6 only: a later C6
++    // completes without the job, until the cart is reset. See mame.c.
++    if (!ppm_chip_engine_ready) {
++#if PPM_CHIP_B0
++        ppm_chip_b0_reset();        // the engine init begins with B0's steps
++#endif
++        ppm_chip_engine_ready = 1;  // engine flag := 1
++                                    // (when the cart's data setup succeeds; ours cannot fail)
++    }
++#endif
+ }
+ 
+ void cmd_DA_unpack() {
+@@ -290,13 +444,76 @@ void cmd_DA_unpack() {
      u32 src = (ppmio.ramdp->cmd_args[1] << 16) + ppmio.ramdp->cmd_args[2];
      u32 dst = ppmio.ramdp->cmd_args[0];
  
@@ -2783,7 +4213,40 @@ index 1a1de1d..91d2c9b 100644
  }
  
  void cmd_DF_eep_rd() {
-@@ -375,10 +531,18 @@ void cmd_F2_unpack() {
+@@ -360,6 +577,24 @@ void cmd_E7_mwire() {
+ void cmd_EC_vram_budget() {
+ 
+     // set vram block budget
++#if PPM_CHIP_EC
++    // PPM_CHIP_EC, the cart's EC gate. A refusal changes no state here (the cart's
++    // $1FE6 bit 9 and error codes are not matched: see mame.c, CHIP EC, B0 AND 81).
++    // reg_cmd still holds the posted word: the dispatcher writes cmd_resp after the handler.
++    if (!ppm_chip_engine_ready) {                   // engine flag 0 -> refused
++        return;
++    }
++    if (!(ppmio.ramdp->reg_cmd & 0x4000)) {         // bit 14 clear, the $AC form -> refused
++        return;
++    }
++    if (ppmio.ramdp->cmd_args[0] != 0) {            // arg0 ($1E10) != 0 -> refused
++        return;
++    }
++    if (ppmio.ramdp->cmd_args[1] > 0x80) {          // arg1 ($1E12) > $80 -> refused
++        return;
++    }
++    ppm_chip_ec_count(ppmio.ramdp->cmd_args[1]);    // the count change, arg1 = the new count (mame.c)
++#else
+ 
+     //u16 blocks = SWAP_WORD(ppmio.ramdp->cmd_args[1]);
+     u16 blocks = ppmio.ramdp->cmd_args[1];
+@@ -368,6 +603,7 @@ void cmd_EC_vram_budget() {
+     if (ppmio.ramdp->cmd_args[0]) {
+         printf("PPM command 0xec: unk arg 0 (0x%x)", ppmio.ramdp->cmd_args[0]);
+     }
++#endif
+ }
+ 
+ void cmd_F2_unpack() {
+@@ -375,10 +611,18 @@ void cmd_F2_unpack() {
      // todF2o: check block range
      //used in sprites test menu
  
@@ -2806,12 +4269,21 @@ index 1a1de1d..91d2c9b 100644
  }
  
  void cmd_F4_unpack_scal() {
-@@ -390,16 +554,216 @@ void cmd_F5_stamp_rescale() {
+@@ -390,16 +634,226 @@ void cmd_F5_stamp_rescale() {
  }
  //============================================================================== audio
  
 +void cmd_B0_sprite_init() {
 +
++#if PPM_CHIP_B0
++    // PPM_CHIP_B0, the cart's B0 (no bit-14 or argument test). It writes no RAMDP:
++    // GPGX's $1F20-$1F8F clear (the #else below) is not the cart's; on the cart that
++    // region is a stash this firmware never writes.
++    if (!ppm_chip_engine_ready) {   // engine flag 0 -> refused
++        return;
++    }
++    ppm_chip_b0_reset();            // mame.c
++#else
 +    // paprium-pocket: stock mega-ppm mutes this. GPGX implements it as a clear of
 +    // 112 bytes of the DMA/sprite table (paprium.h, paprium_sprite_init):
 +    //     memset(paprium_s.ram + 0x1F20, 0, 14*8);
@@ -2821,6 +4293,7 @@ index 1a1de1d..91d2c9b 100644
 +    for (int i = 0; i < 14 * 8; i++) {
 +        ram[0x1F20 + i] = 0;
 +    }
++#endif
 +}
 +
 +void cmd_88_audio_cfg() {
@@ -3025,7 +4498,7 @@ index 1a1de1d..91d2c9b 100644
      }
  }
  
-@@ -409,6 +773,7 @@ void cmd_8D_bgm_cfg() {
+@@ -409,6 +863,7 @@ void cmd_8D_bgm_cfg() {
  
      if (arg == 0 || arg == 8) {
          mdp_stop();
@@ -3127,3 +4600,1129 @@ index 1263606..82951f5 100644
      for (int ch = 0; ch < SFX_CHAN_NUM; ch++) {
  
          if (sfx_chan[ch].size == 0) {
+diff --git a/mcu/zz_buddy.c b/mcu/zz_buddy.c
+new file mode 100644
+index 0000000..93538df
+--- /dev/null
++++ b/mcu/zz_buddy.c
+@@ -0,0 +1,848 @@
++/*
++ * zz_buddy.c - the hook-free CPU MATE buddy glue ("option D"). See buddy.h for the design summary.
++ * paprium-pocket 0.2.6.
++ *
++ * The file name sorts after every shipping source, and every variable here lives in .noinit.zz_buddy (not cleared
++ * by crt0, placed after .bss), so the shipping objects keep their link order, every shipping variable keeps its
++ * address and crt0 runs the same loops (checked per build against the buddy-free firmware).
++ *
++ * Needs from the shipping objects (no source change): ppm_cmd_handler, sfx_player_update, ppm_music_vu_update
++ * (global), sfx_chan[], ppm_sfx_base_addr, ppmio (global), and vu_due / vu_on, which are static in paprium.c:
++ * the build globalises those two symbols in paprium.c.o with objcopy (no recompile, so its code is unchanged).
++ */
++#include "appmain.h"
++#include "buddy.h"
++
++/* Not cleared by crt0 (an orphan NOBITS section after .bss): the boot path keeps its exact length. buddy_event
++   zeroes it at the first event of each MCU boot, told by MTIME_HI bit 31 (crt0 zeroes every internal IO register,
++   MTIME included, at every boot; the glue sets the bit; MTIME_HI would reach it after ~1.3 million years). */
++#define BSS __attribute__((section(".noinit.zz_buddy")))
++#define NOINL __attribute__((noinline))
++/* cold code (boot-time slices, init, rate table, publish, the slow path's bookkeeping): size over speed; the
++   per-tick / per-post paths and the run start stay -O2 */
++#define COLD __attribute__((noinline, optimize("Os")))
++
++/* ------------------------------------------------------------------ shipping symbols */
++typedef struct {                        /* sfx.c's SfxChan, same layout (10 words) */
++    u32 age, ptr, size, step, step_num, decay, looped, ptr_base, size_base, flags;
++} BudSfxChan;
++extern BudSfxChan sfx_chan[8];
++extern u32 ppm_sfx_base_addr;
++extern u32 vu_due;                      /* paprium.c statics, globalised in the object by the build (objcopy) */
++extern u8 vu_on;
++void ppm_cmd_handler(void);
++void sfx_player_update(void);
++void ppm_music_vu_update(void);
++extern void __crt0_dummy_trap_handler(void);
++extern char __crt0_bss_end[];
++
++/* zz_buddy_trap.c */
++extern void buddy_trap(void);
++extern u32 buddy_call_brain(u32 h2, u32 h1, u32 *word);
++extern volatile u32 buddy_jmp_sp;       /* != 0 while a brain call is in flight */
++extern volatile u32 buddy_abort_req;
++extern volatile u32 buddy_code_lo, buddy_code_hi;
++
++#if BUDDY_STUB_BRAIN
++extern const BudEntry buddy_stub_entry; /* zz_buddy_stub.c */
++#endif
++#if BUDDY_LINKED_BRAIN
++extern const BudEntry buddy_linked_entry; /* zz_buddy_brain.c */
++#define PBUD_LOADER 0
++#elif BUDDY_NO_BRAIN
++#define PBUD_LOADER 0
++#else
++#define PBUD_LOADER (!BUDDY_STUB_BRAIN)
++#endif
++
++/* ------------------------------------------------------------------ small helpers */
++#define REG32(a)        (*(volatile u32 *) (a))
++#define REG16(a)        (*(volatile u16 *) (a))
++#define XL(off)         REG32(BUD_XLINK_BASE + (off))
++#define CTRL()          REG32(BUD_FPGAIO_CTRL)
++#define MS_NOW()        REG32(BUD_FPGAIO_TIME)
++#define MTIME_NOW()     REG32(MTIME_LO_ADDR)
++#define REGCMD()        (ppmio.ramdp->reg_cmd)
++
++#define CSR_SET(csr, v)   __asm__ volatile ("csrs " #csr ", %0" :: "r" (v))
++#define CSR_CLR(csr, v)   __asm__ volatile ("csrc " #csr ", %0" :: "r" (v))
++#define CSR_W(csr, v)     __asm__ volatile ("csrw " #csr ", %0" :: "r" (v))
++/* a two-instruction interrupt window (MIE = 1) inside a handler that runs with MIE = 0: a pending mailbox post is
++   taken here (MTIE is off inside a tick, so never a tick) */
++#define MIE_WINDOW()    do { CSR_SET(mstatus, MST_MIE); __asm__ volatile ("nop\n\tnop"); CSR_CLR(mstatus, MST_MIE); } while (0)
++#define MIE_MEIE        (1u << 11)
++#define MIE_MTIE        (1u << 7)
++#define MST_MIE         (1u << 3)
++
++/* ------------------------------------------------------------------ state (all in .bss.zz_buddy) */
++enum { ST_NEW = 0, ST_DISABLED, ST_LOADING, ST_READY };
++enum { LD_CRC = 0, LD_COPY, LD_VERIFY, LD_DONE };
++
++typedef struct {
++    u32 state;
++    const BudEntry *ent;
++    /* sliced work */
++    u8 restart_pending;                 /* restart seen, waiting for the release (SRES = 1, SBRQ = 0) */
++    u8 restore_pending;                 /* release seen: Word RAM pattern still being written */
++    u8 brain_flag_pending;              /* raise the brain's restart flag before the next call */
++    u8 rate_pending;                    /* SFX rate table still being built */
++    u32 rs_rec, rs_pos;                 /* restore record / byte position */
++    u32 rt_idx, rt_n, rt_base;          /* rate table build */
++    u32 ld_step, ld_pos, ld_crc, ld_crc_fast, ld_crc_copy;
++    /* calibration of FPGAIO ms vs MTIME: the edge of ms t_ref happened at MTIME in (e_lo, e_hi] (mod 2^32) */
++    u32 cal_have, t_ref, e_lo, e_hi;
++} BudState;
++
++typedef struct {                        /* the MTIME feeder + VU scheduler of one brain run */
++    u32 mask;                           /* channels fed */
++    u32 playing;                        /* channels with samples left at the last scan */
++    u32 next;                           /* next grid deadline (MTIME_LO) */
++    u8 k[8];                            /* pushes per tick, by the channel's rate */
++    u32 vu_armed, vu_at, vu_poll;       /* VU check at vu_at; vu_poll = 1 while polling (phase not known) */
++    u32 rescan_armed, rescan_at;
++    u32 resolve;                        /* fed channels whose rate is still to be looked up (k = 24 kHz's meanwhile) */
++    u32 tail_pending;                   /* a post ISR inside a tick's window left its scan / VU schedule to the tick */
++} BudFeed;
++
++typedef struct { u32 ptr, size, rate; u32 key_ok; } BudChanRate;
++
++BSS BudState bud;
++BSS BudFeed bfeed;
++BSS BudChanRate bud_chrate[8];
++BSS BudStats bud_stats;
++BSS volatile u32 bud_in_tick;
++
++/* sfx table rate index -> pushes per BUDDY_FEED_PERIOD: k = ceil((P + J) / T) + 1, P = 7,168, J = 400,
++   T = 1,118.6 x the divider (/1 /2 /4 /5 /8 /9 as audio_sfx.sv; /10 gives the same k). The + 1
++   makes a fed FIFO gain >= 1 sample a tick, so a young channel climbs during a run instead of only holding. */
++static const u8 bud_k_by_rate[8] __attribute__((section(".rodata.zz_buddy"))) = {8, 5, 3, 3, 2, 2, 2, 2};
++
++/* ------------------------------------------------------------------ MTIME / ms phase calibration */
++/* One sample: m1 = MTIME, t = FPGAIO ms counter, m2 = MTIME. time_st follows ctr_t while the bus is idle, so the
++   value read was the counter at a clock between the two MTIME reads: E(t) <= m2 and E(t + 1) > m1 (+-4 margin). */
++COLD static void cal_sample(void)
++{
++    u32 m1 = MTIME_NOW();
++    u32 t = MS_NOW();
++    u32 m2 = MTIME_NOW();
++    u32 lo = m1 - 4u - BUDDY_MS_CYCLES, hi = m2 + 4u;         /* bounds on E(t) */
++    bud_stats.cal_samples++;
++    if (!bud.cal_have || (u32) (t - bud.t_ref) > 20000u) {
++        bud.cal_have = 1; bud.t_ref = t; bud.e_lo = lo; bud.e_hi = hi;
++    } else {
++        u32 d = (t - bud.t_ref) * BUDDY_MS_CYCLES;            /* < 2^31 for |t - t_ref| <= 20 s */
++        lo -= d; hi -= d;                                       /* the same bounds moved to E(t_ref) */
++        if ((s32) (hi - bud.e_hi) < 0) bud.e_hi = hi;
++        if ((s32) (lo - bud.e_lo) > 0) bud.e_lo = lo;
++        if ((s32) (bud.e_hi - bud.e_lo) <= 0) {                 /* inconsistent (should not happen): start again */
++            bud.t_ref = t; bud.e_lo = m1 - 4u - BUDDY_MS_CYCLES; bud.e_hi = m2 + 4u;
++        } else if ((u32) (t - bud.t_ref) > 10000u) {            /* keep t_ref recent (no overflow, MTIME wraps 80 s) */
++            bud.e_lo += d; bud.e_hi += d; bud.t_ref = t;
++        }
++    }
++    bud_stats.cal_width = bud.e_hi - bud.e_lo;
++}
++
++/* ------------------------------------------------------------------ R-VU: schedule the due check */
++COLD static void vu_schedule(u32 now)
++{
++    if (!vu_on) { bfeed.vu_armed = 0; return; }
++    u32 t = MS_NOW();
++    s32 ahead = (s32) (vu_due - t);
++    if (ahead > 30000) { bfeed.vu_armed = 0; return; }        /* not due within any run */
++    u32 at;
++    if (ahead <= 0) at = now;                                   /* due already */
++    else if (bud.cal_have && (bud.e_hi - bud.e_lo) <= BUDDY_VU_CAL_MAX && (u32) (vu_due - bud.t_ref) < 30000u) {
++        at = bud.e_hi + (vu_due - bud.t_ref) * BUDDY_MS_CYCLES + 8u;      /* latest possible edge of vu_due */
++        bfeed.vu_poll = 0;
++    } else {
++        /* not calibrated: wake at the earliest possible edge, then poll */
++        at = now + (u32) (ahead - 1) * BUDDY_MS_CYCLES;
++        bfeed.vu_poll = 1;
++    }
++    bfeed.vu_armed = 1; bfeed.vu_at = at;
++}
++
++/* the check itself (MTIME tick or after a mailbox service): the row runs if due, exactly as the main loop runs it */
++COLD static void vu_service(u32 now)
++{
++    u32 before = vu_due;
++    cal_sample();
++    ppm_music_vu_update();
++    if (vu_due != before) {
++        bud_stats.vu_rows++;
++        vu_schedule(MTIME_NOW());
++    } else if (vu_on) {
++        bud_stats.vu_polls++;
++        vu_schedule(now);
++        if (bfeed.vu_armed && (s32) (bfeed.vu_at - now) < (s32) BUDDY_VU_POLL) bfeed.vu_at = now + BUDDY_VU_POLL;
++    } else {
++        bfeed.vu_armed = 0;
++    }
++}
++
++/* ------------------------------------------------------------------ R-SFX: rates */
++/* Rate hash in the SRAM scratch: slot = {ptr, size, rate | 0x100 valid}; ptr/size as sfx_play stores them. */
++#define RATE_SLOT(i)    ((volatile u32 *) (BUDDY_SCRATCH_ADDR + (i) * 12u))
++static u32 rate_hash(u32 ptr) { return ((ptr >> 1) ^ (ptr >> 9) ^ (ptr >> 17)) & (BUDDY_RATE_SLOTS - 1u); }
++
++COLD static void rate_insert(u32 ptr, u32 size, u32 rate)
++{
++    u32 h = rate_hash(ptr);
++    for (u32 n = 0; n < BUDDY_RATE_SLOTS; n++, h = (h + 1u) & (BUDDY_RATE_SLOTS - 1u)) {
++        volatile u32 *s = RATE_SLOT(h);
++        if (!(s[2] & 0x100u)) { s[0] = ptr; s[1] = size; s[2] = 0x100u | rate; return; }
++        if (s[0] == ptr && s[1] == size) {                      /* same sample twice: keep the faster rate */
++            if (rate < (s[2] & 7u)) s[2] = 0x100u | rate;
++            return;
++        }
++    }
++}
++
++COLD static int rate_lookup(u32 ptr, u32 size)
++{
++    u32 h = rate_hash(ptr);
++    for (u32 n = 0; n < BUDDY_RATE_SLOTS; n++, h = (h + 1u) & (BUDDY_RATE_SLOTS - 1u)) {
++        volatile u32 *s = RATE_SLOT(h);
++        if (!(s[2] & 0x100u)) return -1;
++        if (s[0] == ptr && s[1] == size) return (int) (s[2] & 7u);
++    }
++    return -1;
++}
++
++/* one slice of the table build: sfx_play's own reads of entry `arg` (ptr, size, type) */
++COLD static void rate_build_slice(void)
++{
++    if (bud.rt_idx == 0) {
++        for (u32 i = 0; i < BUDDY_RATE_SLOTS; i++) RATE_SLOT(i)[2] = 0;
++        bud.rt_base = ppm_sfx_base_addr;
++        bud.rt_n = *(u16 *) &ppmio.flash[bud.rt_base + 6];          /* ppm_sfx_data[0].length, as mame.c reads it */
++        if (bud.rt_n > 255u) bud.rt_n = 255u;
++        bud.rt_idx = 1;
++        return;
++    }
++    for (u32 n = 0; n < BUDDY_SLICE_RATE && bud.rt_idx <= bud.rt_n; n++, bud.rt_idx++) {
++        u8 *sfx = &ppmio.flash[bud.rt_base + bud.rt_idx * 8];
++        u32 ptr = bud.rt_base + swapshorts(*(u32 *) &sfx[0]);
++        u32 size = (sfx[4] << 16) | *(u16 *) &sfx[6];
++        rate_insert(ptr, size, (sfx[5] >> 4) & 7u);
++    }
++    if (bud.rt_idx > bud.rt_n) {                                /* done: forget the misses cached meanwhile */
++        bud.rate_pending = 0;
++        for (u32 ch = 0; ch < 8; ch++) bud_chrate[ch].key_ok = 0;
++    }
++}
++
++/* the channel's consumption rate index as sfx_play programmed it (flag 0x0100 steps it down, saturating at 5) */
++COLD static u32 chan_k(u32 ch)
++{
++    BudChanRate *c = &bud_chrate[ch];
++    u32 ptr = sfx_chan[ch].ptr_base, size = sfx_chan[ch].size_base;
++    if (!c->key_ok || c->ptr != ptr || c->size != size) {
++        int r = -1;
++        if (!bud.rate_pending && bud.rt_base == ppm_sfx_base_addr) r = rate_lookup(ptr, size);
++        if (r < 0) { bud_stats.rate_miss++; c->rate = 0xFF; }
++        else {
++            bud_stats.rate_hits++;
++            if ((sfx_chan[ch].flags & 0x0100u) && r < 5) r++;
++            c->rate = (u32) r;
++        }
++        c->ptr = ptr; c->size = size; c->key_ok = 1;
++    }
++    return c->rate > 7u ? BUDDY_FEED_K_UNKNOWN : bud_k_by_rate[c->rate];
++}
++
++/* ------------------------------------------------------------------ R-SFX: the feeder */
++/* the channel's pushes per tick: the cached rate's k, else 24 kHz's until a tick resolves the rate */
++static inline __attribute__((always_inline)) void feed_price(u32 ch)
++{
++    BudChanRate *c = &bud_chrate[ch];
++    if (c->key_ok && c->ptr == sfx_chan[ch].ptr_base && c->size == sfx_chan[ch].size_base)
++        bfeed.k[ch] = (u8) (c->rate > 7u ? BUDDY_FEED_K_UNKNOWN : bud_k_by_rate[c->rate]);
++    else { bfeed.k[ch] = BUDDY_FEED_K_UNKNOWN; bfeed.resolve |= 1u << ch; }
++}
++
++/* channels with samples left (sfx_player_update's first test) */
++static inline __attribute__((always_inline)) u32 playing_mask(void)
++{
++    u32 playing = 0;
++#pragma GCC unroll 8
++    for (u32 ch = 0; ch < 8; ch++) playing |= (u32) (sfx_chan[ch].size != 0) << ch;
++    return playing;
++}
++
++/* scan: fed = channels with samples left and a FIFO not full (sfx_player_update's own two tests). Returns the
++   channels new to the feeder (the caller decides when they are fed: run_call's first round, or the grid) */
++static u32 feed_scan(u32 now)
++{
++    u32 m = 0, playing = playing_mask();                        /* the common case: all idle */
++    for (u32 ch = 0; playing >> ch; ch++) {
++        if (!(playing & (1u << ch))) continue;
++        if (ppmio.sfx[ch].status.fifo_full) continue;
++        m |= 1u << ch;
++        feed_price(ch);
++    }
++    u32 nw = m & ~bfeed.mask;
++    bfeed.mask = m;
++    bfeed.playing = playing;
++    bfeed.rescan_armed = (playing & ~m) != 0;                   /* a full channel drains: look again later */
++    bfeed.rescan_at = now + BUDDY_FEED_RESCAN;
++    if (m > bud_stats.feed_mask_max) bud_stats.feed_mask_max = m;
++    bud_stats.rescans++;
++    return nw;
++}
++
++/* rate look-ups left by feed_scan, `max` channels (after the pushes: a young channel is fed first) */
++COLD static void feed_resolve(u32 max)
++{
++    for (u32 ch = 0; ch < 8 && bfeed.resolve && max; ch++) {
++        if (!(bfeed.resolve & (1u << ch))) continue;
++        bfeed.resolve &= ~(1u << ch); max--;
++        u32 k = chan_k(ch);
++        if (bfeed.mask & (1u << ch)) bfeed.k[ch] = (u8) k;
++    }
++}
++
++/* m rounds of pushes into every fed channel, k per round. The per-channel code is sfx_player_update's (same flash
++   byte, same 4/8-bit conversion, same ptr / size / step / loop bookkeeping, same FIFO-full test before each push);
++   ptr / size / step are kept in registers across the channel's pushes and written back once, and a 4-bit
++   channel's byte is read once for its two nibbles (the same byte: a glue unit test checks values and end state
++   against the shipping function on random states).
++   win = 1 (the MTIME tick): between two channels MIE opens for one instruction, so a mailbox post never waits
++   behind the whole feeder - only behind one channel's batch. Nothing is held across the window: the channel's
++   state is written back before it, and the mask and k are re-read after it (a nested 0xD1 may change them). */
++/* up to k pushes into channel ch; 0 = the channel left the feeder (no samples, or its FIFO read full) */
++static inline __attribute__((always_inline)) u32 chan_batch(u32 ch, u32 k, u32 *pushed)
++{
++    BudSfxChan *c = &sfx_chan[ch];
++    SfxIO *io = &ppmio.sfx[ch];
++    u8 *fl = ppmio.flash;
++    u32 ptr = c->ptr, size = c->size, step = c->step, keep = 1, n = 0;
++    const u32 four = (c->step_num == 2);
++    int byte = -1;
++    for (; k; k--) {
++        if (size == 0) { keep = 0; break; }
++        if (io->status.fifo_full) { keep = 0; bfeed.rescan_armed = 1; break; }
++        int sample;
++        if (four) {
++            if (byte < 0) byte = fl[ptr ^ 1];                   /* the byte both nibbles come from */
++            sample = byte;
++            if (step == 0) { sample >>= 4; step = 1; }
++            else { step = 0; ptr++; byte = -1; }
++            sample = (((sample & 0x0F) * 65536) / 16) - 32768;
++        } else {
++            sample = fl[ptr ^ 1]; //use flash_sw
++            ptr++;
++            sample = (((sample & 0xFF) * 65536) / 256) - 32768;
++        }
++        io->sample = sample;
++        n++;
++        if (--size == 0 && c->looped) { ptr = c->ptr_base; size = c->size_base; byte = -1; }
++    }
++    c->ptr = ptr; c->size = size; c->step = step;
++    *pushed += n;
++    return keep;
++}
++
++/* a channel chan_batch left the feeder with: FIFO full (it stays playing; a rescan looks again) or no samples left
++   (it leaves bfeed.playing too, so a 0xD1 that starts it again in this run is seen as a start) */
++static inline __attribute__((always_inline)) void chan_dropped(u32 ch, u32 bit)
++{
++    bfeed.mask &= ~bit;
++    if (sfx_chan[ch].size == 0) bfeed.playing &= ~bit;
++}
++
++/* One round: k * m pushes into every fed channel, in channel order (RTL-sim exp_on sixB: ordering by rate and a
++   round-robin phase first both cost more cycles before the batches than they saved, and left a young 24 kHz channel
++   dry). win = 1 (the MTIME tick): MIE opens for two instructions after every channel, so a mailbox post never waits
++   behind the feeder, only behind one channel's batch; nothing is held across the window (the channel's state is
++   written back first, the mask and k are re-read after: a nested 0xD1 may change them). Called with MIE = 0. */
++static void feed_push(u32 m, u32 win)
++{
++    u32 n = 0;
++    for (u32 ch = 0; ch < 8; ch++) {
++        u32 bit = 1u << ch;
++        if (!(bfeed.mask & bit)) continue;
++        u32 k = bfeed.k[ch];
++        if (m > 1) { k *= m; if (k > BUDDY_FEED_KMAX) k = BUDDY_FEED_KMAX; }
++        if (!chan_batch(ch, k, &n)) chan_dropped(ch, bit);
++        if (win) { CSR_SET(mstatus, MST_MIE); __asm__ volatile ("nop\n\tnop"); CSR_CLR(mstatus, MST_MIE); }
++    }
++    bud_stats.pushes += n;
++}
++
++/* an out-of-line copy of chan_batch for the post ISR's first batch (the tick keeps its own inlined copy) */
++static NOINL u32 chan_batch_ool(u32 ch, u32 k, u32 *pushed) { return chan_batch(ch, k, pushed); }
++
++/* A channel started inside a run (a 0xD1 serviced by the post ISR) has at most one sample in its FIFO by the
++   body's sfx_player_update: its first batch goes in right after the command's service, before that update and
++   before the full scan, instead of at the next grid tick behind every other channel's batch (a 24 kHz channel at
++   level 1 lasts 2 x 2,237 cycles). nw = channels playing after the command that were not playing before it
++   (bfeed.playing is kept exact inside a run: set by the first round and the scans, refreshed after every ISR body,
++   and a channel the feeder empties leaves it at once - chan_dropped; a glue unit test (D3): without that, a channel
++   that ended and was started again in the same run missed this batch). Everything else waits for the full scan after
++   the body (RTL-sim lat19 v14: a full scan ahead of sfx_player_update delayed a young channel's push past its pop).
++   Called with MIE = 0. */
++static void feed_started(u32 nw)
++{
++    u32 old = bfeed.mask, n = 0;
++    bfeed.playing |= nw;
++    for (u32 ch = 0; nw >> ch; ch++) {
++        u32 bit = 1u << ch;
++        if (!(nw & bit) || ppmio.sfx[ch].status.fifo_full) continue;
++        feed_price(ch);
++        bfeed.mask |= bit;
++        if (!chan_batch_ool(ch, bfeed.k[ch], &n)) chan_dropped(ch, bit);
++    }
++    if (!old && bfeed.mask) bfeed.next = MTIME_NOW() + BUDDY_FEED_PERIOD;   /* an idle grid starts after it */
++    bud_stats.pushes += n;
++    bud_stats.first_batches++;
++}
++
++/* The run's first round, fused with the scan: each channel with samples left and a FIFO not full is priced and
++   gets its batch at once, in channel order. RTL-sim sixB_arm at L16 = 19 (v18): with the scan as a separate pass
++   first (~1,100 cycles), the third young 24 kHz channel's batch came 18 cycles after its FIFO ran dry. */
++static void feed_round_first(u32 now)
++{
++    u32 playing = playing_mask(), m = 0, n = 0;
++    for (u32 ch = 0; playing >> ch; ch++) {
++        u32 bit = 1u << ch;
++        if (!(playing & bit) || ppmio.sfx[ch].status.fifo_full) continue;
++        feed_price(ch);
++        if (chan_batch(ch, bfeed.k[ch], &n)) m |= bit;
++        else if (sfx_chan[ch].size == 0) playing &= ~bit;       /* emptied by this batch */
++    }
++    bfeed.mask = m;
++    bfeed.playing = playing;
++    bfeed.rescan_armed = (playing & ~m) != 0;
++    bfeed.rescan_at = now + BUDDY_FEED_RESCAN;
++    if (m > bud_stats.feed_mask_max) bud_stats.feed_mask_max = m;
++    bud_stats.rescans++;
++    bud_stats.pushes += n;
++}
++
++/* the next MTIME edge: the earliest of the grid (while feeding), the VU check and the rescan. NEORV32 1.4.8.1 makes
++   an interrupt only on the 0 -> 1 edge of (mtime >= mtimecmp): a compare written already in the past gives no edge,
++   and the tick chain would stop for the rest of the run. So the compare goes BUDDY_CMP_LEAD ahead at least, and is
++   checked again after the write landed. */
++#define BUDDY_CMP_LEAD  256
++static void feed_program(void)
++{
++    for (u32 tries = 0; tries < 4; tries++) {
++        u32 now = MTIME_NOW();
++        s32 d = 0x3FFFFFFF;
++        if (bfeed.mask) { s32 x = (s32) (bfeed.next - now); if (x < d) d = x; }
++        if (bfeed.vu_armed) { s32 x = (s32) (bfeed.vu_at - now); if (x < d) d = x; }
++        if (bfeed.rescan_armed) { s32 x = (s32) (bfeed.rescan_at - now); if (x < d) d = x; }
++        if (d < BUDDY_CMP_LEAD) d = BUDDY_CMP_LEAD;
++        u32 c = now + (u32) d;
++        REG32(MTIMECMP_LO_ADDR) = c;
++        if ((s32) (c - MTIME_NOW()) >= 16) return;
++    }
++}
++
++static int run_must_abort(void)
++{
++    u32 c = CTRL();
++    /* a restart (SRES 0) or AI off (SBRQ 1) while the call runs: rule 2, the call in flight is reset */
++    return !(c & CT_SRES) || (c & CT_SBRQ);
++}
++
++/* after a mailbox service: the ms/MTIME phase sample, the feeder's full scan (a channel back from FIFO-full joins;
++   into an idle grid it ticks now), the VU schedule */
++static void post_tail(void)
++{
++    u32 now = MTIME_NOW();
++    cal_sample();
++    u32 old = bfeed.mask;
++    if (feed_scan(now) && !old) bfeed.next = now;
++    vu_schedule(now);
++}
++
++/* MTIME interrupt (from zz_buddy_trap.c, every caller-saved register saved) */
++void buddy_isr_tick(void)
++{
++    if (bud_in_tick) return;                                    /* taken in a window of the tick itself: nothing to do,
++                                                                   the outer tick programs the next edge */
++    bud_in_tick = 1;
++    CSR_CLR(mie, MIE_MTIE);                                     /* the windows below let a mailbox post in, never a
++                                                                   tick (RTL-sim v11: a nested tick cost ~580 cycles
++                                                                   of a young channel's margin each); set again below,
++                                                                   after the next edge is programmed >= 256 ahead */
++    u32 now = MTIME_NOW();
++    bud_stats.ticks++;
++    if (bfeed.mask && (s32) (now - bfeed.next) >= 0) {
++        u32 m = 1, d = bfeed.next + BUDDY_FEED_PERIOD;
++        while ((s32) (now - d) >= 0 && m <= BUDDY_FEED_CATCHUP) { d += BUDDY_FEED_PERIOD; m++; }
++        if ((s32) (now - d) >= 0) d = now + BUDDY_FEED_PERIOD; /* far behind (a long service): restart the grid */
++        if (m > 1) bud_stats.catchups++;
++        bfeed.next = d;
++        feed_push(m, 1);
++    }
++    if (bfeed.vu_armed && (s32) (now - bfeed.vu_at) >= 0) {
++        if (vu_on && (s32) (MS_NOW() - vu_due) >= 0 && bfeed.mask) feed_push(BUDDY_FEED_VU_TOPUP, 0);   /* a row is due */
++        vu_service(now);
++    }
++    if (bfeed.rescan_armed && (s32) (now - bfeed.rescan_at) >= 0) {
++        u32 old = bfeed.mask;                                   /* a channel back from FIFO-full joins the grid (it
++                                                                   was full a rescan ago); an idle grid restarts now */
++        if (feed_scan(now) && !old) bfeed.next = now;
++    }
++    /* a post serviced in a window above left its scan / VU schedule here; a window after each of these pieces (and
++       after the rate look-up) lets the next post in (RTL-sim newinB v21: a 0xC9 that arrived during this ~3,200-cycle
++       stretch waited 4,049 cycles for its reply) */
++    while (bfeed.tail_pending) { bfeed.tail_pending = 0; post_tail(); MIE_WINDOW(); }
++    if (bfeed.resolve) {                                        /* one rate look-up a tick, after its pushes */
++        feed_resolve(1); MIE_WINDOW();
++        while (bfeed.tail_pending) { bfeed.tail_pending = 0; post_tail(); MIE_WINDOW(); }
++    }
++    if (run_must_abort()) buddy_abort_req = 1;
++    feed_program();
++    bud_in_tick = 0;
++    CSR_SET(mie, MIE_MTIE);
++}
++
++/* Mailbox interrupt: today's main-loop body until the mailbox is quiet (a nonzero response is polled again, as the
++   next pass would), then the feeder's scan and the VU schedule are refreshed. A channel a command started (0xD1)
++   gets its first batch right after that command's service (the reply is out by then), before the body's
++   sfx_player_update (RTL-sim newinB v13: with it after the body, the new 24 kHz channel's batch came 2,250 cycles
++   after the reply). The pushes are the same per-channel stream in the same order; only their timing moves. */
++void buddy_isr_post(void)
++{
++    REG32(BUD_FPGAIO_IRQCLR) = 1;                              /* clear the latch first ... */
++    CSR_CLR(mie, MIE_MEIE);                                     /* ... then drop what irq_buf caught meanwhile */
++    CSR_SET(mie, MIE_MEIE);
++    bud_stats.mbx_isr++;
++    u32 n = 0;
++    do {
++        if (REGCMD() != 0) bud_stats.mbx_cmds++;
++        ppm_cmd_handler();
++        u32 nw = playing_mask() & ~bfeed.playing;               /* started by this command: first batch now */
++        if (nw) feed_started(nw);
++        sfx_player_update();
++        ppm_music_vu_update();
++        bfeed.playing = playing_mask();                         /* exact again: a channel this body ended (its last
++                                                                   sample, or a 0xD2) leaves; the feeder clears the
++                                                                   ones it ends itself (chan_dropped) */
++    } while (REGCMD() != 0 && ++n < 8);
++    if (run_must_abort()) buddy_abort_req = 1;
++    if (bud_in_tick) {                                          /* inside a tick's window: the channels after this one
++                                                                   still wait for their batches - the scan, the VU
++                                                                   schedule and the next edge are the tick's, at its end
++                                                                   (RTL-sim sixB L16 = 19, v17: this tail, ~2,000
++                                                                   cycles, made a young channel's batch late by ~500) */
++        bfeed.tail_pending = 1;
++        return;
++    }
++    post_tail();
++    feed_program();
++}
++
++/* an exception while a brain call is in flight (zz_buddy_trap.c decides firmware vs brain code by mepc) */
++COLD void buddy_exc_brain(void)
++{
++    bud_stats.exc_brain++;
++    (void) XL(XL_ID);                                           /* absorb a stale xbus ack (review finding 3) */
++    buddy_abort_req = 1;
++    bud.state = ST_DISABLED;
++}
++
++/* ------------------------------------------------------------------ boot-time work (sliced) */
++#if PBUD_LOADER
++COLD static u32 crc32_nib(u32 crc, u8 b)
++{
++    static const u32 t[16] = {
++        0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC, 0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
++        0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C, 0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C};
++    crc ^= b;
++    crc = (crc >> 4) ^ t[crc & 15u];
++    crc = (crc >> 4) ^ t[crc & 15u];
++    return crc;
++}
++#endif
++
++/* restore: the sub init's Word RAM pattern into the SRAM mirror (objects / records 0, terrain $00FF,
++   header +0..+9 = 0), BUDDY_SLICE_WORDS halfwords a slice */
++static void restore_slice(void)
++{
++    const BudEntry *e = bud.ent;
++    u32 left = BUDDY_SLICE_WORDS;
++    while (left) {
++        if (bud.rs_rec >= e->nrestore + e->ncopy) {
++            bud.restore_pending = 0; bud_stats.restores_done++;
++            if (e->t16_key) REG32(e->t16_key) = 0;              /* T16 rebuilt after every release */
++            return;
++        }
++        if (bud.rs_rec >= e->nrestore) {                        /* the copy records, halfwords */
++            u32 k = bud.rs_rec - e->nrestore, pos = bud.rs_pos, bytes = e->copy[k].bytes;
++            u32 s = e->copy[k].src, d = e->copy[k].dst;
++            for (; left && pos < bytes; left--, pos += 2u) REG16(d + pos) = REG16(s + pos);
++            if (pos >= bytes) { bud.rs_rec++; pos = 0; }
++            bud.rs_pos = pos;
++            continue;
++        }
++        u32 a = e->restore[bud.rs_rec].addr, bytes = e->restore[bud.rs_rec].bytes;
++        u32 f = e->restore[bud.rs_rec].fill16 & 0xFFFFu, pos = bud.rs_pos;
++        u32 w = f | (f << 16);                                  /* two 68000 words per SRAM long (16-bit native) */
++        for (; left && pos + 4u <= bytes; left--, pos += 4u) REG32(a + pos) = w;
++        if (left && pos < bytes) { REG16(a + pos) = (u16) f; pos += 2u; left--; }
++        if (pos >= bytes) { bud.rs_rec++; pos = 0; }
++        bud.rs_pos = pos;
++    }
++}
++
++#if PBUD_LOADER
++/* PBUD image: CRC of the payload, copy of the fast section into WRAM, CRC of the copy */
++COLD static void load_slice(void)
++{
++    const BudPbudHdr *h = (const BudPbudHdr *) BUDDY_IMG_ADDR;
++    const u8 *pl = (const u8 *) (BUDDY_IMG_ADDR + 32u);
++    if (bud.ld_step == LD_CRC) {
++        for (u32 n = 0; n < BUDDY_SLICE_CRC_BYTES && bud.ld_pos < h->length; n++, bud.ld_pos++) {
++            u8 b = pl[bud.ld_pos];
++            bud.ld_crc = crc32_nib(bud.ld_crc, b);
++            if (bud.ld_pos >= h->fast_lma && bud.ld_pos < h->fast_lma + h->fast_len) bud.ld_crc_fast = crc32_nib(bud.ld_crc_fast, b);
++        }
++        if (bud.ld_pos >= h->length) {
++            bud_stats.img_crc_calc = ~bud.ld_crc;
++            if (~bud.ld_crc != h->crc32) { bud.state = ST_DISABLED; bud_stats.img_state = 0xBAD1; return; }
++            bud.ld_step = LD_COPY; bud.ld_pos = 0;
++        }
++    } else if (bud.ld_step == LD_COPY) {
++        for (u32 n = 0; n < BUDDY_SLICE_WORDS && bud.ld_pos < h->fast_len; n++, bud.ld_pos += 4)
++            REG32(h->fast_vma + bud.ld_pos) = REG32(BUDDY_IMG_ADDR + 32u + h->fast_lma + bud.ld_pos);
++        if (bud.ld_pos >= h->fast_len) { bud.ld_step = LD_VERIFY; bud.ld_pos = 0; bud.ld_crc_copy = 0xFFFFFFFFu; }
++    } else if (bud.ld_step == LD_VERIFY) {
++        for (u32 n = 0; n < BUDDY_SLICE_CRC_BYTES && bud.ld_pos < h->fast_len; n++, bud.ld_pos++)
++            bud.ld_crc_copy = crc32_nib(bud.ld_crc_copy, *(const u8 *) (h->fast_vma + bud.ld_pos));
++        if (bud.ld_pos >= h->fast_len) {
++            if (bud.ld_crc_copy != bud.ld_crc_fast) { bud.state = ST_DISABLED; bud_stats.img_state = 0xBAD2; return; }
++            bud.ld_step = LD_DONE;
++            bud.state = ST_READY;
++            bud_stats.img_state = 0x600D;
++        }
++    }
++}
++
++COLD static int image_check(void)
++{
++    const BudPbudHdr *h = (const BudPbudHdr *) BUDDY_IMG_ADDR;
++    if (h->magic != PBUD_MAGIC || h->version != 1 || h->length == 0 || h->length > 0x10000u - 32u) return 0;
++    if (h->entry_off + sizeof(BudEntry) > h->length) return 0;
++    if (h->fast_len) {
++        if ((h->fast_len & 3u) || (h->fast_vma & 3u) || h->fast_lma + h->fast_len > h->length) return 0;
++        if (h->fast_vma < (((u32) __crt0_bss_end + 15u) & ~15u) || h->fast_vma + h->fast_len > BUDDY_WRAM_CODE_HI) return 0;
++    }
++    const BudEntry *e = (const BudEntry *) (BUDDY_IMG_ADDR + 32u + h->entry_off);
++    if (e->magic != PBE_MAGIC || e->nrestore > 4u) return 0;
++    bud.ent = e;
++    buddy_code_lo = e->code_lo; buddy_code_hi = e->code_hi;
++    return 1;
++}
++#endif
++
++/* one slice of whatever boot-time work is pending; returns 1 while work remains */
++COLD static int work_slice(void)
++{
++#if PBUD_LOADER
++    if (bud.state == ST_LOADING) { load_slice(); return 1; }
++#endif
++    if (bud.restore_pending) { restore_slice(); return 1; }
++    if (bud.rate_pending) { rate_build_slice(); return bud.rate_pending; }
++    return 0;
++}
++
++COLD static void buddy_init(void)
++{
++    bud_stats.inits++;
++    if (XL(XL_ID) != XLINK_ID_STAGE2) { bud.state = ST_DISABLED; return; }
++    XL(XL_XCFG) = XL(XL_XCFG) | XCFG_LOCK;                      /* protect the loaded image from stray stores */
++    REG32(MTIMECMP_HI_ADDR) = 0;                                /* the compare is used 32-bit (mtimecmp_hi = 0) */
++#if BUDDY_STUB_BRAIN
++    bud.ent = &buddy_stub_entry;
++    buddy_code_lo = bud.ent->code_lo; buddy_code_hi = bud.ent->code_hi;
++    bud.state = ST_READY;
++    bud_stats.img_state = 0x5703;
++#elif BUDDY_LINKED_BRAIN
++    bud.ent = &buddy_linked_entry;                              /* code already in block RAM */
++    buddy_code_lo = bud.ent->code_lo; buddy_code_hi = bud.ent->code_hi;
++    bud.state = ST_READY;
++    bud_stats.img_state = 0x11AB;
++#elif BUDDY_NO_BRAIN
++    bud.state = ST_DISABLED;                                    /* built without the brain: the link keeps the stub's */
++    bud_stats.img_state = 0xB0FF;                               /* answers (buddy_event's ST_DISABLED path) */
++    return;
++#else
++    if (!image_check()) { bud.state = ST_DISABLED; bud_stats.img_state = 0xBAD0; return; }
++    const BudPbudHdr *h = (const BudPbudHdr *) BUDDY_IMG_ADDR;
++    bud.ld_step = LD_CRC; bud.ld_pos = 0; bud.ld_crc = 0xFFFFFFFFu; bud.ld_crc_fast = 0xFFFFFFFFu;
++    if (h->fast_len == 0) bud.ld_step = LD_CRC;               /* CRC still checked; LD_COPY ends at once */
++    bud.state = ST_LOADING;
++#endif
++    bud.brain_flag_pending = 1;                                 /* WRAM survives a soft reset: always restart once */
++    bud.restart_pending = 1;                                    /* wait for the release before the first call */
++    bud.rate_pending = 1; bud.rt_idx = 0;
++}
++
++/* option D on (honest BUSY + COMSTAT2) only once the brain can answer; LCTRL[15:8] = HOLD is written back as read
++   (review finding 5: a plain write of bit 0 would also set HOLD = 0) */
++COLD static void option_d(u32 on)
++{
++    u32 v = XL(XL_LCTRL);
++    XL(XL_LCTRL) = (v & 0xFF00u) | (on ? 1u : 0u);
++}
++
++/* ------------------------------------------------------------------ one brain call */
++COLD static void publish(u32 word, u32 posts0)
++{
++    volatile u32 *co = (volatile u32 *) bud.ent->cnt_out;
++    u32 dw = co[1] & 0xFFFFFFu, db = co[2] & 0xFFFFFFu;
++    if (db < dw) { db = dw; bud_stats.dbusy_fixed++; }         /* review finding 6: D_BUSY >= D_WORD always */
++    XL(XL_DWORD) = dw;
++    XL(XL_DBUSY) = db;
++    XL(XL_PEND) = word & 0xFFFFu;
++    XL(XL_ARM) = 1;
++    /* review finding 1: an ARM toggle that lands on the clk_md clock of a $A12001 write or a post is lost. Read
++       back: taken = armed, or busy already released (late ARM). A lost ARM is sent again (idempotent: same values,
++       and the stub ignores an ARM once the timer has stopped). */
++    for (u32 tries = 0; tries < 3; tries++) {
++        u32 ls = 0;
++        for (u32 r = 0; r < 3; r++) {                           /* ~6 clk_sys for the toggle + LSTAT round trip */
++            ls = XL(XL_LSTAT);
++            if (ls & LS_ARMED) break;
++        }
++        if ((ls & LS_ARMED) || !(ls & LS_BUSY)) {
++            if (ls & LS_LATE) bud_stats.late_seen++;
++            bud_stats.published++;
++            return;
++        }
++        if ((ls >> 16) != posts0 || !(ls & LS_SRES) || (ls & LS_SBRQ)) { bud_stats.discarded++; return; }
++        bud_stats.rearms++;
++        XL(XL_ARM) = 1;
++    }
++    bud_stats.arm_lost++;
++}
++
++static void run_call(void)
++{
++    const BudEntry *e = bud.ent;
++    u32 t0 = MTIME_NOW();
++    bfeed.mask = 0; bfeed.vu_armed = 0; bfeed.rescan_armed = 0; bfeed.resolve = 0; bfeed.tail_pending = 0;
++    bud_in_tick = 0;
++    buddy_abort_req = 0;
++    buddy_jmp_sp = 0;
++    /* R-SFX: the run's first round right here, before anything else and with the interrupts still off, in plain
++       per-channel batches fused with the scan (RTL-sim exp_on sixB: a post serviced inside the first round, a
++       round-robin phase of single pushes first, or two stages of batches (v16: the round took twice as long, a 0xD3
++       reply waited 7,290 cycles and two young channels underran) all did worse) */
++    feed_round_first(t0);
++    bfeed.next = t0 + BUDDY_FEED_PERIOD;
++    /* arm the interrupts (MIE stays 0 for now): latch cleared, then MEIE; MTIE before any compare is written (NEORV32
++       1.4.8.1 buffers the one-clock MTIME edge only while MTIE is set) */
++    REG32(BUD_FPGAIO_IRQCLR) = 1;
++    CSR_W(mtvec, (u32) buddy_trap);
++    CSR_SET(mie, MIE_MEIE | MIE_MTIE);
++    if (REGCMD() != 0) buddy_isr_post();                        /* posted before the clear: no latch for it */
++
++    u32 ls0 = XL(XL_LSTAT);
++    u32 posts0 = ls0 >> 16;
++    u32 word = 0, rc = 2;
++    if (!(ls0 & LS_SRES) || (ls0 & LS_SBRQ)) { bud_stats.ignored_halted++; goto out; }
++
++    /* the call's inputs: the mirror and the PRG tables are in SRAM (snooped), T1-T3 in the flash window; the
++       firmware only sets the counter's W and, after a restart, the brain's flag */
++    volatile u32 *co = (volatile u32 *) e->cnt_out;
++    co[3] = 0;                                                  /* Wf = 0: W lives in the stub's tick (12.5 MHz) */
++    if (bud.brain_flag_pending) { REG16(e->flag) = 1; bud.brain_flag_pending = 0; }
++    vu_schedule(t0);                                            /* rate look-ups wait for the ticks (k = 24 kHz's) */
++    feed_program();
++    CSR_SET(mstatus, MST_MIE);
++
++    rc = buddy_abort_req ? 1u : buddy_call_brain(e->h2, e->h1, &word);
++out:
++    CSR_CLR(mstatus, MST_MIE);
++    CSR_CLR(mie, MIE_MEIE | MIE_MTIE);
++    CSR_W(mtvec, (u32) __crt0_dummy_trap_handler);
++    bfeed.mask = 0; bfeed.vu_armed = 0; bfeed.rescan_armed = 0;
++
++    if (rc == 2) return;                                        /* halted / restarted since the post: no call */
++    u32 dt = MTIME_NOW() - t0;
++    bud_stats.run_cycles_last = dt;
++    if (dt > bud_stats.run_cycles_max) bud_stats.run_cycles_max = dt;
++    bud_stats.calls++;
++    if (rc) {
++        bud_stats.aborted++;
++        if (e->t16_key) REG32(e->t16_key) = 0;                  /* a cut T16 build must not be kept */
++        return;
++    }
++
++    u32 ls1 = XL(XL_LSTAT);
++    if ((ls1 >> 16) != posts0 || !(ls1 & LS_SRES) || (ls1 & LS_SBRQ) || (ls1 & ~ls0 & (LS_RESTART | LS_AIOFF))) {
++        bud_stats.discarded++;                                  /* reset / halt / a new post during the call */
++        return;
++    }
++    publish(word, posts0);
++}
++
++/* ------------------------------------------------------------------ the slow path (main loop, end of a pass) */
++void buddy_event(u32 ctrl)
++{
++    /* A send: today's next pass would push into every channel at once (its ppm_cmd_handler finds the mailbox empty,
++       then sfx_player_update). Do exactly that before anything else - a young channel may be down to its last sample
++       (test_glue D: any later, and a 24 kHz channel at level 0 underruns where today's loop does not). */
++    u32 go = (ctrl & CT_SEND) && !(ctrl & CT_RESTART) && REGCMD() == 0 && bud.state == ST_READY;
++    if (go) sfx_player_update();
++    if (!(REG32(MTIME_HI_ADDR) & 0x80000000u)) {                /* first event since this MCU boot */
++        memset(&bud, 0, sizeof bud);
++        memset(&bfeed, 0, sizeof bfeed);
++        memset(bud_chrate, 0, sizeof bud_chrate);
++        memset(&bud_stats, 0, sizeof bud_stats);
++        buddy_jmp_sp = 0; buddy_abort_req = 0;
++        REG32(MTIME_HI_ADDR) = REG32(MTIME_HI_ADDR) | 0x80000000u;
++    }
++    bud_stats.events++;
++    if (bud.state == ST_NEW) buddy_init();
++    if (bud.state == ST_DISABLED) {                             /* a plain stub: acknowledge and forget */
++        if (bud_stats.img_state != 0xD15A) {                    /* once: BUSY / COMSTAT2 back to today's stub answers */
++            if (XL(XL_ID) == XLINK_ID_STAGE2) option_d(0);
++            bud_stats.img_state = 0xD15A;
++        }
++        XL(XL_LCLR) = LS_SEND | LS_RESTART | LS_AIOFF | LS_LATE;
++        return;
++    }
++    /* The send first: between the pass end and the brain only what the call needs (the not-before slacks of the
++       shortest calls are ~1,300 MCU cycles). run_call feeds every needy channel before anything else; it checks SRES /
++       SBRQ itself (a restart or a halt since the post: no call). */
++    if (go && bud.state == ST_READY && !(bud.restart_pending | bud.restore_pending)) {
++        XL(XL_LCLR) = LS_SEND;
++        bud_stats.sends++;
++        run_call();
++    }
++    u32 ls = XL(XL_LSTAT);
++    u32 clr = 0;
++    if (ls & LS_RESTART) { bud_stats.restarts++; bud.restart_pending = 1; bud.brain_flag_pending = 1; clr |= LS_RESTART; }
++    if (ls & LS_AIOFF) bud_stats.aioffs++;
++    if (ls & LS_LATE) { bud_stats.late_seen++; clr |= LS_LATE; }
++    if (bud.restart_pending && (ls & LS_SRES) && !(ls & LS_SBRQ)) {
++        /* the release: the sub init writes its Word RAM pattern now (main writes the mirror only at its sends) */
++        bud.restart_pending = 0;
++        bud.restore_pending = 1; bud.rs_rec = 0; bud.rs_pos = 0;
++        bud_stats.releases++;
++    }
++    /* a send still pending here waits for boot-time work (never seen in play: that work ends ~2,900 frames before the
++       first send): the main loop goes on as today, the work a slice a pass, and the call runs as soon as it is done
++       (late, so the stub releases at once). It is never dropped, which would leave BUSY set. */
++    if ((ls & LS_SEND) && bud.state == ST_READY) bud_stats.ignored_notready++;
++
++    cal_sample();
++    /* the rate table follows the SFX base: 0xC6 (cmd_C6_setup_data) sets it, and the first event (the Mega CD init's
++       AI off) may come before it. Until a build ends, look-ups are refused and the feeder prices a channel as 24 kHz
++       (BUDDY_FEED_K_UNKNOWN, the bank's fastest rate), so a send never waits for this. */
++    if (!bud.rate_pending && bud.rt_base != ppm_sfx_base_addr) { bud.rate_pending = 1; bud.rt_idx = 0; }
++    int more = work_slice();
++    if (bud.state == ST_READY && !(XL(XL_LCTRL) & 1u)) option_d(1);
++    /* AI off is held set (the slow path runs every pass) while boot work remains, while waiting for a release, and
++       while the sub is halted (a give-up stays halted until a reboot, whose restart edge raises no new AI off) */
++    if (!more && !bud.restart_pending && !(ls & LS_SBRQ)) clr |= LS_AIOFF;
++    if (clr) XL(XL_LCLR) = clr;
++}
+diff --git a/mcu/zz_buddy_brain.c b/mcu/zz_buddy_brain.c
+new file mode 100644
+index 0000000..d1bf4b4
+--- /dev/null
++++ b/mcu/zz_buddy_brain.c
+@@ -0,0 +1,45 @@
++/*
++ * zz_buddy_brain.c - links the CPU MATE brain into the firmware image. paprium-pocket 0.2.6.
++ *
++ * The brain is NOT part of this source tree. It ships as a separate download next to each release (the
++ * "CPU MATE brain" asset: brain.bin, cf.bin, rodata.bin). scripts/build_mcu.sh --brain <folder> copies the three
++ * files into its build folder and compiles this file from there, so the .incbin names below find them.
++ * Built without them (no --brain), BUDDY_LINKED_BRAIN is 0, nothing here is compiled, and the glue reports the
++ * buddy as absent (BUDDY_NO_BRAIN, zz_buddy.c buddy_init).
++ *
++ *   brain.bin   the brain: rodata + text, assembled for the IROM at 0x5360 (code_lo .. code_hi below)
++ *   cf.bin      its counting helpers, linked at the start of the WRAM code window (0x80002C00)
++ *   rodata.bin  its image tables, after cf.bin and a 64-byte gap (0x80004110)
++ * The entry table below belongs to that exact brain build; build_mcu.sh checks the three md5s.
++ */
++#include "buddy.h"
++
++#if BUDDY_LINKED_BRAIN
++#define BRAIN_PRG_CAPTURE       (BUD_SRAM_BASE + 0x10000u)      /* SRAM: the sub PRG tables, snooped at boot */
++
++__asm__(
++"    .section .brain_irom,\"ax\",@progbits\n"
++"    .incbin \"brain.bin\"\n"
++"    .section .wram_cf,\"ax\",@progbits\n"
++"    .incbin \"cf.bin\"\n"
++"    .fill 64, 1, 0\n"
++"    .incbin \"rodata.bin\"\n"
++"    .text\n"
++);
++
++const BudEntry buddy_linked_entry = {
++    PBE_MAGIC, 0x0000859Cu, 0x00008504u, 0x80002230u, 0x800022BEu, 0x00005360u, 0x0000D2ECu,
++    4, {   /* the sub init's Word RAM pattern in the SRAM mirror's direct window */
++        { BUDDY_MIRROR_ADDR + 0x00000u, 0x1000u, 0x0000u },   /* objects $600000-$600FFF = 0 */
++        { BUDDY_MIRROR_ADDR + 0x04000u, 0x0140u, 0x0000u },   /* records $604000-$60413F = 0 */
++        { BUDDY_MIRROR_ADDR + 0x08000u, 0x1080u, 0x00FFu },   /* terrain $608000-$60907F = $00FF words */
++        { BUDDY_MIRROR_ADDR + 0x10000u, 0x000Au, 0x0000u },   /* header +0..+9 = 0 */
++    },
++    3, {   /* the captured sub tables: PRG $5F4-$723, $9C0-$BBF, $1C92-$1D31 -> the brain's WRAM */
++        { BRAIN_PRG_CAPTURE + 0x05F4u, 0x80001820u, 0x130u },
++        { BRAIN_PRG_CAPTURE + 0x09C0u, 0x80001950u, 0x200u },
++        { BRAIN_PRG_CAPTURE + 0x1C92u, 0x80001B50u, 0x0A0u },
++    },
++    0x80002220u
++};
++#endif
+diff --git a/mcu/zz_buddy_trap.c b/mcu/zz_buddy_trap.c
+new file mode 100644
+index 0000000..c2174fa
+--- /dev/null
++++ b/mcu/zz_buddy_trap.c
+@@ -0,0 +1,215 @@
++/*
++ * zz_buddy_trap.c - trap entry and brain-call wrapper of the CPU MATE buddy (file-scope assembly in a .c file, so
++ * scripts/build_mcu.sh, which compiles *.c only, builds it unchanged). paprium-pocket 0.2.6.
++ *
++ * buddy_trap is mtvec only while a brain call runs (zz_buddy.c run_call); everywhere else mtvec is crt0's
++ * __crt0_dummy_trap_handler, as today.
++ *   - interrupts: MEI (cause 11, the mailbox latch) -> buddy_isr_post(); MTI (cause 7) -> buddy_isr_tick().
++ *     mepc and mstatus are saved in the frame and written back before mret, so a nested exception inside a
++ *     handler (its mret clobbers MPIE / mepc) cannot leave interrupts off or return to the wrong place.
++ *   - an abort request (restart / AI off while a call is in flight, or an exception in brain code) turns the
++ *     return into a jump to buddy_abort_land, which unwinds to buddy_call_brain's frame and returns 1.
++ *   - an exception in firmware code: every register restored, then crt0's dummy handler, exactly today's path.
++ * Frame: 16 caller-saved registers + mepc + mstatus = 72 bytes (80 reserved, 16-byte aligned).
++ * The brain is entered with the RV ABI: ra, sp, gp, tp and s0-s11 are restored by the wrapper (the counter build
++ * keeps its accumulator in tp and saves it itself; the wrapper restores it anyway, for the abort path).
++ */
++#include <stdint.h>
++
++/* With the glue in the WRAM code window, crt0's dummy handler (IROM) is out of `j` reach (1 MB): the
++   firmware-exception path goes through this 8-byte trampoline, which stays in the IROM (section .text.buddy_tramp);
++   t0 rides in mscratch (the firmware does not use mscratch) */
++#ifndef BUDDY_TRAP_TRAMP
++#define BUDDY_TRAP_TRAMP 0
++#endif
++#if BUDDY_TRAP_TRAMP
++__asm__(
++"    .section .text.buddy_tramp,\"ax\",@progbits\n"
++"    .globl buddy_fw_tramp\n"
++"    .balign 4\n"
++"buddy_fw_tramp:\n"
++"    csrrw t0, mscratch, t0\n"
++"    j     __crt0_dummy_trap_handler\n"
++"    .text\n"
++);
++#endif
++
++__attribute__((section(".noinit.zz_buddy"))) volatile uint32_t buddy_jmp_sp;
++__attribute__((section(".noinit.zz_buddy"))) volatile uint32_t buddy_abort_req;
++__attribute__((section(".noinit.zz_buddy"))) volatile uint32_t buddy_code_lo;
++__attribute__((section(".noinit.zz_buddy"))) volatile uint32_t buddy_code_hi;
++
++__asm__(
++"    .section .text.zz_buddy_trap,\"ax\",@progbits\n"
++"    .globl buddy_trap\n"
++"    .balign 4\n"
++"buddy_trap:\n"
++"    addi  sp, sp, -80\n"
++"    sw    ra,  0(sp)\n"
++"    sw    t0,  4(sp)\n"
++"    sw    t1,  8(sp)\n"
++"    sw    t2, 12(sp)\n"
++"    sw    a0, 16(sp)\n"
++"    sw    a1, 20(sp)\n"
++"    sw    a2, 24(sp)\n"
++"    sw    a3, 28(sp)\n"
++"    sw    a4, 32(sp)\n"
++"    sw    a5, 36(sp)\n"
++"    sw    a6, 40(sp)\n"
++"    sw    a7, 44(sp)\n"
++"    sw    t3, 48(sp)\n"
++"    sw    t4, 52(sp)\n"
++"    sw    t5, 56(sp)\n"
++"    sw    t6, 60(sp)\n"
++"    csrr  t0, mepc\n"
++"    sw    t0, 64(sp)\n"
++"    csrr  t1, mstatus\n"
++"    sw    t1, 68(sp)\n"
++"    csrr  t0, mcause\n"
++"    bgez  t0, .Lbt_exc\n"
++"    andi  t0, t0, 31\n"
++"    li    t1, 11\n"
++"    beq   t0, t1, .Lbt_mei\n"
++"    li    t1, 7\n"
++"    beq   t0, t1, .Lbt_mti\n"
++"    j     .Lbt_out\n"
++".Lbt_mei:\n"
++"    call  buddy_isr_post\n"
++"    j     .Lbt_out\n"
++".Lbt_mti:\n"
++"    call  buddy_isr_tick\n"
++".Lbt_out:\n"
++"    lw    t0, 64(sp)\n"
++"    csrw  mepc, t0\n"
++"    lw    t0, 68(sp)\n"
++"    csrw  mstatus, t0\n"
++"    lui   t1, %hi(buddy_abort_req)\n"
++"    lw    t0, %lo(buddy_abort_req)(t1)\n"
++"    beqz  t0, 1f\n"
++"    lui   t1, %hi(buddy_jmp_sp)\n"
++"    lw    t0, %lo(buddy_jmp_sp)(t1)\n"
++"    beqz  t0, 1f\n"
++"    lui   t0, %hi(buddy_abort_land)\n"
++"    addi  t0, t0, %lo(buddy_abort_land)\n"
++"    csrw  mepc, t0\n"
++"1:\n"
++"    lw    ra,  0(sp)\n"
++"    lw    t0,  4(sp)\n"
++"    lw    t1,  8(sp)\n"
++"    lw    t2, 12(sp)\n"
++"    lw    a0, 16(sp)\n"
++"    lw    a1, 20(sp)\n"
++"    lw    a2, 24(sp)\n"
++"    lw    a3, 28(sp)\n"
++"    lw    a4, 32(sp)\n"
++"    lw    a5, 36(sp)\n"
++"    lw    a6, 40(sp)\n"
++"    lw    a7, 44(sp)\n"
++"    lw    t3, 48(sp)\n"
++"    lw    t4, 52(sp)\n"
++"    lw    t5, 56(sp)\n"
++"    lw    t6, 60(sp)\n"
++"    addi  sp, sp, 80\n"
++"    mret\n"
++/* exception: in brain code while a call is in flight -> abort + disable; anything else -> today's handler */
++".Lbt_exc:\n"
++"    lw    t0, 64(sp)\n"
++"    lui   t1, %hi(buddy_jmp_sp)\n"
++"    lw    t1, %lo(buddy_jmp_sp)(t1)\n"
++"    beqz  t1, .Lbt_fw\n"
++"    lui   t1, %hi(buddy_code_lo)\n"
++"    lw    t1, %lo(buddy_code_lo)(t1)\n"
++"    bltu  t0, t1, .Lbt_fw\n"
++"    lui   t1, %hi(buddy_code_hi)\n"
++"    lw    t1, %lo(buddy_code_hi)(t1)\n"
++"    bgeu  t0, t1, .Lbt_fw\n"
++"    call  buddy_exc_brain\n"
++"    j     .Lbt_out\n"
++".Lbt_fw:\n"
++"    lw    ra,  0(sp)\n"
++"    lw    t0,  4(sp)\n"
++#if BUDDY_TRAP_TRAMP
++"    csrw  mscratch, t0\n"
++#endif
++"    lw    t1,  8(sp)\n"
++"    lw    t2, 12(sp)\n"
++"    lw    a0, 16(sp)\n"
++"    lw    a1, 20(sp)\n"
++"    lw    a2, 24(sp)\n"
++"    lw    a3, 28(sp)\n"
++"    lw    a4, 32(sp)\n"
++"    lw    a5, 36(sp)\n"
++"    lw    a6, 40(sp)\n"
++"    lw    a7, 44(sp)\n"
++"    lw    t3, 48(sp)\n"
++"    lw    t4, 52(sp)\n"
++"    lw    t5, 56(sp)\n"
++"    lw    t6, 60(sp)\n"
++"    addi  sp, sp, 80\n"
++#if BUDDY_TRAP_TRAMP
++"    lui   t0, %hi(buddy_fw_tramp)\n"
++"    addi  t0, t0, %lo(buddy_fw_tramp)\n"
++"    jr    t0\n"
++#else
++"    j     __crt0_dummy_trap_handler\n"
++#endif
++"\n"
++/* uint32_t buddy_call_brain(uint32_t h2, uint32_t h1, uint32_t *word): H2 then H1; 0 = done, 1 = aborted */
++"    .section .text.zz_buddy_call,\"ax\",@progbits\n"
++"    .globl buddy_call_brain\n"
++"    .globl buddy_abort_land\n"
++"    .balign 4\n"
++"buddy_call_brain:\n"
++"    addi  sp, sp, -64\n"
++"    sw    ra,  0(sp)\n"
++"    sw    s0,  4(sp)\n"
++"    sw    s1,  8(sp)\n"
++"    sw    s2, 12(sp)\n"
++"    sw    s3, 16(sp)\n"
++"    sw    s4, 20(sp)\n"
++"    sw    s5, 24(sp)\n"
++"    sw    s6, 28(sp)\n"
++"    sw    s7, 32(sp)\n"
++"    sw    s8, 36(sp)\n"
++"    sw    s9, 40(sp)\n"
++"    sw    s10, 44(sp)\n"
++"    sw    s11, 48(sp)\n"
++"    sw    tp, 52(sp)\n"
++"    sw    gp, 56(sp)\n"
++"    mv    s0, a1\n"
++"    mv    s1, a2\n"
++"    lui   t0, %hi(buddy_jmp_sp)\n"
++"    sw    sp, %lo(buddy_jmp_sp)(t0)\n"
++"    jalr  ra, 0(a0)\n"
++"    jalr  ra, 0(s0)\n"
++"    sw    a0, 0(s1)\n"
++"    lui   t0, %hi(buddy_jmp_sp)\n"
++"    sw    zero, %lo(buddy_jmp_sp)(t0)\n"
++"    li    a0, 0\n"
++".Lcb_ret:\n"
++"    lw    ra,  0(sp)\n"
++"    lw    s0,  4(sp)\n"
++"    lw    s1,  8(sp)\n"
++"    lw    s2, 12(sp)\n"
++"    lw    s3, 16(sp)\n"
++"    lw    s4, 20(sp)\n"
++"    lw    s5, 24(sp)\n"
++"    lw    s6, 28(sp)\n"
++"    lw    s7, 32(sp)\n"
++"    lw    s8, 36(sp)\n"
++"    lw    s9, 40(sp)\n"
++"    lw    s10, 44(sp)\n"
++"    lw    s11, 48(sp)\n"
++"    lw    tp, 52(sp)\n"
++"    lw    gp, 56(sp)\n"
++"    addi  sp, sp, 64\n"
++"    ret\n"
++"buddy_abort_land:\n"
++"    csrci mstatus, 8\n"
++"    lui   t0, %hi(buddy_jmp_sp)\n"
++"    lw    sp, %lo(buddy_jmp_sp)(t0)\n"
++"    sw    zero, %lo(buddy_jmp_sp)(t0)\n"
++"    li    a0, 1\n"
++"    j     .Lcb_ret\n"
++"    .text\n"
++);
