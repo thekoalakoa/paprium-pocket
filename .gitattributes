@@ -1,0 +1,7 @@
+# The MCU firmware images (scripts/build_mcu.sh writes them; mcu_core.sv and memory.sv $readmemh them) are
+# krikzz's bin_to_verilog layout with CRLF line ends. Stored byte for byte, with no line-end conversion, so the
+# md5s quoted in scripts/build_mcu.sh and docs/firmware/README.md hold on every platform and checkout setting.
+rtl/PAPRIUM/mcu.txt     -text
+rtl/PAPRIUM/mcu_ext.txt -text
+rtl/PAPRIUM/wram_hi.txt -text
+rtl/PAPRIUM/wram_lo.txt -text
