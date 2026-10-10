@@ -29,6 +29,307 @@
             "value": 1
           }
         ]
+      },
+      {
+        "name": "Little-Man",
+        "id": 30,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000030",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": 0
+          },
+          {
+            "name": "Health",
+            "value": 1
+          },
+          {
+            "name": "Pills",
+            "value": 2
+          },
+          {
+            "name": "Lives",
+            "value": 4
+          },
+          {
+            "name": "Health + Pills",
+            "value": 3
+          },
+          {
+            "name": "Health + Lives",
+            "value": 5
+          },
+          {
+            "name": "Pills + Lives",
+            "value": 6
+          },
+          {
+            "name": "All Three",
+            "value": 7
+          }
+        ]
+      },
+      {
+        "name": "Arcade Stage Select",
+        "id": 31,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000040",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": 0
+          },
+          {
+            "name": "Block 888",
+            "value": 1
+          },
+          {
+            "name": "Intercom",
+            "value": 2
+          },
+          {
+            "name": "MTS",
+            "value": 3
+          },
+          {
+            "name": "Bion Mart",
+            "value": 4
+          },
+          {
+            "name": "Roof-Top",
+            "value": 5
+          },
+          {
+            "name": "Police HQ",
+            "value": 6
+          },
+          {
+            "name": "Ice Factory",
+            "value": 7
+          },
+          {
+            "name": "Reformatory",
+            "value": 8
+          },
+          {
+            "name": "Sanophix PU",
+            "value": 9
+          },
+          {
+            "name": "Central Park",
+            "value": 10
+          },
+          {
+            "name": "Green Cross",
+            "value": 11
+          },
+          {
+            "name": "The Docks",
+            "value": 12
+          },
+          {
+            "name": "Golden Of Seas",
+            "value": 13
+          },
+          {
+            "name": "Deep Storage",
+            "value": 14
+          },
+          {
+            "name": "Aquaworld",
+            "value": 15
+          }
+        ]
+      },
+      {
+        "name": "Arcade Stage Select 2",
+        "id": 32,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000048",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": 0
+          },
+          {
+            "name": "Blue Bar",
+            "value": 16
+          },
+          {
+            "name": "Powder-Zone",
+            "value": 17
+          },
+          {
+            "name": "Bohpal B-2",
+            "value": 18
+          },
+          {
+            "name": "Juvanium",
+            "value": 19
+          },
+          {
+            "name": "Sky Spa",
+            "value": 20
+          },
+          {
+            "name": "Digniti KTV",
+            "value": 21
+          },
+          {
+            "name": "The Vault",
+            "value": 22
+          },
+          {
+            "name": "Sanophix Labs",
+            "value": 23
+          },
+          {
+            "name": "The Solarium",
+            "value": 24
+          },
+          {
+            "name": "Arena",
+            "value": 25
+          }
+        ]
+      },
+      {
+        "name": "6-Button",
+        "id": 33,
+        "type": "check",
+        "enabled": true,
+        "address": "0x00000044",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "value": 1
+      },
+      {
+        "name": "Console",
+        "id": 36,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000054",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Mega Drive",
+            "value": 0
+          },
+          {
+            "name": "Genesis",
+            "value": 1
+          },
+          {
+            "name": "Mega Drive 2",
+            "value": 2
+          },
+          {
+            "name": "Genesis Model 2",
+            "value": 3
+          },
+          {
+            "name": "Genesis 3",
+            "value": 4
+          },
+          {
+            "name": "Nomad",
+            "value": 5
+          },
+          {
+            "name": "Mega Jet",
+            "value": 6
+          },
+          {
+            "name": "Unknown",
+            "value": 7
+          }
+        ]
+      },
+      {
+        "name": "Mega CD",
+        "id": 35,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000050",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "None",
+            "value": 0
+          },
+          {
+            "name": "Mega-CD / Sega CD",
+            "value": 2
+          },
+          {
+            "name": "Mega-CD 2 / Sega CD 2",
+            "value": 3
+          },
+          {
+            "name": "Wondermega",
+            "value": 4
+          },
+          {
+            "name": "Wondermega M2 / X'Eye",
+            "value": 5
+          },
+          {
+            "name": "LaserActive",
+            "value": 6
+          },
+          {
+            "name": "Aiwa CSD-GM1",
+            "value": 1
+          },
+          {
+            "name": "CDX",
+            "value": 7
+          },
+          {
+            "name": "Unknown CD",
+            "value": 8
+          }
+        ]
+      },
+      {
+        "name": "32X Mode",
+        "id": 34,
+        "type": "check",
+        "enabled": true,
+        "address": "0x0000004C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "value": 1
+      },
+      {
+        "name": "MegaWire",
+        "id": 37,
+        "type": "check",
+        "enabled": true,
+        "address": "0x00000058",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "value": 1
       }
     ],
     "messages": []
