@@ -486,7 +486,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_read_queue) begin
             target_dataslot_read_queue <= 0;
-            target_0[15:0] <= 16'h0180;
+            target_0 <= 32'h0000_0180; // 0.2.6: whole word, no stale 'ok' in [31:16]
             
             target_20 <= target_dataslot_id;
             target_24 <= target_dataslot_slotoffset;
@@ -497,7 +497,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_write_queue) begin
             target_dataslot_write_queue <= 0;
-            target_0[15:0] <= 16'h0184;
+            target_0 <= 32'h0000_0184; // 0.2.6: whole word, no stale 'ok' in [31:16]
             
             target_20 <= target_dataslot_id;
             target_24 <= target_dataslot_slotoffset;
@@ -508,7 +508,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_getfile_queue) begin
             target_dataslot_getfile_queue <= 0;
-            target_0[15:0] <= 16'h0190;
+            target_0 <= 32'h0000_0190; // 0.2.6: whole word, no stale 'ok' in [31:16]
             
             target_20 <= target_dataslot_id;
             target_24 <= target_buffer_resp_struct; // pointer to the bram that will hold the response struct
@@ -517,7 +517,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_openfile_queue) begin
             target_dataslot_openfile_queue <= 0;
-            target_0[15:0] <= 16'h0192;
+            target_0 <= 32'h0000_0192; // 0.2.6: whole word, no stale 'ok' in [31:16]
             
             target_20 <= target_dataslot_id;
             target_24 <= target_buffer_param_struct; // pointer to the bram that will hold the parameter struct
