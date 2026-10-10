@@ -4,6 +4,7 @@ module fpgio(
 	
 	input  McuBus mcu,
 	input  md_srst,
+	input  [7:0]link_status,//pocket: xram stage 2 - read back in ctrl[15:8] (0 without it)
 	
 	output [31:0]mcu_dati,
 	
@@ -16,7 +17,7 @@ module fpgio(
 );
 	
 	assign mcu_dati		= 
-	mcu.map.fpgio_ctrl  	? ctrl :
+	mcu.map.fpgio_ctrl  	? {16'd0, link_status, ctrl} :
 	mcu.map.fpgio_time 	? time_st :
 	32'hffffffff;
 //************************************************************************************* regs

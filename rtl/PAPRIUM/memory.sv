@@ -115,7 +115,21 @@ endmodule
 // sourced from the internal IROM) also alias-read this RAM harmlessly and never
 // write it. 32 KB (32 M10K) is paired with the reclaimed PCM RAM so the design
 // fits the device's 553 M10K blocks.
-module paprium_wram
+//
+// pocket: buddy_s2 (code in block RAM) - part of the CPU MATE's code lives in this RAM's unused
+// middle, loaded with the bitstream: wram_hi.txt / wram_lo.txt (16,384 bytes each, one hex byte per
+// line; ram_hi = the MCU's EVEN bytes, ram_lo = the ODD bytes, see mcu_wram's byte swap), written by
+// the firmware build's image step; all zero outside the code window, i.e. today's power-up contents. Nothing in
+// the core clears this RAM (no reset path), crt0 touches only .data/.bss, so the code survives every
+// MCU / soft reset and is reloaded only with the bitstream. As a guard, MCU writes into the code
+// window are dropped: LOCK_MAP bit k = 1 locks the k-th KB of the 32 KB (byte addr[14:10], i.e. word
+// addr[13:9]; every alias above 32 KB maps onto the same cells). A runaway store or a stack overflow
+// then cannot damage the code that the next reset would run. Default: KB 11..26 = the code window
+// 0x2C00-0x6BFF (buddy_s2 layout; 0x6C00-0x7FFF stays the stack: the firmware's own worst case is
+// 4,240 B, the 0xF5 stamp rescale with its 4 KB local buffer). LOCK_MAP = 0 restores the old behaviour.
+module paprium_wram #(
+	parameter [31:0] LOCK_MAP = 32'h07FFF800
+)
 (
 	input         clk,
 	input  [13:0] addr,   // 16-bit word address (16K words = 32 KB)
@@ -128,13 +142,21 @@ module paprium_wram
 	reg [7:0] ram_hi [16384];
 	reg [15:0] dout;
 
+	wire lock = LOCK_MAP[addr[13:9]];
+
 	always @(negedge clk)
 	begin
-		if (we[1]) ram_lo[addr] <= dati[7:0];
-		if (we[0]) ram_hi[addr] <= dati[15:8];
+		if (we[1] & ~lock) ram_lo[addr] <= dati[7:0];
+		if (we[0] & ~lock) ram_hi[addr] <= dati[15:8];
 		dout <= {ram_hi[addr], ram_lo[addr]};
 	end
 
 	assign dato = dout;
+
+	initial
+	begin
+		$readmemh("wram_lo.txt", ram_lo);   // pocket: buddy_s2 - bare names, SEARCH_PATH as mcu.txt
+		$readmemh("wram_hi.txt", ram_hi);
+	end
 
 endmodule

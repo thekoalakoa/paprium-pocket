@@ -32,6 +32,9 @@ typedef struct{//mcu memory map
 	bit bram;
 	bit sfx;
 	bit mdp;
+	bit xram;//pocket: 0x08 Pocket SRAM window (xram stage 1)
+	bit xcram;//pocket: 0x09 Pocket CRAM window
+	bit xlink;//pocket: 0x0A xram register block
 	
 	bit fpgio_ctrl;//var control flags
 	bit fpgio_time;//timer

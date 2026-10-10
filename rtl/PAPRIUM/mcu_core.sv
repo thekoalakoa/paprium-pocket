@@ -7,6 +7,7 @@ module mcu_core(
 	output McuBus mcu,
 	input  [31:0]mcu_dati,
 	input  mcu_ack,
+	input  irq_ext,//pocket: xram stage 2 - the 68000's mailbox post (paprium_cart), level, to mext_irq_i
 	
 	output MemBus wram,
 	input  [15:0]wram_dato,
@@ -34,6 +35,10 @@ module mcu_core(
 	assign mcu.map.bram	= {mcu.addr[31:24], 24'd0} == 'h05000000;
 	assign mcu.map.sfx	= {mcu.addr[31:24], 24'd0} == 'h06000000;
 	assign mcu.map.mdp	= {mcu.addr[31:24], 24'd0} == 'h07000000;
+	// pocket: xram stage 1 - the Pocket SRAM, CRAM and their register block (core_top)
+	assign mcu.map.xram	= {mcu.addr[31:24], 24'd0} == 'h08000000;
+	assign mcu.map.xcram	= {mcu.addr[31:24], 24'd0} == 'h09000000;
+	assign mcu.map.xlink	= {mcu.addr[31:24], 24'd0} == 'h0A000000;
 	
 	assign mcu.map.fpgio_ctrl	= mcu.map.fpgio & mcu.addr[5:2] == 0;
 	assign mcu.map.fpgio_time	= mcu.map.fpgio & mcu.addr[5:2] == 1;
@@ -117,7 +122,7 @@ module mcu_core(
 			
 		.mtime_irq_i(0),
 		.msw_irq_i(0),
-		.mext_irq_i(0)
+		.mext_irq_i(irq_ext)//pocket: sticky in 1.4.8.1's irq_buf once MEIE is set; cleared at FPGAIO slot 6
 	);
 	
 	
@@ -150,7 +155,7 @@ module mcu_core(
 	mcu_irom mcu_irom_inst(
 
 		.clk(mcu.clk),
-		.addr(mcu.addr),
+		.addr(mcu.addr[16:0]),//pocket: buddy_s2 - 17 bits: rom0 0x0000-0x7FFF + the extension from 0x8000
 		.dato(mcu_dati_irom)
 	);
 		
@@ -262,22 +267,41 @@ endmodule
 // the MCU services the 68000 in real time and upstream attributes the elevator
 // corruption to MCU starvation, so trading its speed for space aims at the part
 // already suspected of missing deadlines. 32 KB costs ~13 more M10K of 62 free.
-module mcu_irom(
+//
+// pocket: buddy_s2 (hook-free CPU MATE, code in block RAM) - the IROM grows by EXT_KB KB above rom0
+// without a power-of-two step. rom0 is untouched (32 KB, mcu.txt, 32 M10K in 8192x1). The extension
+// is one more inferred ROM, rom_x, whose depth slices are capped (max_depth) so that every slice is a
+// whole number of M10K at exactly one M10K per KB: 1024 deep (1024x32 = 4 blocks) when EXT_KB is a
+// multiple of 4, 512 (512x32 = 2 blocks) when even, else 256 (256x32 = 1 block). The deepest legal
+// slice keeps the slice mux short (12 KB: 3:1 instead of 12:1). The slice mux uses a registered
+// select, then a 2:1 against rom0 on a registered addr[15]. Same one-clock read as rom0, so a fetch or a load
+// from the extension costs the same cycles (the ack comes from mcu_wram either way). Its image is
+// mcu_ext.txt (EXT_KB x 256 words, rv_cpi's mcu.txt format), written by the firmware build's image step from the
+// part of mcu.bin above 32 KB. Addresses 0x8000 + EXT_KB KB .. 0xFFFF are not backed (undefined data).
+// buddy_s2/sys (integration): EXT_KB = 22. The integrated image puts the brain's jump table + text at
+// 0x5360-0xD2EB (rom0 tail + 21,228 B of extension); its image tables, the counting helpers and the glue
+// live in the WRAM code window. 22 KB = 11 slices of 512x32 (2 M10K each), 1,300 B spare.
+// (earlier sizing, superseded:) EXT_KB = 12 holds the brain + counter as measured today (39,140 B; buddy_s2 layout: 10,752 B of rom0
+// above the firmware + 16,384 B of WRAM window + this); every KB the counter loses lowers it by one.
+module mcu_irom #(
+	parameter integer EXT_KB = 22
+)(
 
 	input  clk,
-	input  [14:0]addr,
+	input  [16:0]addr,
 	output [31:0]dato
 );
 
+	wire [31:0]di;                                // rom0 or the extension (declared before use)
 	assign dato = {di[7:0], di[15:8], di[23:16], di[31:24]};
 
 	reg[31:0]rom[32768/4];
 	
-	reg [31:0]di;
+	reg [31:0]di0;
 	
 	always @(posedge clk)
 	begin
-		di		<= rom[addr[14:2]];
+		di0		<= rom[addr[14:2]];
 	end
 	
 	initial
@@ -285,5 +309,28 @@ module mcu_irom(
 		$readmemh("mcu.txt", rom);  // pocket: bare name + SEARCH_PATH ../rtl/PAPRIUM, same idiom as 68k.v
 	end
 
-	
+	generate if (EXT_KB > 0) begin : g_ext
+		localparam integer XN = EXT_KB * 256;           // words
+		localparam integer XW = (XN <= 256) ? 8 : $clog2(XN);
+		reg [31:0]dix;
+		reg sel_x;
+		always @(posedge clk) sel_x <= addr[15];
+		if (EXT_KB % 4 == 0) begin : g_d1024
+			(* ramstyle = "M10K", max_depth = 1024 *) reg [31:0]rom_x[0:XN-1];
+			always @(posedge clk) dix <= rom_x[addr[XW+1:2]];
+			initial $readmemh("mcu_ext.txt", rom_x);
+		end else if (EXT_KB % 2 == 0) begin : g_d512
+			(* ramstyle = "M10K", max_depth = 512 *) reg [31:0]rom_x[0:XN-1];
+			always @(posedge clk) dix <= rom_x[addr[XW+1:2]];
+			initial $readmemh("mcu_ext.txt", rom_x);
+		end else begin : g_d256
+			(* ramstyle = "M10K", max_depth = 256 *) reg [31:0]rom_x[0:XN-1];
+			always @(posedge clk) dix <= rom_x[addr[XW+1:2]];
+			initial $readmemh("mcu_ext.txt", rom_x);
+		end
+		assign di = sel_x ? dix : di0;
+	end else begin : g_noext
+		assign di = di0;
+	end endgenerate
+
 endmodule

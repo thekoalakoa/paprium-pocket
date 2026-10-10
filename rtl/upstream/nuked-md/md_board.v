@@ -62,6 +62,9 @@ module md_board
 	input ext_dtack,
 	input pal,
 	input jap,
+	// pocket: 0.2.6 - version register bit 5 (DISK, 1 = no expansion unit) and the version nibble
+	input disk_n,
+	input [3:0] version,
 	
 	// tmss
 	input tmss_enable,
@@ -485,6 +488,7 @@ module md_board
 		.tmss_enable(tmss_enable),
 		.tmss_data(tmss_data),
 		.tmss_address(tmss_address),
+		.version(version),	// pocket: 0.2.6
 		.vdp_hsync2(vdp_hsync2),
 		.vdp_vsync2(vdp_vsync2),
 		.ym2612_status_enable(ym2612_status_enable),
@@ -832,7 +836,7 @@ module md_board
 	
 	assign NTSC = ~pal;
 	assign JAP = ~jap;
-	assign DISK = 1'h1;
+	assign DISK = disk_n;	// pocket: 0.2.6, was 1'h1 (no expansion unit)
 	
 	assign LWR = ~LWR_d & LWR_o;
 	

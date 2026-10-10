@@ -25,6 +25,9 @@ set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_backup.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_mdp_adapter.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cart.sv"]
+# pocket: Scum! menu switches (0.2.6), instantiated from cartridge.sv
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_scum.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_addons.sv"]
 
 # The CDDA path. Listed before it is instantiated so synthesis elaborates and
 # syntax-checks it; an unreachable module costs no area.
@@ -33,6 +36,14 @@ set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cmd_log.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_ima_decode.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_buf.sv"]
+# pocket: xram stage 1 - Pocket SRAM / CRAM controllers, the CRAM ring, the register block
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_xram.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cram.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_buf_cram.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_xlink.sv"]
+# pocket: xram stage 2 - the hook-free CPU MATE link (option D) and the Word RAM / PRG snoop
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_mcd_link.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_snoop.sv"]
 
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_package.vhd"]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_top_stdlogic.vhd"]

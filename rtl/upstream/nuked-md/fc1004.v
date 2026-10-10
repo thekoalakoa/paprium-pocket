@@ -204,6 +204,7 @@ module fc1004
 	input tmss_enable,
 	input [15:0] tmss_data,
 	output [9:0] tmss_address,
+	input [3:0] version,	// pocket: 0.2.6, the version register's low nibble
 	output vdp_hsync2,
 	output vdp_vsync2,
 	input ym2612_status_enable,
@@ -536,7 +537,8 @@ module fc1004
 		.reg_3e_q(ioc_reg_3e_q),
 		.zdata(ioc_zdata),
 		.ztov_address(ioc_ztov_address),
-		.tmss_enable(tmss_enable)
+		.tmss_enable(tmss_enable),
+		.version(version)	// pocket: 0.2.6
 		);
 	
 	wire tmss_ce0_i;

@@ -13,6 +13,9 @@
 // ---------------------------------------------------------------------------
 
 module audio_sfx
+#(
+	parameter ECHO_CRAM = 1'b1   // pocket: the echo line lives in CRAM (paprium_cram port E)
+)
 (
 	input  McuBus mcu,
 	input  SndCk  snd,
@@ -20,6 +23,16 @@ module audio_sfx
 	output [31:0]mcu_dati_sfx,
 	output signed [15:0]snd_l,
 	output signed [15:0]snd_r,
+
+	// pocket: paprium_cram port E (the echo line), same clock. Outputs 0 when ECHO_CRAM = 0
+	input         echo_ready,
+	output        echo_wr,
+	output [12:0] echo_wslot,
+	output [31:0] echo_wdata,
+	output        echo_rd,
+	output [12:0] echo_rslot,
+	input         echo_rd_done,
+	input  [31:0] echo_rdata,
 
 	// paprium: channel-7 state for the diagnostic logger. Channel 7 is where the
 	// punk-TV cue lands (the game asks for it on mask 0x0080), and the mailbox
@@ -63,13 +76,22 @@ module audio_sfx
 	assign dbg_ch7_wr    = chan_wr[7];
 
 	//****************************** mixer
-	mix_bank mix_bank0
+	mix_bank #(.ECHO_CRAM(ECHO_CRAM)) mix_bank0
 	(
 		.clk(mcu.clk),
 		.bank(bank0),
 		.next_sample(snd.next_sample),
 		.snd_l(snd_l),
-		.snd_r(snd_r)
+		.snd_r(snd_r),
+
+		.e_ready(echo_ready),
+		.e_wr(echo_wr),
+		.e_wslot(echo_wslot),
+		.e_wdata(echo_wdata),
+		.e_rd(echo_rd),
+		.e_rslot(echo_rslot),
+		.e_rd_done(echo_rd_done),
+		.e_rdata(echo_rdata)
 	);
 
 endmodule
@@ -243,13 +265,26 @@ endmodule
 
 //****************************************************************** mixer
 module mix_bank
+#(
+	parameter ECHO_CRAM = 1'b1
+)
 (
 	input clk,
 	input SfxBank bank,
 	input next_sample,
 
 	output reg signed [15:0]snd_l,
-	output reg signed [15:0]snd_r
+	output reg signed [15:0]snd_r,
+
+	// pocket: paprium_cram port E, used when ECHO_CRAM = 1
+	input         e_ready,
+	output        e_wr,
+	output [12:0] e_wslot,
+	output [31:0] e_wdata,
+	output        e_rd,
+	output [12:0] e_rslot,
+	input         e_rd_done,
+	input  [31:0] e_rdata
 );
 
 	// paprium: the echo GPGX applies and this port used to drop. Per sample it
@@ -266,17 +301,10 @@ module mix_bank
 
 	reg [12:0] eptr = 0;
 
-	// Read and write live in their own always blocks with an unconditional read -
-	// the only shape Quartus reliably maps to M10K here. An earlier version did
-	// both inside a case statement and synthesis fell back to registers, which
-	// blew past the device's register count entirely.
-	reg [31:0] echo_ram[8192];
-	reg [31:0] echo_rd;
 	reg        echo_we;
 	reg [31:0] echo_wdata;
-
-	always @(posedge clk) if(echo_we) echo_ram[eptr] <= echo_wdata;
-	always @(posedge clk) echo_rd <= echo_ram[eptr];
+	wire [31:0] echo_q;   // the slot eptr holds, as tail 1 reads it (pocket: the echo_m10k /
+	                      // echo_cram block below the mixer FSM)
 
 	reg signed [15:0]dry_l, dry_r;
 	reg signed [15:0]send_l, send_r;
@@ -324,10 +352,11 @@ module mix_bank
 	else if(tail != 0) begin
 		echo_we <= 1'b0;
 		case(tail)
-			// echo_rd already holds echo_ram[eptr] - the read runs every cycle
+			// echo_q already holds echo_ram[eptr] - the read runs every cycle
+			// (pocket: or the CRAM prefetch of slot eptr)
 			2'd1: begin
-				snd_l      <= sat16($signed(dry_l) + $signed(echo_rd[31:16]));
-				snd_r      <= sat16($signed(dry_r) + $signed(echo_rd[15:0]));
+				snd_l      <= sat16($signed(dry_l) + $signed(echo_q[31:16]));
+				snd_r      <= sat16($signed(dry_r) + $signed(echo_q[15:0]));
 				echo_we    <= 1'b1;
 				echo_wdata <= {send_l, send_r};
 				tail       <= 2'd2;
@@ -339,6 +368,75 @@ module mix_bank
 			default: tail <= 2'd0;
 		endcase
 	end
+
+	generate
+	if (!ECHO_CRAM) begin : echo_m10k
+	// Read and write live in their own always blocks with an unconditional read -
+	// the only shape Quartus reliably maps to M10K here. An earlier version did
+	// both inside a case statement and synthesis fell back to registers, which
+	// blew past the device's register count entirely.
+	reg [31:0] echo_ram[8192];
+	reg [31:0] echo_rd;
+
+	always @(posedge clk) if(echo_we) echo_ram[eptr] <= echo_wdata;
+	always @(posedge clk) echo_rd <= echo_ram[eptr];
+
+	assign echo_q     = echo_rd;
+	assign e_wr       = 1'b0;
+	assign e_wslot    = 13'd0;
+	assign e_wdata    = 32'd0;
+	assign e_rd       = 1'b0;
+	assign e_rslot    = 13'd0;
+	end
+	else begin : echo_cram
+	// pocket: the line in the Pocket's CRAM (paprium_cram port E) instead of 32 M10K. Same
+	// slots, same data, same output clock: on the tail-1 edge the slot's new value is posted
+	// (the M10K wrote the same value to the same slot one edge later), and on the tail-2 edge,
+	// where eptr advances, the slot the NEXT sample reads is asked for - a whole sample period
+	// (~1,040 clocks) before its tail 1 adds it, against a CRAM read of ~20-150 clocks under
+	// load. The controller never reorders a slot's write after its read 8,000 samples on.
+	// CRAM keeps its contents across core loads and is not usable until its init is done, so a
+	// slot counts only once THIS power-on has written it while the CRAM was ready; until then it
+	// reads 0, which is what the M10K held from configuration. (No sample is mixed before the
+	// CRAM is ready: next_sample is held through sys_reset and the APF load, and the CRAM init
+	// takes ~0.63 ms from PLL lock. Were one mixed, its echo send would read back as 0.)
+	reg        wr_r     = 1'b0;
+	reg        rd_r     = 1'b0;
+	reg [12:0] wslot_r  = 13'd0;
+	reg [12:0] rslot_r  = 13'd0;
+	reg [31:0] wdata_r  = 32'd0;
+	reg [31:0] pf_data  = 32'd0;
+	reg        pf_valid = 1'b0;
+	reg [12:0] written  = 13'd0;   // slots written since power-on, saturating at ECHO_LEN
+
+	wire tail_run = ~next_sample & (tail != 2'd0);   // the edges the tail branch below runs on
+
+	always @(posedge clk) begin
+		wr_r <= 1'b0;
+		rd_r <= 1'b0;
+		if (tail_run && tail == 2'd1) begin
+			wr_r    <= e_ready;
+			wslot_r <= eptr;
+			wdata_r <= {send_l, send_r};
+			if (e_ready && written != ECHO_LEN) written <= written + 1'd1;
+		end
+		if (tail_run && tail == 2'd2) begin
+			// the next sample reads slot eptr+1, last written ECHO_LEN samples before it
+			rd_r     <= (written == ECHO_LEN);
+			rslot_r  <= (eptr == ECHO_LEN - 1'd1) ? 13'd0 : eptr + 1'd1;
+			pf_valid <= (written == ECHO_LEN);
+		end
+		if (e_rd_done) pf_data <= e_rdata;
+	end
+
+	assign echo_q     = pf_valid ? pf_data : 32'd0;
+	assign e_wr       = wr_r;
+	assign e_wslot    = wslot_r;
+	assign e_wdata    = wdata_r;
+	assign e_rd       = rd_r;
+	assign e_rslot    = rslot_r;
+	end
+	endgenerate
 
 	wire mix_ack;
 	wire signed [15:0]mix_snd;

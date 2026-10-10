@@ -263,18 +263,7 @@ module core_top (
   assign port_tran_sd            = 1'bz;
   assign port_tran_sd_dir        = 1'b0;
 
-  // tie off PSRAM, unused (ROM lives in SDRAM)
-  assign cram0_a                 = 'h0;
-  assign cram0_dq                = {16{1'bZ}};
-  assign cram0_clk               = 0;
-  assign cram0_adv_n             = 1;
-  assign cram0_cre               = 0;
-  assign cram0_ce0_n             = 1;
-  assign cram0_ce1_n             = 1;
-  assign cram0_oe_n              = 1;
-  assign cram0_we_n              = 1;
-  assign cram0_ub_n              = 1;
-  assign cram0_lb_n              = 1;
+  // pocket: cram0 is driven by the xram block (xmem) in the Paprium build, tied off there otherwise
 
   assign cram1_a                 = 'h0;
   assign cram1_dq                = {16{1'bZ}};
@@ -288,13 +277,7 @@ module core_top (
   assign cram1_ub_n              = 1;
   assign cram1_lb_n              = 1;
 
-  // tie off SRAM, unused
-  assign sram_a                  = 'h0;
-  assign sram_dq                 = {16{1'bZ}};
-  assign sram_oe_n               = 1;
-  assign sram_we_n               = 1;
-  assign sram_ub_n               = 1;
-  assign sram_lb_n               = 1;
+  // pocket: the SRAM is driven by the xram block (xmem) in the Paprium build, tied off there otherwise
 
   assign dbg_tx                  = 1'bZ;
   assign user1                   = 1'bZ;
@@ -597,14 +580,13 @@ module core_top (
   // Aspect Ratio. Everything else is a localparam so the fitter can drop its logic.
   reg rom_download = 0;
 
-  // 1 Japan, otherwise export. Menu default is Japan; Auto no longer offered
-  reg [1:0] cfg_region = 2'd1;
   // paprium: Auto is gone from the menu. This core ships no loader (core.json lists a
   // single bitstream), so nothing ever wrote detected_jap and Auto was silently Export
-  // anyway. Region is now an explicit Japan/Export choice, and the encoding is
-  // unchanged so a persisted setting still means what it did: 1 = Japan, anything
-  // else = Export.
-  wire cfg_jap = (cfg_region == 2'd1);
+  // anyway.
+  // 0.2.6: the Region register ($0C, no menu entry since 0.1.0) is gone too.
+  // The region now comes from the Console list, or from a combined Mega CD unit
+  // (paprium_opts below); the default (Mega Drive, Mega CD None) is Japan, as before.
+  wire cfg_jap;
 
   // paprium: the audio filter menu is gone and the mode is hard-wired to 3 (No Filter).
   // Measured on hardware: any other mode stops the punk-TV cue being audible. It is
@@ -645,6 +627,78 @@ module core_top (
   // bit picks a scaler slot here and video_cond's own port stays tied off
   reg cfg_arcorr = 0;
 
+  // pocket: Scum! (0.2.6), four entries at the bottom of the core's menu. Little-Man (the cheats) is one
+  // list whose value is the {lives,pills,health} mask. The stages need two lists, since
+  // a list holds 16 choices: page 1 writes 0 or 1-15, page 2 writes 0 or 16-25 (25 is
+  // Arena, stage 0x1E). Any stage switches Arcade Mode on. The Pocket replays saved
+  // settings in a fixed order at boot, so "last one changed" cannot be known here:
+  // page 2 wins whenever it holds a stage
+  reg [2:0] scum_cheats  = 0;
+  reg [4:0] scum_stage_a = 0;
+  reg [4:0] scum_stage_b = 0;
+  reg       scum_6btn    = 0;
+  // 32X Mode: the add-on detection stub (PAPRIUM/paprium_addons.sv), read at boot. The
+  // Mega CD list below replaced the Mega CD Mode check
+  reg       scum_32x     = 0;
+  reg [4:0] scum_stage   = 0;
+  reg       scum_arcade  = 0;
+
+  always @(posedge clk_74a) begin
+    scum_stage  <= (scum_stage_b != 5'd0) ? scum_stage_b : scum_stage_a;
+    scum_arcade <= (scum_stage_b != 5'd0) | (scum_stage_a != 5'd0);
+  end
+
+  // pocket: 0.2.6 options: Console (list, $54), Mega CD (list, $50,
+  // replaces the Mega CD Mode check; its value 1 is Aiwa CSD-GM1 = the old stub, so a persisted
+  // "on" keeps today's behaviour) and MegaWire (check, $58, default off). paprium_opts decodes them
+  // on this clock and applies the hardware rules; synch_3 carries the results:
+  //   clk_md  : cfg_jap (md_settings_sync), version nibble + DISK (md_board), the stub's unit
+  //             select and TMSS-lite enable (opt_md_sync), cd_real = the buddy's Mega CD Mode
+  //             (scum_sync bit 19, where the check used to go)
+  //   clk_sys : the cart MCU's GPIO input, {MegaWire, $1FE4 model bits} (opt_mcu_sync); the
+  //             firmware copies them into $1FE4/$1FE6 at its reset (ppm_reset)
+  // All are read by the game at boot ($BC944), so a change needs a reset, as 32X Mode does.
+  reg [2:0] opt_console = 3'd0;
+  reg [3:0] opt_megacd  = 4'd0;
+  reg       opt_mwire   = 1'b0;
+
+  wire       opt_jap, opt_ver1, opt_disk_n, opt_cd_real;
+  wire [3:0] opt_model, opt_cd_unit;
+
+  paprium_opts opts (
+      .clk    (clk_74a),
+      .console(opt_console),
+      .megacd (opt_megacd),
+      .jap    (opt_jap),
+      .ver1   (opt_ver1),
+      .model  (opt_model),
+      .cd_unit(opt_cd_unit),
+      .disk_n (opt_disk_n),
+      .cd_real(opt_cd_real)
+  );
+  assign cfg_jap = opt_jap;
+
+  wire       opt_ver1_s, opt_disk_n_s;
+  wire [3:0] opt_cd_unit_s;
+  wire [4:0] mcu_opts_s;          // {MegaWire, $1FE4 bit 10, 9, 8, 6}, clk_sys_53_69
+
+  synch_3 #(
+      .WIDTH(6)
+  ) opt_md_sync (
+      .i({opt_ver1, opt_disk_n, opt_cd_unit}),
+      .o({opt_ver1_s, opt_disk_n_s, opt_cd_unit_s}),
+      .clk(clk_md_107_39)
+  );
+
+  synch_3 #(
+      .WIDTH(5)
+  ) opt_mcu_sync (
+      .i({opt_mwire, opt_model}),
+      .o(mcu_opts_s),
+      .clk(clk_sys_53_69)
+  );
+  // pocket-end
+
 
   localparam [13:0] RESET_PULSE = 14'd8000;  // ~108 us at 74.25 MHz
 
@@ -661,15 +715,20 @@ module core_top (
         32'h00000000: begin
           rom_download <= bridge_wr_data[0];
         end
-        32'h0000000C: begin
-          cfg_region <= bridge_wr_data[1:0];
-        end
         32'h0000001C: begin
           cfg_6btn <= bridge_wr_data[0];
         end
         32'h00000028: begin
           cfg_arcorr <= bridge_wr_data[0];
         end
+        32'h00000030: scum_cheats  <= bridge_wr_data[2:0];
+        32'h00000040: scum_stage_a <= bridge_wr_data[4:0];
+        32'h00000044: scum_6btn    <= bridge_wr_data[0];
+        32'h00000048: scum_stage_b <= bridge_wr_data[4:0];
+        32'h0000004C: scum_32x     <= bridge_wr_data[0];
+        32'h00000050: opt_megacd   <= bridge_wr_data[3:0];   // 0.2.6
+        32'h00000054: opt_console  <= bridge_wr_data[2:0];
+        32'h00000058: opt_mwire    <= bridge_wr_data[0];
         32'hF0000000: begin
           reset_counter <= RESET_PULSE;
         end
@@ -961,6 +1020,15 @@ module core_top (
   wire        cart_data_en;
   wire        cart_dtack;
 
+  // pocket: 32X Mode / Mega CD Mode answer their boot probes ahead of the cartridge,
+  // as the MiSTer test builds do; both off leaves the cartridge's own data untouched
+  wire [15:0] cart_data_cart;
+  wire        cart_data_en_cart;
+  wire [15:0] addon_data;
+  wire        addon_data_en;
+
+  // pocket-end
+
   reg         pause_req = 0;
   reg         dma_68k_req = 0;
   reg         dma_z80_req = 0;
@@ -1005,9 +1073,62 @@ module core_top (
   wire        mdp_active;
 
   wire        md_reset_effective = md_reset | (paprium_active & paprium_md_reset);
+  wire        addon_dtack;        // 0.2.6: TMSS-lite registers ($A14000-3, $A14101)
 
   // Paprium reads the real cartridge OE; everything else keeps the early DMA strobe
   assign      cart_oe = paprium_active ? cart_oe_raw : cart_oe_early;
+
+  // pocket: xram stage 2 - option D: the stub's busy bit and COMSTAT2 come from
+  // paprium_mcd_link (xmem block below); tied to 0 in the other variants
+  wire        od_busy;
+  wire [15:0] od_comstat2;
+  wire  [7:0] od_g3;
+  wire  [6:0] od_link_status;
+
+  // pocket: the 32X / Mega CD boot-probe stubs (declared with the cart wires above)
+  paprium_addons addons (
+      .clk         (clk_md_107_39),
+      .reset       (md_reset),
+      .tmss_reset  (md_reset_effective),   // 0.2.6: md_board's ext_reset (SRES)
+      .en_32x      (scum_s[18]),
+      .cd_unit     (opt_cd_unit_s),        // 0.2.6: was en_cd = Mega CD Mode
+      .tmss_on     (opt_ver1_s),
+      .cart_addr   (cart_addr),
+      .cart_oe     (cart_oe & paprium_active),
+      .cart_lwr    (cart_lwr),
+      .cart_uwr    (cart_uwr),
+      .cart_data_wr(cart_data_wr),
+      .busy        (od_busy),
+      .comstat2    (od_comstat2),
+      .g3_q        (od_g3),
+      .data_en     (addon_data_en),
+      .data_out    (addon_data),
+      .dtack       (addon_dtack)
+  );
+
+  assign cart_data    = addon_data_en ? addon_data : cart_data_cart;
+  assign cart_data_en = addon_data_en | cart_data_en_cart;
+
+  // pocket: xram stage 1 - the Paprium MCU's external-memory bus and the CDDA ring's
+  // CRAM port. Declared here because the CDDA block, the xram block and the cartridge all use them.
+  wire        xb_req;
+  wire  [1:0] xb_region;
+  wire [23:0] xb_addr;
+  wire  [3:0] xb_sel;
+  wire        xb_wr;
+  wire [31:0] xb_wdata;
+  wire [31:0] xb_rdata;
+  wire        xb_ack;
+
+  wire        cr_wr, cr_rd, cr_rd_done;
+  wire [21:0] cr_waddr, cr_raddr;
+  wire [15:0] cr_wdata, cr_rdata;
+
+  // the SFX echo line (audio_sfx mix_bank) on paprium_cram port E instead of 32 M10K
+  wire        echo_ready, echo_wr, echo_rd, echo_rd_done;
+  wire [12:0] echo_wslot, echo_rslot;
+  wire [31:0] echo_wdata, echo_rdata;
+  // pocket-end
 
   // ==========================================================================
   // paprium: CDDA background music. Replaces MiSTer's HPS-fed DDR3 ring with an
@@ -1155,7 +1276,9 @@ module core_top (
     wire [12:0] ring_fill;
     wire        ring_consumed;
 
-    paprium_cdda_buf #(
+    // pocket: xram stage 1 - the ring lives in CRAM (paprium_cram port A, in the xmem block),
+    // not in 16 M10K; same parameters and ports as paprium_cdda_buf
+    paprium_cdda_buf_cram #(
         .CHUNK_BYTES(CDDA_CHUNK),
         .NUM_CHUNKS (CDDA_CHUNKS)
     ) cdda_buf (
@@ -1174,7 +1297,15 @@ module core_top (
         .sample_consumed(ring_consumed),
         .fill_level     (ring_fill),
 
-        .flush(mdp_track_request)
+        .flush(mdp_track_request),
+
+        .cr_wr     (cr_wr),
+        .cr_waddr  (cr_waddr),
+        .cr_wdata  (cr_wdata),
+        .cr_rd     (cr_rd),
+        .cr_raddr  (cr_raddr),
+        .cr_rd_done(cr_rd_done),
+        .cr_rdata  (cr_rdata)
     );
 
     paprium_cdda_play #(
@@ -1217,10 +1348,327 @@ module core_top (
     assign cdda_underruns             = 0;
     assign mdp_playing                = 0;
     assign mdp_current_track          = 0;
+    assign cr_wr                      = 0;   // pocket: xram stage 1
+    assign cr_waddr                   = 0;
+    assign cr_wdata                   = 0;
+    assign cr_rd                      = 0;
+    assign cr_raddr                   = 0;
   end
   endgenerate
   // paprium-end
   // paprium-end
+
+  // ==========================================================================
+  // pocket: xram stage 1. The Pocket's spare memories, which the
+  // other variants still tie off:
+  //   SRAM  AS6C2016-55BIN, 128K x 16 = 256 KB: the MCU's window 0x08000000, loaded by an APF
+  //         data slot at bridge 0x4xxxxxxx (0.2.6 defines no such slot; the snoop's Word RAM
+  //         mirror lives here)
+  //   CRAM  cram0 die 0 (AS1C8M16PL-70BIN, async mode): the CDDA ring (moved out of 16 M10K),
+  //         the MCU's window 0x09000000 and a reserved stream port (unused); cram1 stays
+  //         tied off
+  //   LINK  the register block 0x0A000000 (wait states, counters)
+  // Everything runs on clk_sys_53_69, the MCU's own clock, so there is no new clock crossing.
+  // The controllers reset on power-on (PLL lock, latched) only: sys_reset is held through the
+  // APF load, which is when the SRAM loader writes.
+  // ==========================================================================
+  generate
+  if (PAPRIUM) begin : xmem
+
+    wire xmem_lock_s;
+    synch_3 xmem_lock_sync (.i(pll_core_locked), .o(xmem_lock_s), .clk(clk_sys_53_69));
+    reg  xmem_ever = 0;
+    always @(posedge clk_sys_53_69) if (xmem_lock_s) xmem_ever <= 1;
+    wire xmem_reset = ~xmem_ever;
+
+    wire [31:0] xcfg;
+
+    // ---- APF loader for the SRAM (bridge 0x4xxxxxxx, byte addresses, 16-bit words) ----
+    wire        xld_wr;
+    wire [17:0] xld_addr;
+    wire [15:0] xld_data;
+
+    data_loader #(
+        .ADDRESS_MASK_UPPER_4 (4'h4),
+        .ADDRESS_SIZE         (18),     // 256 KB
+        .OUTPUT_WORD_SIZE     (2),
+        .WRITE_MEM_CLOCK_DELAY(24)
+    ) xram_data_loader (
+        .clk_74a   (clk_74a),
+        .clk_memory(clk_sys_53_69),
+
+        .bridge_wr           (bridge_wr),
+        .bridge_endian_little(bridge_endian_little),
+        .bridge_addr         (bridge_addr),
+        .bridge_wr_data      (bridge_wr_data),
+
+        .write_en  (xld_wr),
+        .write_addr(xld_addr),
+        .write_data(xld_data)
+    );
+
+    // ---- xbus demux: one request, three slaves, ack and data back by region ----
+    wire        xs_ack, xc_ack, xl_ack;
+    wire [31:0] xs_rdata, xc_rdata, xl_rdata;
+    assign xb_ack   = (xb_region == 2'd0) ? xs_ack   : (xb_region == 2'd1) ? xc_ack   : xl_ack;
+    assign xb_rdata = (xb_region == 2'd0) ? xs_rdata : (xb_region == 2'd1) ? xc_rdata : xl_rdata;
+
+    wire [31:0] xs_ld_words, xs_sn_words;
+    wire [15:0] xs_ld_lost;
+
+    // ---- xram stage 2: option D (paprium_mcd_link, clk_md) and the snoop (clk_sys) ----
+    wire [23:0] xl_d_word, xl_d_busy;
+    wire [15:0] xl_pend;
+    wire        xl_arm_tg, xl_od_en;
+    wire  [3:0] xl_clr_tg;
+    wire  [7:0] xl_hold;
+    wire  [3:0] od_flags;
+    wire        od_armed, od_sres, od_sbrq;
+    wire  [7:0] od_late;
+    wire [15:0] od_posts;
+    wire [23:0] od_tick;
+    wire        od_en_mirror, od_en_prg;
+
+    // the option-D state resets with the cartridge (shell_reset, the clk_md source of sys_reset,
+    // which resets the MCU), not with md_reset (gate rule R1)
+    paprium_mcd_link mcd_link (
+        .clk         (clk_md_107_39),
+        .reset       (shell_reset),
+        .en_cd       (scum_s[19]),
+        .cart_addr   (cart_addr),
+        .cart_lwr    (cart_lwr),
+        .cart_data_wr(cart_data_wr),
+        .g3_q        (od_g3),
+        .d_word      (xl_d_word),
+        .d_busy      (xl_d_busy),
+        .pend        (xl_pend),
+        .arm_tg      (xl_arm_tg),
+        .clr_tg      (xl_clr_tg),
+        .od_en       (xl_od_en),
+        .hold        (xl_hold),
+        .busy        (od_busy),
+        .comstat2    (od_comstat2),
+        .flags       (od_flags),
+        .armed       (od_armed),
+        .sres_run    (od_sres),
+        .sbrq        (od_sbrq),
+        .late_count  (od_late),
+        .post_count  (od_posts),
+        .tick        (od_tick),
+        .en_mirror   (od_en_mirror),
+        .en_prg      (od_en_prg)
+    );
+
+    wire  [1:0] sn_en_s;
+    synch_3 #(.WIDTH(2)) sn_en_sync (.i({od_en_prg, od_en_mirror}), .o(sn_en_s), .clk(clk_sys_53_69));
+
+    wire        sn_valid, sn_take;
+    wire [16:0] sn_waddr;
+    wire [15:0] sn_data;
+    wire  [1:0] sn_be;
+    wire [15:0] sn_ovf, sn_prg;
+
+    paprium_snoop snoop (
+        .clk         (clk_sys_53_69),
+        .reset       (xmem_reset),
+        .en_mirror   (sn_en_s[0]),
+        .en_prg      (sn_en_s[1]),
+        .cart_addr   (cart_addr),
+        .cart_lwr    (cart_lwr),
+        .cart_uwr    (cart_uwr),
+        .cart_data_wr(cart_data_wr),
+        .sn_valid    (sn_valid),
+        .sn_waddr    (sn_waddr),
+        .sn_data     (sn_data),
+        .sn_be       (sn_be),
+        .sn_take     (sn_take),
+        .stat_prg    (sn_prg),
+        .stat_overflow(sn_ovf)
+    );
+
+    paprium_xram xram (
+        .clk  (clk_sys_53_69),
+        .reset(xmem_reset),
+
+        .cfg_rd  (xcfg[3:0]),
+        .cfg_wp  (xcfg[7:4]),
+        .cfg_lock(xcfg[16]),
+
+        .ld_wr  (xld_wr),
+        .ld_addr(xld_addr),
+        .ld_data(xld_data),
+
+        .sn_valid(sn_valid),            // stage 2: the 68000 Word RAM / PRG snoop
+        .sn_waddr(sn_waddr),
+        .sn_data (sn_data),
+        .sn_be   (sn_be),
+        .sn_take (sn_take),
+
+        .mc_req  (xb_req & (xb_region == 2'd0)),
+        .mc_addr (xb_addr[17:0]),
+        .mc_sel  (xb_sel),
+        .mc_wr   (xb_wr),
+        .mc_wdata(xb_wdata),
+        .mc_rdata(xs_rdata),
+        .mc_ack  (xs_ack),
+
+        .sram_a   (sram_a),
+        .sram_dq  (sram_dq),
+        .sram_oe_n(sram_oe_n),
+        .sram_we_n(sram_we_n),
+        .sram_ub_n(sram_ub_n),
+        .sram_lb_n(sram_lb_n),
+
+        .stat_loader_writes(xs_ld_words),
+        .stat_loader_lost  (xs_ld_lost),
+        .stat_snoop_writes (xs_sn_words)
+    );
+
+    wire [31:0] xc_ops;
+    wire [15:0] xc_lost;
+    wire        xc_ready;
+
+    paprium_cram cram (
+        .clk  (clk_sys_53_69),
+        .reset(xmem_reset),
+
+        .cfg_rd(xcfg[11:8]),
+        .cfg_we(xcfg[15:12]),
+
+        .a_wr     (cr_wr),
+        .a_waddr  (cr_waddr),
+        .a_wdata  (cr_wdata),
+        .a_rd     (cr_rd),
+        .a_raddr  (cr_raddr),
+        .a_rd_done(cr_rd_done),
+        .a_rdata  (cr_rdata),
+
+        .c_rd     (1'b0),               // reserved, unused
+        .c_raddr  (21'd0),
+        .c_rd_done(),
+        .c_rdata  (),
+
+        .e_wr     (echo_wr),            // the SFX echo line (audio_sfx mix_bank)
+        .e_wslot  (echo_wslot),
+        .e_wdata  (echo_wdata),
+        .e_rd     (echo_rd),
+        .e_rslot  (echo_rslot),
+        .e_rd_done(echo_rd_done),
+        .e_rdata  (echo_rdata),
+
+        .b_req  (xb_req & (xb_region == 2'd1)),
+        .b_addr (xb_addr[21:0]),
+        .b_sel  (xb_sel),
+        .b_wr   (xb_wr),
+        .b_wdata(xb_wdata),
+        .b_rdata(xc_rdata),
+        .b_ack  (xc_ack),
+
+        .cram_a    (cram0_a),
+        .cram_dq   (cram0_dq),
+        .cram_clk  (cram0_clk),
+        .cram_adv_n(cram0_adv_n),
+        .cram_cre  (cram0_cre),
+        .cram_ce0_n(cram0_ce0_n),
+        .cram_ce1_n(cram0_ce1_n),
+        .cram_oe_n (cram0_oe_n),
+        .cram_we_n (cram0_we_n),
+        .cram_ub_n (cram0_ub_n),
+        .cram_lb_n (cram0_lb_n),
+
+        .ready       (xc_ready),
+        .stat_ops    (xc_ops),
+        .stat_aw_lost(xc_lost),
+        .stat_e_lost ()
+    );
+
+    assign echo_ready = xc_ready;
+
+    paprium_xlink #(.STAGE2(1'b1)) xlink (
+        .clk  (clk_sys_53_69),
+        .reset(xmem_reset),
+        .od_reset(sys_reset),
+
+        .req  (xb_req & (xb_region == 2'd2)),
+        .addr (xb_addr[5:0]),
+        .wr   (xb_wr),
+        .wdata(xb_wdata),
+        .rdata(xl_rdata),
+        .ack  (xl_ack),
+
+        .xcfg(xcfg),
+
+        .st_snoop      (xs_sn_words),
+        .st_loaded     (xs_ld_words),
+        .st_cram_ops   (xc_ops),
+        .st_underruns  (cdda_underruns),
+        .st_snoop_ovf  (sn_ovf),
+        .st_snoop_prg  (sn_prg),
+        .st_loader_lost(xs_ld_lost),
+        .st_cram_lost  (xc_lost),
+        .st_cram_ready (xc_ready),
+
+        .d_word(xl_d_word), .d_busy(xl_d_busy), .pend(xl_pend), .arm_toggle(xl_arm_tg),
+        .clr_toggle(xl_clr_tg), .od_en(xl_od_en), .od_hold(xl_hold),
+        .stub_lstat({od_sbrq, od_sres, od_armed, od_busy, od_flags}),
+        .stub_late_count(od_late), .stub_post_count(od_posts), .stub_tick(od_tick),
+        .link_status(od_link_status)
+    );
+
+  end
+  else begin : xmem_tie
+    assign echo_ready   = 0;    // pocket: no CRAM controller, no echo line
+    assign echo_rd_done = 0;
+    assign echo_rdata   = 0;
+
+    // tie off PSRAM, unused (ROM lives in SDRAM)
+    assign cram0_a     = 'h0;
+    assign cram0_dq    = {16{1'bZ}};
+    assign cram0_clk   = 0;
+    assign cram0_adv_n = 1;
+    assign cram0_cre   = 0;
+    assign cram0_ce0_n = 1;
+    assign cram0_ce1_n = 1;
+    assign cram0_oe_n  = 1;
+    assign cram0_we_n  = 1;
+    assign cram0_ub_n  = 1;
+    assign cram0_lb_n  = 1;
+
+    // tie off SRAM, unused
+    assign sram_a      = 'h0;
+    assign sram_dq     = {16{1'bZ}};
+    assign sram_oe_n   = 1;
+    assign sram_we_n   = 1;
+    assign sram_ub_n   = 1;
+    assign sram_lb_n   = 1;
+
+    assign xb_ack      = 1'b1;
+    assign xb_rdata    = 32'hffffffff;
+    assign od_busy        = 1'b0;   // pocket: xram stage 2
+    assign od_comstat2    = 16'd0;
+    assign od_link_status = 7'd0;
+    assign cr_rd_done  = 1'b0;
+    assign cr_rdata    = 16'd0;
+  end
+  endgenerate
+  // pocket-end
+
+  // pocket: Scum! switches and the pads' X/Y/Z/Mode, straight from the APF side into
+  // the cartridge's clk_ram domain. {MODE,X,Y,Z} = Select, L, X, R, the buttons
+  // input.json already labels Mode, X, Y and Z
+  wire [19:0] scum_s;
+
+  synch_3 #(
+      .WIDTH(20)
+  ) scum_sync (
+      .i({opt_cd_real, scum_32x,      // 0.2.6: bit 19 = a recognised Mega CD unit (was Mega CD Mode)
+          cont2_key[14], cont2_key[8], cont2_key[6], cont2_key[9],
+          cont1_key[14], cont1_key[8], cont1_key[6], cont1_key[9],
+          scum_stage, scum_6btn, scum_arcade, scum_cheats}),
+      .o(scum_s),
+      .clk(clk_md_107_39)
+  );
+  // pocket-end
 
   cartridge #(
       .SVP(SVP),
@@ -1256,14 +1704,14 @@ module core_top (
 
       .cart_ms     (1'b0),          // MD mode only, same reason md_board.M3 is tied high
       .cart_addr   (cart_addr),
-      .cart_data   (cart_data),
+      .cart_data   (cart_data_cart),
       .cart_data_wr(cart_data_wr),
       .cart_cs     (cart_cs),
       .cart_oe     (cart_oe),
       .cart_lwr    (cart_lwr),
       .cart_uwr    (cart_uwr),
       .cart_time   (cart_time),
-      .cart_data_en(cart_data_en),
+      .cart_data_en(cart_data_en_cart),
       .cart_dtack  (cart_dtack),
       .cart_dma    (cart_dma),
 
@@ -1297,6 +1745,38 @@ module core_top (
       .mdp_playing       (mdp_playing),
       .mdp_current_track (mdp_current_track),
       // paprium-end
+
+      .scum_health(scum_s[0]),
+      .scum_pills (scum_s[1]),
+      .scum_lives (scum_s[2]),
+      .scum_arcade(scum_s[3]),
+      .scum_6btn  (scum_s[4]),
+      .scum_stage (scum_s[9:5]),
+      .scum_pad1  (scum_s[13:10]),
+      .scum_pad2  (scum_s[17:14]),
+
+      // pocket: xram stage 1
+      .xb_req   (xb_req),
+      .xb_region(xb_region),
+      .xb_addr  (xb_addr),
+      .xb_sel   (xb_sel),
+      .xb_wr    (xb_wr),
+      .xb_wdata (xb_wdata),
+      .xb_rdata (xb_rdata),
+      .xb_ack   (xb_ack),
+
+      // pocket: xram stage 2
+      .link_status(od_link_status),
+      .mcu_opts   (mcu_opts_s),     // 0.2.6: the cart MCU's GPIO input
+
+      .echo_ready  (echo_ready),
+      .echo_wr     (echo_wr),
+      .echo_wslot  (echo_wslot),
+      .echo_wdata  (echo_wdata),
+      .echo_rd     (echo_rd),
+      .echo_rslot  (echo_rslot),
+      .echo_rd_done(echo_rd_done),
+      .echo_rdata  (echo_rdata),
 
       .md_addr()                    // MiSTer's cheat engine watches the bus, this port has none
   );
@@ -1548,9 +2028,11 @@ module core_top (
       .cart_dma        (),
       .vdp_dma         (cart_dma),
       .cart_m3_pause   (1'b0),
-      .ext_dtack       (cart_dtack),
+      .ext_dtack       (cart_dtack | addon_dtack),   // 0.2.6: + TMSS-lite
       .pal             (PAL),
       .jap             (cfg_jap_s),
+      .disk_n          (opt_disk_n_s),               // 0.2.6: version register bit 5
+      .version         ({3'b000, opt_ver1_s}),       // 0.2.6: version nibble
 
       .V_R       (vdp_r),
       .V_G       (vdp_g),

@@ -118,6 +118,43 @@ module cartridge
 	output            mdp_active,
 	input             mdp_playing,
 	input       [7:0] mdp_current_track,
+
+	// pocket: Scum! menu switches and the pad bits it injects, all already in the
+	// clk_ram domain. See PAPRIUM/paprium_scum.sv
+	input             scum_health,
+	input             scum_pills,
+	input             scum_lives,
+	input             scum_arcade,
+	input             scum_6btn,
+	input       [4:0] scum_stage,
+	input       [3:0] scum_pad1,     // {MODE,X,Y,Z} held
+	input       [3:0] scum_pad2,
+	// pocket-end
+
+	// pocket: xram stage 1 - the Paprium MCU's external-memory bus, out to core_top (clk domain)
+	output            xb_req,
+	output      [1:0] xb_region,
+	output     [23:0] xb_addr,
+	output      [3:0] xb_sel,
+	output            xb_wr,
+	output     [31:0] xb_wdata,
+	input      [31:0] xb_rdata,
+	input             xb_ack,
+	// pocket: xram stage 2 - option-D status into the MCU's FPGAIO ctrl read [14:8]
+	input       [6:0] link_status,
+
+	// pocket: 0.2.6 - the cart MCU's GPIO input, {MegaWire, $1FE4 bit 10, 9, 8, 6} (clk)
+	input       [4:0] mcu_opts,
+	// the SFX echo line's CRAM port (paprium_cram port E, clk domain)
+	input             echo_ready,
+	output            echo_wr,
+	output     [12:0] echo_wslot,
+	output     [31:0] echo_wdata,
+	output            echo_rd,
+	output     [12:0] echo_rslot,
+	input             echo_rd_done,
+	input      [31:0] echo_rdata,
+	// pocket-end
 // paprium-end
 
 	output            ym2612_quirk,
@@ -229,7 +266,42 @@ reg         rom_req;
 wire        rom_ack;
 wire [15:0] rom_data;
 reg         rom_rd;
+wire [24:1] paprium_stream_addr_md;   // pocket: xfix SP-X, driven by stream_x below
 reg         dtack_ext;
+
+// pocket: Scum! (0.2.6). The lookup runs on the latched rom_addr; scum_use keeps the
+// MCU's decompression stream, which shares this read port, out of it
+wire        scum_hit;
+wire [15:0] scum_data;
+wire        scum_use   = scum_hit & ~paprium_stream_pending;
+wire        scum_serve = (rom_req == rom_ack) & rom_rd & ~paprium_stream_pending;
+
+generate
+	if (PAPRIUM) begin : scum_gen
+		paprium_scum scum
+		(
+			.clk      (clk_ram),
+			.reset    (1'b0),         // the press latches clear on their own; reset is clk-domain
+			.rom_addr (rom_addr),
+			.served   (scum_serve),
+			.en_health(scum_health),
+			.en_pills (scum_pills),
+			.en_lives (scum_lives),
+			.en_arcade(scum_arcade),
+			.en_6btn  (scum_6btn),
+			.stage    (scum_stage),
+			.pad1     (scum_pad1),
+			.pad2     (scum_pad2),
+			.hit      (scum_hit),
+			.data     (scum_data)
+		);
+	end
+	else begin : scum_off
+		assign scum_hit  = 1'b0;
+		assign scum_data = 16'h0000;
+	end
+endgenerate
+// pocket-end
 
 always @(posedge clk_ram) begin
 	reg rd_old, we_old;
@@ -238,7 +310,9 @@ always @(posedge clk_ram) begin
 
 	if(rom_req == rom_ack) begin
 		if(rom_rd) begin
-			cart_data <= rom_data;
+			// pocket: Scum! words replace ROM words on every console read (68000 and VDP DMA),
+			// never on the MCU's stream (scum_use)
+			cart_data <= scum_use ? scum_data : rom_data;
 			if(cart_cs_ext) dtack_ext <= 1;
 		end
 		rom_rd <= 0;
@@ -249,7 +323,7 @@ always @(posedge clk_ram) begin
 	if((~rd_old & sdram_rd & rom_data_req) || (~we_old & rom_we)) begin
 		// paprium: the decompression stream window supplies its own address from the MCU
 		// pointer instead of the decoded cart address
-		rom_addr <= paprium_stream_cs ? paprium_stream_addr :
+		rom_addr <= paprium_stream_cs ? paprium_stream_addr_md :   // pocket: xfix SP-X, see stream_x below
 		            (cart_ms ? ms_cart_addr : md_cart_addr) & rom_mask[24:1];
 		// paprium-end
 		rom_req <= ~rom_req;
@@ -518,6 +592,41 @@ wire        paprium_save_change;
 reg         paprium_stream_pending = 0;
 reg         paprium_stream_ack_toggle = 0;
 
+// pocket: xfix SP-X. paprium_stream_addr comes from a clk register (paprium_cart stream_ptr) and rom_addr takes it
+// on the clk_ram edge where the 68000/VDP read strobe is first seen. Nothing ties that edge to the pointer update,
+// so the same-edge hold check on this capture is a real path (fast-0C misses: buddy s4 -0.009, b26 -0.030).
+// clk and clk_ram are one PLL's VCO/12 and VCO/6 with aligned edges, so every second clk_ram edge is shared
+// with a clk edge. On an edge between two clk edges rom_addr keeps taking the live value (the 9.31 ns setup
+// path, unchanged). On a shared edge it takes held, a clk_ram copy made on the previous in-between edge, which
+// is exactly what the timed capture sees there. Same value on every edge as before, no added latency, and the
+// shared-edge race is never used. The phase bit crosses on the falling clk_ram edge (4.66 ns either side) and
+// stays timed; the hold-only exceptions on stream_ptr -> {rom_addr, held} are in core_constraints.sdc (xfix SP)
+generate
+	if (PAPRIUM) begin : stream_x
+		reg ph = 1'b0;                                // clk: toggles on every clk edge
+		always @(posedge clk) ph <= ~ph;
+
+		reg ph_f = 1'b0;                              // falling clk_ram edge: 4.66 ns from any clk edge
+		always @(negedge clk_ram) ph_f <= ph;         // on both sides, so no same-edge race here either
+
+		reg ph_r = 1'b0, ph_rr = 1'b0;                // clk_ram: ph_r changes on in-between edges only
+		always @(posedge clk_ram) begin
+			ph_r  <= ph_f;
+			ph_rr <= ph_r;
+		end
+		wire shared_next = ph_r ^ ph_rr;              // the coming clk_ram edge is shared with a clk edge
+
+		reg [24:1] held = 24'd0;
+		always @(posedge clk_ram) if (!shared_next) held <= paprium_stream_addr;
+
+		assign paprium_stream_addr_md = shared_next ? held : paprium_stream_addr;
+	end
+	else begin : stream_x_off
+		assign paprium_stream_addr_md = paprium_stream_addr;
+	end
+endgenerate
+// pocket-end
+
 // The Paprium build is Paprium-only. Like the SVP bitstream, the loader has already
 // decided by serial which core to launch, so re-detecting the header here would only add
 // a way to fail on a differently-headered dump. Hard-wiring it also drops the whole quirk
@@ -596,7 +705,32 @@ if(PAPRIUM) begin
 		.mem_wrl(paprium_mem_wrl),
 		.mem_wrh(paprium_mem_wrh),
 		.mem_req(paprium_mem_req),
-		.mem_ack(rom2_ack)
+		.mem_ack(rom2_ack),
+
+		// pocket: xram stage 1
+		.xb_req(xb_req),
+		.xb_region(xb_region),
+		.xb_addr(xb_addr),
+		.xb_sel(xb_sel),
+		.xb_wr(xb_wr),
+		.xb_wdata(xb_wdata),
+		.xb_rdata(xb_rdata),
+		.xb_ack(xb_ack),
+
+		.mcu_opts(mcu_opts),   // pocket: 0.2.6
+
+		// pocket: xram stage 2
+		.link_status(link_status),
+
+		// pocket: the SFX echo line in CRAM
+		.echo_ready(echo_ready),
+		.echo_wr(echo_wr),
+		.echo_wslot(echo_wslot),
+		.echo_wdata(echo_wdata),
+		.echo_rd(echo_rd),
+		.echo_rslot(echo_rslot),
+		.echo_rd_done(echo_rd_done),
+		.echo_rdata(echo_rdata)
 	);
 end
 else begin
@@ -625,6 +759,19 @@ else begin
 	assign mdp_volume         = 0;
 	assign mdp_volume_request = 0;
 	assign mdp_active         = 0;
+
+	assign xb_req    = 0;   // pocket: xram stage 1
+	assign xb_region = 0;
+	assign xb_addr   = 0;
+	assign xb_sel    = 0;
+	assign xb_wr     = 0;
+	assign xb_wdata  = 0;
+
+	assign echo_wr    = 0;   // pocket: the SFX echo line in CRAM
+	assign echo_wslot = 0;
+	assign echo_wdata = 0;
+	assign echo_rd    = 0;
+	assign echo_rslot = 0;
 end
 endgenerate
 // paprium-end
