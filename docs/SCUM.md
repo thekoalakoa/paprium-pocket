@@ -121,8 +121,8 @@ latches a press edge and clears when the 68000 reads it, keeping a press that la
 and the read for the next frame. The cave also carries a branch on flags bit 1 (a P1 Mode press as
 player 2's Start, for a one-pad CPU MATE join during development); 0.2.6 holds bit 1 at 0, so it never
 runs. The one-controller join still works with **6-Button** on: the cave hands the game P1's Mode press
-(Select), and a Select press at character select brings the partner in, as tested on hardware. That
-branch is not involved.
+(Select), and holding Select at character select adds the partner and steers its pick, as tested on
+hardware. That branch is not involved.
 
 Two differences from MisterPezz82's V.06 core, which this follows:
 
@@ -270,8 +270,9 @@ register, together with a busy flag. The Pocket has no Mega CD, so 0.2.6 provide
 1. In the core menu, set **Mega CD** to any unit except None and Unknown CD, then **Soft Reset**.
 2. In the game's Options, switch **CPU MATE** on.
 3. At character select, bring the partner in:
-   - **Played handheld:** turn **6-Button** on in the core menu, then press **Select**. No second
-     controller is needed. Tested on hardware.
+   - **Played handheld:** turn **6-Button** on in the core menu. **Hold Select** to add the partner.
+     Still holding Select, move the partner's cursor with the D-pad and press **Start** to pick its
+     character. Release Select to pick your own. No second controller is needed. Tested on hardware.
    - **With a second controller on the Dock:** press **Start on controller 2**: the partner joins. Press
      it again to pick its character, then pick your own.
 

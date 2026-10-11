@@ -110,8 +110,10 @@ boot: change the setting, then Soft Reset.
 **CPU MATE.** Choose a Mega CD unit (any except Unknown CD) and Soft Reset, and the
 game offers CPU MATE in its Options: a computer-controlled partner. Switch it on, and
 at character select bring the partner in. Played handheld, turn **6-Button** on in the
-core menu and press **Select**: no second controller needed. With a second controller
-on the Dock, press **Start on controller 2** (again to pick its character).
+core menu: **hold Select** to add the partner, and while still holding it move the
+partner's cursor with the D-pad and press **Start** to pick its character; release
+Select to pick your own. No second controller needed. With a second controller on the
+Dock, press **Start on controller 2** (again to pick its character).
 The partner's brain is the game's own Mega CD AI, translated to run on the cartridge
 MCU. The release bitstream has it built in. Because it is made from the game's code it
 is not in this repository: anyone building the core gets it as a separate download next
