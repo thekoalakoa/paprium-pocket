@@ -37,8 +37,8 @@ nocoin:
         | development): with no CPU partner in the game yet, a P1 Mode press is also player
         | 2's Start; once the partner exists (object slot 2 in use) it stops. 0.2.6 holds bit 1
         | at 0, so this never runs. With 6-Button on, P1's Mode (Select) reaches the game through
-        | the words above, and holding Select at character select adds the partner and steers
-        | its pick (seen on hardware); otherwise the partner joins on controller 2's Start
+        | the words above, and holding it at character select is the game's own six-button way
+        | to add and steer the partner (seen on hardware); otherwise controller 2's Start
         btst    #1,REGS+1
         beq.s   done
         move.w  0xFF702A,%d0

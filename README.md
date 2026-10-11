@@ -112,7 +112,8 @@ game offers CPU MATE in its Options: a computer-controlled partner. Switch it on
 at character select bring the partner in. Played handheld, turn **6-Button** on in the
 core menu: **hold Select** to add the partner, and while still holding it move the
 partner's cursor with the D-pad and press **Start** to pick its character; release
-Select to pick your own. No second controller needed. With a second controller on the
+Select to pick your own. No second controller needed: it is the game's own six-button
+control with a Mega CD ([Paprium FAQ](https://www.wafflenet.com/paprium.html#questions)). With a second controller on the
 Dock, press **Start on controller 2** (again to pick its character).
 The partner's brain is the game's own Mega CD AI, translated to run on the cartridge
 MCU. The release bitstream has it built in. Because it is made from the game's code it
