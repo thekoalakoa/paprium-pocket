@@ -12439,7 +12439,7 @@ are written up in `docs/SCUM.md`, and the firmware build in `docs/firmware/READM
   of 0.2.1–0.2.5 (`PPM_STICKY_SWITCH`, `PPM_PIN_FALLBACK`, `PPM_CHAIN_ONLY_AT_END`,
   `PPM_CHAIN_FRESH_QUEUE`, `PPM_CHAIN_PROP_ANIMS`, `PPM_DMA_FLOOR_BLOCKS`) stay in the source behind
   the switches, compiled out.
-- **Firmware: the sprite-table close** (`PPM_FLOAT_ENDMARK`, the MiSTer Paprium team's patch): end mark
+- **Firmware: the sprite-table close** (`PPM_FLOAT_ENDMARK`, [the MiSTer Paprium team](https://github.com/thekoalakoa/Paprium_MiSTer)'s patch): end mark
   at the entry count, entry 79's link cleared, count + 1 entries uploaded. Fixes The Solarium float.
 - **Firmware: the console and MegaWire bits** from the MCU's GPIO input, copied once per reset; the
   Boom Box row clock; the CPU MATE glue; `PPM_RELEASE` compiles the debug aids out.

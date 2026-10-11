@@ -332,7 +332,7 @@ Expect it to play well, not to be cycle-accurate.
 | mega-ppm firmware | krikzz |
 | NEORV32 (the cartridge MCU) | Stephan Nolting |
 | Arcade unlock and Mode-button credit | adroxe |
-| Pocket port | Koala_Koa |
+| Pocket port | [Koala_Koa](https://github.com/thekoalakoa/Paprium_MiSTer) |
 
 Licensed under GPLv3 or later. The NEORV32 processor and the mega-ppm firmware are
 BSD-3-Clause; their notices are in `THIRD_PARTY_NOTICES.md`, in the repository and in

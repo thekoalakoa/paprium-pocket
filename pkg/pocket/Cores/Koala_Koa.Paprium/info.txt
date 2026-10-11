@@ -1,21 +1,21 @@
-Paprium (WaterMelon) for Analogue Pocket.
+Paprium (WaterMelon) for Analogue Pocket, version 0.2.6.
+A single-game core, not a Mega Drive emulator. Do not load other ROMs.
 
-A single-game core, not a Mega Drive emulator: the general cartridge
-hardware is stripped out to make room for Paprium's own. Do not load
-other ROMs into it.
+New in 0.2.6: the CPU MATE partner (pick a Mega CD unit in the menu),
+the Scum! switches (Little-Man, Arcade Stage Select, 6-Button), and
+the Console, Mega CD, 32X and MegaWire options. See the README.
 
-Not a faithful reproduction of the cartridge. Paprium's DATENMEISTER
-chipset is not reproduced; this takes the EverDrive Pro approach, running
-krikzz's mega-ppm replacement MCU firmware, with the music streamed from
-SD card instead of the original wave ROM.
+Not a faithful reproduction of the cartridge: like the EverDrive Pro,
+it runs krikzz's mega-ppm MCU firmware, and the music streams from SD.
 
-Lineage, all GPL:
+Lineage (GPL unless noted; BSD notices in THIRD_PARTY_NOTICES.md):
   Nuked-MD-FPGA ......... (C) 2022-2023 nukeykt
   FX68K, the 68000 ...... (c) 2018, 2021 Jorge Cwik (ijor)
   MegaDrive_MiSTer ...... MiSTer-devel
   openFPGA-MegaDrive .... drizzt
   Paprium_MD_MiSTer ..... MisterPezz82
-  mega-ppm firmware ..... krikzz
+  mega-ppm firmware ..... (c) 2025 krikzz, BSD-3
+  NEORV32, the MCU ...... (c) 2020 Stephan Nolting, BSD-3
 
 Assets go in /Assets/paprium/common/ :
   Paprium.md    the 8 MiB cartridge dump (GM T-574120-00), required

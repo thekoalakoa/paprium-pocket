@@ -120,7 +120,9 @@ word (bit 0 = Arcade Mode), then P1 and P2 held, then P1 and P2 just-pressed. A 
 latches a press edge and clears when the 68000 reads it, keeping a press that lands between the lookup
 and the read for the next frame. The cave also carries a branch on flags bit 1 (a P1 Mode press as
 player 2's Start, for a one-pad CPU MATE join during development); 0.2.6 holds bit 1 at 0, so it never
-runs.
+runs. The one-controller join still works with **6-Button** on: the cave hands the game P1's Mode press
+(Select), and a Select press at character select brings the partner in, as tested on hardware. That
+branch is not involved.
 
 Two differences from MisterPezz82's V.06 core, which this follows:
 
@@ -217,7 +219,7 @@ Sega BIOS), the gate-array registers, a program-RAM probe and its marker. Nothin
 emulated. The game shows the unit's splash, and when it finds a Mega CD it offers **CPU MATE** in its
 Options. The core drives the partner (below) with any unit except None and Unknown CD.
 
-The stub started from the MiSTer Paprium team's detection stubs for 32X and Mega CD.
+The stub started from [the MiSTer Paprium team](https://github.com/thekoalakoa/Paprium_MiSTer)'s detection stubs for 32X and Mega CD.
 
 ### 32X Mode
 
@@ -267,12 +269,14 @@ register, together with a busy flag. The Pocket has no Mega CD, so 0.2.6 provide
 
 1. In the core menu, set **Mega CD** to any unit except None and Unknown CD, then **Soft Reset**.
 2. In the game's Options, switch **CPU MATE** on.
-3. At character select, press **Start on controller 2**: the partner joins. Press it again to pick its
-   character, then pick your own. From then on the partner plays by itself. A real controller 2 that is
-   being used overrides the AI for a while, as the game does with a real Mega CD.
+3. At character select, bring the partner in:
+   - **Played handheld:** turn **6-Button** on in the core menu, then press **Select**. No second
+     controller is needed. Tested on hardware.
+   - **With a second controller on the Dock:** press **Start on controller 2**: the partner joins. Press
+     it again to pick its character, then pick your own.
 
-On the Pocket a controller 2 means a second controller on the Dock. A Pocket played handheld has no
-controller 2, so it cannot bring the partner in.
+   From then on the partner plays by itself. A real controller 2 that is being used overrides the AI for
+   a while, as the game does with a real Mega CD.
 
 ### How it works
 
@@ -357,6 +361,6 @@ The arcade unlock and the Mode-button credit are adroxe's
 start-stage word was found by krikzz. Serving patches as ROM reads, and the pad hook that injects X, Y, Z
 and Mode, come from MisterPezz82's
 [Paprium MiSTer core](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) (V.05 and V.06), as does the
-stage list. The 32X and Mega CD detection stubs started from the MiSTer Paprium team's, and the CPU MATE
+stage list. The 32X and Mega CD detection stubs started from [the MiSTer Paprium team](https://github.com/thekoalakoa/Paprium_MiSTer)'s, and the CPU MATE
 link's restart rule was worked out with them. The health, pill and life patches, the console options and
 the CPU MATE link are new here.
