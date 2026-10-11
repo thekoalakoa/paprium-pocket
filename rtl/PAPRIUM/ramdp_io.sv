@@ -15,8 +15,8 @@ module ramdp_io(
 	output [31:0]debug_ramdp_data,
 
 	// 68k -> RAMDP write-path observation (diagnostic).
-	// debug_cpu_we_act : the write CONDITION holds (ce_lo & addr<8192 & we strobe).
-	// debug_cpu_write  : the actual byte write PULSE fires (after cpu_we_st capture).
+	// debug_cpu_we_act : the write CONDITION holds (ce_lo & addr<8192 & either strobe).
+	// debug_cpu_write  : the store PULSE fires (after cpu_we_st capture; word writes only).
 	output        debug_cpu_we_act,
 	output        debug_cpu_write
 );
@@ -34,10 +34,19 @@ module ramdp_io(
 	wire [7:0]cpu_dati_lo;
 	wire [3:0]cpu_we;
 	
-	assign cpu_we[0]		= cpu_we_ck & cpu.we_lo & cpu.addr[1] == 0;
-	assign cpu_we[1]		= cpu_we_ck & cpu.we_hi & cpu.addr[1] == 0;
-	assign cpu_we[2]		= cpu_we_ck & cpu.we_lo & cpu.addr[1] == 1;
-	assign cpu_we[3]		= cpu_we_ck & cpu.we_hi & cpu.addr[1] == 1;
+	// pocket: 0.2.6 - the 68000 stores into cart RAM by whole words only; a byte write (one
+	// data strobe) is ignored. The game writes a word, then one byte of it, and reads the
+	// word back: a real cartridge does not keep that byte. Keeping it (each lane on its own,
+	// as every earlier release did) fails the game's check, and the game then quietly
+	// sabotages the rest of the session. FX68K sets UDS and LDS on the same clock edge and the
+	// VDP makes both write strobes with the same timing, so a word write has both lanes high
+	// when cpu_we_ck samples them. The MCU side keeps its byte lanes.
+	wire cpu_word			= cpu.we_lo & cpu.we_hi;
+	
+	assign cpu_we[0]		= cpu_we_ck & cpu_word & cpu.addr[1] == 0;
+	assign cpu_we[1]		= cpu_we_ck & cpu_word & cpu.addr[1] == 0;
+	assign cpu_we[2]		= cpu_we_ck & cpu_word & cpu.addr[1] == 1;
+	assign cpu_we[3]		= cpu_we_ck & cpu_word & cpu.addr[1] == 1;
 		
 	wire cpu_we_ck			= cpu_we_st[2:0] == 'b011;
 	wire cpu_we_act		= cpu.ce_lo & cpu.addr < 8192 & (cpu.we_lo | cpu.we_hi);
