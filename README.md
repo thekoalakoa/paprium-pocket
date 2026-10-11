@@ -48,7 +48,7 @@ Boot, decompression, graphics streaming, saves, the cartridge's own sound effect
 and music — with correct per-scene track selection and one-shot cues that stop
 rather than loop.
 
-Fits a Cyclone V `5CEBA4F23C8` at **98% ALM and 82% M10K** (0.2.6: 18,184 ALM, 253
+Fits a Cyclone V `5CEBA4F23C8` at **98% ALM and 82% M10K** (0.2.6: 18,051 ALM, 253
 M10K), on a device with less than half the logic of the MiSTer board this was ported
 from. From 0.2.2 the 68000 is [FX68K](https://github.com/ijor/fx68k) rather than the
 gate-level netlist, which freed about ten points of ALM; 0.2.6 spends most of them on
@@ -154,10 +154,13 @@ Everything else that was listed here has moved to [Fixed here](#fixed-here).
 Bugs present in every other Paprium build on this hardware, including the MiSTer
 core this forks. All verified on real hardware: up to 0.2.5 in both Arcade and
 Original modes; the 0.2.6 rows on an arcade run to the credits plus the regression
-list in the [changelog](#changelog).
+list in the [changelog](#changelog). The exception is the first row: what it fixes
+shows only by chance, and late in a run, so it was checked in a simulation of the
+core's cartridge memory and in an emulator running the same rule.
 
 | Fix | Was |
 |---|---|
+| When enemies dropped in from above, an enemy could turn invisible and unkillable and stop the screen scrolling, so the section could not be finished. In Original mode, a run could end after stage 21, without the last stages and the ending | **Cartridge memory** (0.2.6). The core's cartridge memory stored the console's single-byte writes, which a real cartridge does not. The game's own check of the cartridge, which runs in ordinary play, saw that and concluded it was not running on a genuine cartridge. From then until power-off it quietly did two things: when enemies dropped in, it could freeze an enemy out of the game, invisible and unkillable, holding up the section (pausing does not clear it); and in Original mode, clearing stage 13 skipped a story step about half the time, so the run ended after stage 21. Nothing on screen says why, and nothing else changes. Every earlier release of this core stored those bytes, and so does the emulator this project compares against, so comparing against it could not find this. The cartridge memory now ignores the console's single-byte writes (`ramdp_io.sv`), and the check passes as it does on a real cartridge. Word writes, and the cartridge MCU's own writes, are unchanged. Whether a real cartridge ignores such a byte or writes it over the whole word is not known; the game cannot tell the two apart, and [0.2.6: what worked, and what did not](#026-what-worked-and-what-did-not) says why this core ignores it |
 | The end credits: sparkles drawn as squares of background art, and damaged tiles in the credits pictures | **Sprite cache** (0.2.6). The firmware's cache claimed its VRAM slots in its own order, so the sparkle sprite's block was loaded into slots that lie inside the credits background (slots 15–27, up to 15 damaged cells on the first page). The cache now follows the original cartridge's rules: every slot has a countdown that each use or load resets and every frame ages; aged slots fall into free, idle and recently-used lists; a missing block takes a free slot, then an idle one, then the slot of a related block, then a recently-used one, lowest slot first; a piece that still cannot be loaded is dropped alone, and at most 15 blocks load a frame. On five separate captures the sparkle block now lands in the first slot every time, clear of the background. The 0.2.0 elevator fix had no effect here: a different mechanism |
 | At the end of the game, characters frozen in mid-walk and floating across The Solarium's camera pan | **Sprite-table close** (0.2.6). While the HUD is hidden the game links the first sprite-table entry straight to entry 14. The firmware closed the table by clearing the link of its own last entry and uploading only that many entries, so the previous frame's entries from 14 on stayed linked in VRAM and kept drawing. The table is now closed the cartridge's way: an end mark at the entry count, entry 79's link cleared, one entry more uploaded (`PPM_FLOAT_ENDMARK`, [the MiSTer Paprium team](https://github.com/thekoalakoa/Paprium_MiSTer)'s patch). The end mark is in place on all 870 frames of the pan on a recorded solo run, and all 860 on a two-player run |
 | Busy fights: characters freezing in a pose for up to half a second | **Loads refused** (0.2.6). The old cache could never take a slot used in the previous frame, so in a busy fight a new pose's blocks were refused and the whole object was rewound to its previous frame; if that pose's block had meanwhile been evicted, the piece was drawn from VRAM tile 0, as garbage. In one 36-frame fight window of a recorded run: 32 loads, 1,038 refusals and 69 refused animation switches before; 130 loads and 0 refusals with the cache above. The DMA budget is also charged and gated as on the cartridge now, and a pose that does not fit is held whole or pre-loaded over several frames rather than drawn in part |
@@ -352,6 +355,17 @@ fix was immediately audible.
 - **A one-clock stale reply on file commands.** The APF bridge left the host's previous
   `ok` in the upper half of the target-command word for one clock after a new command
   started; the four command starts now write the whole word.
+- **A census of the game's single-byte writes.** Listing every single-byte write the game
+  makes into the cartridge memory turned up one that is not data but the game's own check
+  of the cartridge. A real cartridge does not keep that byte; every release of this core
+  did, so the game took it for a copy (the first row of [Fixed here](#fixed-here)). Two
+  copies of the emulator in lockstep, one keeping such bytes and one ignoring them: when
+  the check ran, it failed in the first and passed in the second; recorded solo and
+  two-player runs to the credits drew the same screen and sent the cartridge the same
+  commands on every frame (about 950,000 of them); and the Arcade Stage Select coin still
+  credits. A simulation of the cartridge memory, old and new side by side, reads back
+  what a real cartridge gives with the fix, and matches the old design on every output
+  at every clock while the game writes whole words.
 
 **What did not work.**
 
@@ -378,7 +392,14 @@ fix was immediately audible.
 - **Fitter seeds.** Six seeds were fitted. Seed 5, the old shipping seed, failed by
   0.003 ns of hold on the MCU's 68000 reset line; 4 and 6 failed the crossing re-check
   (SDRAM to MCU data, MCU bus to work RAM); 3 failed setup at −3.84 ns. Seeds 2 and 1
-  passed; the release is seed 2.
+  passed; the release is seed 2. After the cartridge-memory fix the core was fitted
+  again on seed 2, which passed the same gate first time.
+- **Storing a single-byte write as the whole word.** Writing the byte over both halves of
+  the word passes the game's check too, and may be what a real cartridge does. But the
+  Arcade Stage Select coin writes a few stray bytes, some of them into the cartridge
+  memory, and stored as whole words they overwrite parts of the game's sprite records: in
+  the emulator, sprites went missing from the first coin. Ignoring the bytes changes
+  nothing the game uses, so the core ignores them.
 - **"Free padding" that was not.** The Scum! pad code went into a 512-byte block of `0xFF`
   in the ROM. It is the Hall of Fame bar's tile data, which the game copies with a DMA:
   the first known issue above.
@@ -542,7 +563,8 @@ device is seed-sensitive by several nanoseconds (0.2.6's six seeds ranged from
 −0.74 to −3.84 ns of setup), so a single failing fit is not by itself evidence that a
 change broke timing. The shipping bitstream is seed 2, which is also what
 `projects/megadrive_pocket.qsf` says. The 0.2.6 gate was setup ≥ −2.60 ns, hold > 0,
-and a re-check of the clock crossings; seeds 2 and 1 passed it.
+and a re-check of the clock crossings; seeds 2 and 1 passed it, and seed 2 passed it
+again after the last change (−0.87 ns).
 
 Firmware is rebuilt separately with `./scripts/build_mcu.sh`, which installs four
 images into `rtl/PAPRIUM/` (`mcu.txt`, `mcu_ext.txt`, `wram_hi.txt`, `wram_lo.txt`) —
@@ -587,8 +609,8 @@ you obtain the ROM or the soundtrack** — see [What this is not](#what-this-is-
 ## Changelog
 
 **0.2.6** — the CPU MATE partner, the menu options, and the cartridge's own sprite
-rules. Bitstream seed 2: 18,184 ALM, 253 M10K, worst setup −0.739 ns, worst hold
-+0.071 ns.
+rules. Bitstream seed 2: 18,051 ALM, 253 M10K, worst setup −0.874 ns, worst hold
++0.036 ns.
 
 - **CPU MATE.** With a Mega CD unit chosen in the menu, the game offers its
   computer-controlled partner. The partner's brain, the game's own Mega CD AI, runs on
@@ -607,6 +629,11 @@ rules. Bitstream seed 2: 18,184 ALM, 253 M10K, worst setup −0.739 ns, worst ho
   longer freeze poses: the sprite cache, the DMA budget, the held and pre-loaded poses
   and the animation queue now follow the original cartridge's rules, which also replace
   the animation heuristics of 0.2.1–0.2.5.
+- **Invisible, unkillable enemies and Original-mode runs ending after stage 21 are
+  fixed.** The core's cartridge memory stored single-byte writes, which a real cartridge
+  does not, so the game's own check of the cartridge concluded it was not genuine. The
+  cartridge memory now ignores single-byte writes, and the check passes
+  ([Fixed here](#fixed-here)). Every earlier release had this.
 - The Boom Box bars run at the measured tempo instead of about 20% fast.
 - Under the hood: a clock-crossing race on the MCU's stream pointer fixed at its root,
   FX68K's own multicycle constraint, the sound-effect echo line and the album buffer

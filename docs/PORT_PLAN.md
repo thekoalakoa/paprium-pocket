@@ -12416,13 +12416,18 @@ the last note-on, inside seven released voices' tails. No module in the corpus h
 
 ## 0.2.6 (hardware-passed 2026-10-09) — the cartridge's own sprite rules, CPU MATE, and the menu options
 
-**Validated on hardware** (release bitstream `44c9fa69`, seed 2; firmware images `mcu.txt`
+**Validated on hardware** (bitstream `44c9fa69`, seed 2; firmware images `mcu.txt`
 `1570f367`, `mcu_ext.txt` `d7da4574`, `wram_hi.txt` `1dfe3f40`, `wram_lo.txt` `502a6b1b`):
 default boot, all 8 consoles and every Mega CD unit (picture, splash and region), the TMSS
 consoles, MegaWire off, 32X Mode, and the regression list: the select screen, Original to Arcade,
 The Solarium, the credits, the elevator, dropped weapons, the attract demo, CPU MATE, busy fights,
 sound effects and echo. Fit: 18,184 ALM, 253 M10K, worst setup −0.739 ns, worst hold +0.071 ns,
 crossing re-check clean.
+
+**The release bitstream** is a later seed-2 fit of the same design plus one RTL fix, the cartridge
+memory ignoring the 68000's byte writes ([below](#the-cartridge-memory-ignores-68000-byte-writes)),
+with the same firmware images: rbf_r `f0ec00cc`, 18,051 ALM, 253 M10K, worst setup −0.874 ns,
+worst hold +0.036 ns, crossing re-check clean.
 
 This entry is the record; the player-facing summary is the README changelog, the menu and CPU MATE
 are written up in `docs/SCUM.md`, and the firmware build in `docs/firmware/README.md`.
@@ -12472,7 +12477,7 @@ without the per-piece drop, the two-load DMA floor, the four animation heuristic
 code (600 cycles of spills a draw), an uncompacted animation queue (256 bytes over), the stock
 anim-over debug line (3.8% of a frame a hit), seed 5 (−0.003 ns hold on the MCU's 68000 reset line);
 for CPU MATE, five versions of a 68000 routine and a hooked translation before the hook-free link on
-the MCU.
+the MCU; and, for the cartridge-memory fix below, storing a byte write as the whole word.
 
 ### Known issues added
 
@@ -12483,3 +12488,54 @@ the MCU.
 - **Console or Mega CD changed around a Soft Reset**: the firmware reads the model bits once, about
   2 ms into the reset, so a later change gives one mixed boot; rarely, a black screen after a Soft
   Reset, cause not established. Change first, then reset; reset again if needed. A latch was declined.
+
+### The cartridge memory ignores 68000 byte writes
+
+Found after the hardware pass above, fixed before release.
+
+**The fault.** `rtl/PAPRIUM/ramdp_io.sv`, vendored unchanged from the MiSTer cartridge RTL (which
+has it from mega-ppm's FPGA code), stored a 68000 write into the cartridge's shared RAM one byte lane
+at a time, so a single-byte write changed just that byte. A census of the game's single-byte writes
+into that RAM found one that is the game's own check of the cartridge, run in ordinary play (a food
+pickup): it writes a word, writes one byte of it again, and reads the word back. A byte that sticks
+tells the game it is not on a genuine cartridge. Every release of this core, and Genesis Plus GX,
+keep the byte, so from the first check until the 68000 restarts the game believes it is on a copy
+and quietly does two things:
+
+- When enemies drop in from above (stages 3, 5, 10, 13, 14 and 22), it can take an object off its
+  update list. If that object is an enemy, it stops running: not drawn, takes hits but never dies,
+  and holds up the section. Leaving the pause screen does not repair the list. Measured in GPGX on
+  stages 3, 5 and 22: 3 of 3 such enemies held up their section.
+- In Original mode, clearing stage 13 fails to record a story flag 117 times in 256 (worked out from
+  the game's random table; 30 of 64 when run in GPGX), and without it the run ends after stage 21
+  instead of going on to stages 22–24 and the ending (read from the code; not run end to end).
+
+Otherwise nothing changes: 216,526 frames run in lockstep with the game's flag clear and set were
+identical in every memory, on screen and in every command to the cartridge when neither moment came.
+
+**The fix** (`ramdp_io.sv`, one wire): a 68000 write is stored only when both byte lanes are
+written; a byte write is ignored. The MCU's side is unchanged. A real cartridge either ignores such a
+byte or writes it over the whole word: the check passes either way, and the game cannot tell them
+apart, so which one the cartridge does is not established. Ignoring was chosen because the Arcade
+Stage Select coin writes a few stray bytes, some into this RAM: stored as whole words they overwrite
+bytes of the game's sprite records, and in GPGX the run diverged from the first coin (562 bytes of
+work RAM, 160 sprite commands missing). Ignored, they change nothing the game reads.
+
+**How it was checked.**
+
+- Strobes (read from the RTL): FX68K raises both data strobes on the same clock edge, and the board and the VDP
+  derive the two cartridge write lines from them with the same write enable, so a word write arrives
+  with both lanes together.
+- Simulation (Verilator, the new and old modules side by side): the game's sequence reads back the
+  first word with the fix and the per-lane value without it; with no byte writes the two designs
+  agree on every output at every clock (20,000 random operations, 311,102 compares); an 8 KB
+  word write and read-back and MCU writes with all 15 lane masks pass; the two strobes may arrive up
+  to 2 clocks apart before a word write is lost (a modelled margin; in this core they arrive together).
+- GPGX with the same rule, in lockstep against the per-lane rule: at a food pickup the check passes
+  and the flag stays clear, and the Arcade Stage Select coin credits 4 of 4 times; recorded solo
+  (72,422 frames) and two-player (59,553 frames) runs to the credits give the same screen, memories
+  and mailbox commands (511,584 and 439,906) on every frame, the only difference being the coin's
+  stray bytes no longer stored.
+- Fit: seed 2 passed the gate first time, 18,051 ALM, 253 M10K, worst setup −0.874 ns, worst hold
+  +0.036 ns, crossing re-check clean; the release bitstream was made the same way as before (fitted
+  with the test firmware, release firmware put in by a memory update).
