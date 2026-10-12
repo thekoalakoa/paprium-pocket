@@ -403,14 +403,14 @@ fix was immediately audible.
   not boot on the Pocket: a black screen at once, every time. The fix only changes what
   happens when the console writes a single byte, and none is written while the core
   boots, so the build was suspected rather than the fix. Twelve of the pins that carry
-  addresses to the Pocket's memory chip are not covered by the timing check, and their
-  timing changes from build to build. We measured them on this build and on four earlier
-  ones tried on hardware: this build was by far the slowest, and the one of the four that
-  had gone wrong on hardware (it froze in play) was the next slowest. Six seeds of
-  the fixed design were fitted, and the release is the one with the best margin on those
-  pins, better than every build measured before; it boots and plays. That these pins
-  caused the black screen is the leading explanation, consistent with every hardware
-  result so far, not a proof.
+  addresses and byte masks to the Pocket's memory chip are not covered by the timing
+  check, and their timing changes from build to build. We measured them on this build
+  and on four earlier ones tried on hardware: this build was by far the slowest, and the
+  one of the four that had gone wrong on hardware (it froze in play) was the next
+  slowest. Six seeds of the fixed design were fitted, and the release is the one with
+  the best margin on those pins, better than every build measured before; it boots and
+  plays. That these pins caused the black screen is the leading explanation, consistent
+  with every hardware result so far, not a proof.
 - **Storing a single-byte write as the whole word.** Writing the byte over both halves of
   the word passes the game's check too, and may be what a real cartridge does. But the
   Arcade Stage Select coin writes a few stray bytes, some of them into the cartridge
