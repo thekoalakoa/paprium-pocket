@@ -310,7 +310,7 @@ index b568843..3ec6801 100644
 +// nothing, because the elevator's stale squares come from load_block failing and
 +// the object re-rendering its previous animation frame, not from find_block
 +// returning 0. Full implementation in git: "EXPERIMENT: reserved MISS_BLOCK for
-+// cache misses" (163076b). See docs/PORT_PLAN.md.
++// cache misses" (4150311). See docs/PORT_PLAN.md.
 +
 +// paprium-pocket: compose the sprite attribute field-wise, as GPGX does, rather
 +// than XORing the whole word. Ours XORs tile attrs, object attrs and the block's
@@ -3553,7 +3553,7 @@ index 06ccf59..a6757ca 100644
 +// Two hardware experiments bracket this exactly, and between them they say what
 +// the rule has to be:
 +//
-+//   69e00e2  chain at EVERY looping end, all objects. Every dropped weapon
++//   b00d2a3  chain at EVERY looping end, all objects. Every dropped weapon
 +//            settled correctly - and the character walk-in moonwalked.
 +//   0.2.5a   chain at a looping end when the queue was armed with the animation
 +//            (AT-LOAD) or left standing past 64 draws (STALE). The weapons

@@ -135,9 +135,9 @@ out of the repository on the same principle that keeps the ROM out, and the
 downscaled platform image was **kept** - decided 2026-08-31 - as the artwork in its
 functional form rather than a redistributable copy.
 
-**That no longer describes the shipped file.** Since `dc8daec` the platform image
+**That no longer describes the shipped file.** Since `dd6bc42` the platform image
 has been original artwork drawn for this core by LemonGrwab, replaced again at
-0.2.5 (`fdc1c5a`) with their updated banner. So the repository carries no
+0.2.5 (`c9f64ac`) with their updated banner. So the repository carries no
 game-derived artwork at all, and the judgement above now applies only to the
 history. `scripts/make_platform_logo.py`, which produced the key-art version,
 remains in the tree and its output is not shipped.

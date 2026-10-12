@@ -208,7 +208,7 @@ touches in 834,000 records, and chaining it puts a moving character into its
 standing pose. (The "0 character ends" the stale branch reported was an artifact
 of branch ordering — with AT-LOAD off, the same 1,765 ends come back as stale.)
 
-What shipped instead comes straight off the hardware record. `69e00e2` chained at
+What shipped instead comes straight off the hardware record. `b00d2a3` chained at
 every looping end for every object: every weapon settled correctly, the walk-in
 moonwalked. 0.2.4 chained only at an end: the walk-in was fine, the weapons spun.
 Every time, the weapons want the wide rule and the actors refuse it — so the

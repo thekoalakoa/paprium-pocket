@@ -6304,7 +6304,7 @@ last good animation frame - which then rides the scroll. That path never reaches
 **Reverted**, and removed rather than left behind an `#if 0`: it cost a resident
 slot (48 instead of 49) and did no work. Firmware back to 4,191 words, matching
 `61d1ddd3`. The full implementation is in git - "EXPERIMENT: reserved MISS_BLOCK
-for cache misses" (163076b) - which is the right archive for it.
+for cache misses" (4150311) - which is the right archive for it.
 
 **The `0xF800` fix (cap-at-49) remains the real shipping change.**
 
@@ -6632,9 +6632,9 @@ last animation frame. Not a collision. Do not reopen without new evidence.
 - `rtl/PAPRIUM/paprium_ima_decode.sv` - 512-byte frames -> 505 stereo samples,
   fully registered, declared in `rtl/paprium.qip`
 - `rtl/PAPRIUM/paprium_cdda_buf.sv` - ring holds compressed frames, decoder inside,
-  chunk accounting in bytes (`6b75e90`)
+  chunk accounting in bytes (`ce15490`)
 - `rtl/PAPRIUM/paprium_cdda_fetch.sv` - PPAD vetted **before the table is walked**,
-  16-byte entries at `0x18 + N*16`, mute on a bad or missing blob (`9e49d1b`)
+  16-byte entries at `0x18 + N*16`, mute on a bad or missing blob (`1e89f82`)
 - `scripts/verify_ima_decode.py` - cycle model, matches the reference decoder
   byte-for-byte over 1,010 samples across a frame boundary
 - `scripts/verify_ppad_header.py` / `verify_ppad_audio.py` - model the fetch's
@@ -8829,7 +8829,7 @@ CRC card's run (683 vs 737 refusals, 0.81 vs 0.79 loads/frame, 50 `0xDA`,
 `decode_sat_snapshot.py` printed **"frames where it did not land where
 expected: 0 -> the pointer landed exactly where the MCU finished, every
 frame"** on the CRC capture and again on this one. Nothing in `mcu/mame.c`
-writes `t[17..22]`. The reader was added by `385115d` (2026-09-03), the
+writes `t[17..22]`. The reader was added by `cb1a341` (2026-09-03), the
 commit that *parked* the RTL read-back after five failed fits - the writer
 lived in that read-back and was never fitted, never committed. The bytes are
 zeroed on every capture. The line is retired in the decoder and marked NOT
@@ -9192,7 +9192,7 @@ Reading, once a seed passes and is booted:
 **Locked with the reviewer (13:09):** cut 2 is not extended past seed 9 -
 five unread `noprune` registers on the bus is an odd shape for the fitter,
 and four placements spanning -4.609..-2.812 read as a worse netlist, not bad
-luck. If seed 9 misses, the fallback is the ORIGINAL epoch RTL (`bace7b0`) at
+luck. If seed 9 misses, the fallback is the ORIGINAL epoch RTL (`4b098e0`) at
 seeds 6-9, ring firmware, first placement >= -2.60 wins. Read, fixed now:
 
     boots  -> seed-5's placement was the glitch
@@ -9203,7 +9203,7 @@ Card stays on `dec2f09f` throughout.
 
 **Cut 2 closed.** Five placements (-3.343, -2.989, -2.812, -4.609, -3.241),
 none within the gate. Not extended, per the lock. Fallback sweep started
-13:3x: original epoch RTL (`bace7b0`) at seeds 6-9, ring firmware 14844a95.
+13:3x: original epoch RTL (`4b098e0`) at seeds 6-9, ring firmware 14844a95.
     epoch-rtl seed 6   ALM 18,105   setup -2.835   hold +0.061   md5 074cfd28   FAIL
     epoch-rtl seed 7   ALM 18,122   setup -3.057   hold +0.082   md5 13b68037   FAIL
 
@@ -9293,7 +9293,7 @@ Proposed, not started.
 slot-5 read inside `fpgio.sv` - two 16-bit inputs, the term in fpgio's own
 mux - and restores `paprium_cart`'s `mcu_dati` byte-for-byte to the ring
 build's; the latches feed `fpgio_inst`, so the counters keep a reader and
-need no `noprune`. Dry run against the working tree (which is `bace7b0`'s
+need no `noprune`. Dry run against the working tree (which is `4b098e0`'s
 cart): every hunk matches. Fits the moment seed 9 releases the fitter, at
 seed 5 first (the placement that hangs with the term at the head of the
 mux), ring firmware `14844a95`.
@@ -9534,11 +9534,11 @@ that was fixed earlier was the subway platform; this is the next scene.
 delivered it (VRAM `0x6600-0xBCA0`, 22,176 bytes, P 0x800, T 1,696),
 reproduces the 512 bytes GPGX's mirror actually served to the over-reading
 DMAs (`0xBCA0-0xBEA0`) **byte for byte**. The firmware is right before it is
-flashed. Pad fit launched at seed 5 on the ring RTL (`be39b32`).
+flashed. Pad fit launched at seed 5 on the ring RTL (`9d47c3d`).
 
 ### PPM_DA_PAD fitted: the ring build's placement, exactly. On the card.
 
-    bitstream   6b61638f   ring RTL (a22aea4) + PPM_DA_PAD 1 (mcu.txt 8111bd8a), seed 5
+    bitstream   6b61638f   ring RTL (8c5b241) + PPM_DA_PAD 1 (mcu.txt 8111bd8a), seed 5
     ALMs        18,194 / 18,480   M10K 294 / 308
     setup       -2.549   hold +0.004        PASS - identical to dec2f09f
 
@@ -9727,7 +9727,7 @@ card). Ready to fit on the reviewer's go: ring RTL, seed 5, ROM-only.
 
 ### PPM_BUSY_REST fit: GO (reviewer, 17:37), pre-registered
 
-Ring RTL (`a22aea4`), seed 5, firmware pad 1 + busy-rest 1 = `mcu.txt
+Ring RTL (`8c5b241`), seed 5, firmware pad 1 + busy-rest 1 = `mcu.txt
 7e43f08f`. ROM-only on the ring RTL: expected placement `dec2f09f`'s
 (-2.549, boots). Flash only after gate; md5 on the card before the A/B.
 
@@ -9741,7 +9741,7 @@ the busy race.
 
 #### PPM_BUSY_REST + pad fitted: dec2f09f's placement, third time. On the card.
 
-    bitstream   c5a2c22e   ring RTL (a22aea4) + pad 1 + busy-rest 1 (mcu.txt 7e43f08f), seed 5
+    bitstream   c5a2c22e   ring RTL (8c5b241) + pad 1 + busy-rest 1 (mcu.txt 7e43f08f), seed 5
     ALMs        18,194 / 18,480   M10K 294 / 308
     setup       -2.549   hold +0.004        PASS - identical to dec2f09f and 6b61638f
 
@@ -9919,7 +9919,7 @@ progress intact. Firmware switches as shipped on it: `PPM_DA_PAD 1`,
 `PPM_BUSY_REST 1` (pulse on `0xDB`/`0xDA` only), `PPM_LIST_ORDER_VRAM 1`,
 `PPM_ONSET_RING 1`. Test against the pre-registration at 19:1x.
 
-### A/B on 6206eb53 (list-order): REVERT, per e8863e3
+### A/B on 6206eb53 (list-order): REVERT, per 59fbea5
 
 Tester: boots; the title sequence lags and the title art is broken -
 train sprites forming and scrolling in the shape of the start screen;
@@ -10015,7 +10015,7 @@ against the game's 2,816-word budget there. Not fitted; the reviewer's go.
 
 ### Corrected-stream fit: GO (reviewer, 20:0x), pre-registered
 
-Ring RTL (`a22aea4`), seed 5, firmware pad 1 + busy-rest 1 (pulse
+Ring RTL (`8c5b241`), seed 5, firmware pad 1 + busy-rest 1 (pulse
 `0xDB`/`0xDA`) + corrected per-sprite stream = `mcu.txt f36cc836`. ROM-only:
 expected placement `dec2f09f`'s. Flash only after gate; md5 on the card
 before the A/B.
@@ -10044,12 +10044,12 @@ Gated numerically by the armed chain, archived, deployed, md5 confirmed on
 the card, snapshot region zeroed, progress intact. Firmware switches on it:
 `PPM_DA_PAD 1`, `PPM_BUSY_REST 1` (pulse `0xDB`/`0xDA`), `PPM_LIST_ORDER_VRAM
 1` (the corrected per-sprite stream), `PPM_ONSET_RING 1`. Test against the
-five-point pre-registration at c22d0ca, title first.
+five-point pre-registration at a863b06, title first.
 
 ### 95dcfe40: title gate FAIL -> reverted to d6182af4. Cause measured.
 
 Tester: train art on the start screen again - better than 6206eb53, still
-wrong. Reverted at once per c22d0ca; no shaft test. Card `d6182af4`, md5
+wrong. Reverted at once per a863b06; no shaft test. Card `d6182af4`, md5
 confirmed, region zeroed. `95dcfe40` archived.
 
 **Measured, from the run's capture (1,187 frames, title then quit):
@@ -10111,7 +10111,7 @@ dma_remaining's u16 underflow: cosmetic, not blocking.
 Deployed by the armed chain after its numeric gate; md5 confirmed on the
 card; snapshot region zeroed; progress intact. Decode the title's ring
 with `decode_onset_ring.py --stream` for the cursor measurable. Test
-against 5010d95, title first.
+against 9d9ad36, title first.
 
 ### d017785d: title gate FAIL -> reverted. The cursor measurable answered.
 
@@ -10208,12 +10208,12 @@ The cursor matched the reference (203) because the SAT side was right; the
 DMA side was not. This is why an aligned cursor did not equal a visual pass,
 and why every stream card (95dcfe40, d017785d) failed the title identically.
 
-**Fix (`08f1879`, firmware switch-on `c642dfe3`, switch-off unchanged
+**Fix (`dbcd40c`, firmware switch-on `c642dfe3`, switch-off unchanged
 `2c522e9f`):** build the control words from the byte address as GPGX does,
 `(0x4000 | A13..A0) << 16 | (0x80 | A15..A14)`. Checked equal to the original
 slot formula on every slot-aligned address (slots 0, 1, 0x30, 0x31, 124, 127),
 so the LRU path is untouched. Not fitted - awaiting GO. Same recipe as before:
-ring RTL a22aea4 @ seed 5 + pad + narrow busy-rest, `PPM_LIST_ORDER_VRAM 1`.
+ring RTL 8c5b241 @ seed 5 + pad + narrow busy-rest, `PPM_LIST_ORDER_VRAM 1`.
 Pre-registration proposal: 1. title = ordered train menu (chaos -> revert);
 2. title ring `--stream`: cursor 203-242, byte 0 = 19-20 sprites/frame;
 3. shaft vs cart; 4. attract mode (up to 54 sprites / cursor 482) clean;
@@ -10221,7 +10221,7 @@ Pre-registration proposal: 1. title = ordered train menu (chaos -> revert);
 
 **GO received (2026-09-04):** fit firmware `c642dfe3` (`PPM_LIST_ORDER_VRAM 1`
 + DMA destination from the byte address) + pad + narrow busy-rest, ring RTL
-`a22aea4` @ seed 5, `quartus_sh -t generate.tcl paprium 5`, log
+`8c5b241` @ seed 5, `quartus_sh -t generate.tcl paprium 5`, log
 `build-stream3.log`, started 22:01. ROM-only -> expect dec2f09f's placement
 (ALM 18,194 / setup -2.549 / hold +0.004). Flash only after gate; md5 before A/B.
 Pre-reg as proposed (title ordered / title ring cursor 203-242 + byte 0 19-20 /
@@ -10318,7 +10318,7 @@ array lands in `audio_data`, and a garbage descriptor executed from there
 (random length, a register write that blanks the display) matches "screen
 went dark, then hang". Candidate, not yet measured on the Pocket.
 
-**PPM_HEARTBEAT (`e33f5ff`, decoder `12a3bf7`):** a 40-byte crash-context
+**PPM_HEARTBEAT (`3630445`, decoder `392087f`):** a 40-byte crash-context
 record at bram 0xF70 (the free gap between the ring meta and the dispatch
 block, static-asserted), rewritten at command entry/exit, per object (slot,
 count, spr_info), per walked sprite, per stream DMA (cursor, stage,
@@ -10376,7 +10376,7 @@ before attract begins). Where earlier runs put the start screen at 22-28 s,
 RetroArch's boot timing varied between runs; the scene order did not.
 
 **GO received (2026-09-05):** heartbeat card - firmware `70c5265c` (= c642dfe3
-+ `PPM_HEARTBEAT`, stream on), ring RTL `a22aea4` @ seed 5, ROM-only -> expect
++ `PPM_HEARTBEAT`, stream on), ring RTL `8c5b241` @ seed 5, ROM-only -> expect
 dec2f09f's placement. Fit `quartus_sh -t generate.tcl paprium 5`, log
 `build-heartbeat.log`, started 09:53. Title gate (corrected): wait through the
 intro to the ~45 s start screen (19 sprites, cursor 203); judge ordered train vs
@@ -10451,7 +10451,7 @@ That window has no loops and the firmware has no interrupt handlers.
   the LRU baseline that burst is a few blocks; under the stream it is the
   whole vblank.
 
-**Heartbeat 2 (`1560378`, decoder `8708b27`):** RTE installed at setup with a
+**Heartbeat 2 (`c5ae74f`, decoder `19e330e`):** RTE installed at setup with a
 recorder on every exception id 0..8 - first trap's cause, faulting PC (from
 mscratch, where the RTE core parks it), mtval, sp, heartbeat frame and phase,
 plus a running count and the last cause/phase - at bram 0xFD0 (SPARE + 32,
@@ -10469,7 +10469,7 @@ code at that phase. No trap and phase 3 again -> the stop is inside
 `ppm_stream_dma`'s descriptor writes or the walk's own tail.
 
 **GO received (2026-09-05, 10:50):** heartbeat 2 - firmware `a36d6a75`, ring
-RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+RTL `8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 `build-heartbeat2.log`. Standing order from the user from here on: after a
 GO'd fit passes the gate, deploy to the SD without asking, and always list ALM
 / setup / hold after a fit. Pre-reg unchanged: reproduce the cell hang -> menu
@@ -10523,7 +10523,7 @@ sustained traffic on that path. Decidable from the MCU: `dma_cmd_count` /
 vblank list, so their values at loop idle say whether the 68000 froze inside
 the list (count still held) or after it (count 0, nothing posted).
 
-**Heartbeat 3 (`68bd389`, decoder `9fa9009`):** at loop idle (every 64
+**Heartbeat 3 (`dd3b4fc`, decoder `a270488`):** at loop idle (every 64
 iterations) the MCU snapshots the mailbox into the retired t[] block (bram
 0xFE8): reg_cmd, status_1, status_2, dma_cmd_count, dma_total, dma_remaining,
 cmd_args[0], loop tick, tape-pointer shadow; plus a post-overwrite counter (the
@@ -10538,7 +10538,7 @@ reg_cmd >= 0x8000 at idle -> a post the MCU never took -> the MCU loop stopped
 (tick frozen).
 
 **GO received (2026-09-05, 12:03):** heartbeat 3 - firmware `26bbdd60`, ring RTL
-`a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+`8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 `build-heartbeat3.log`. Deploys on gate per the standing order. Pre-reg as
 recorded above (dma_cmd_count at idle decides where the 68000 stopped).
 
@@ -10617,7 +10617,7 @@ Instruments / experiments on the table:
 - **Option B prepared, default OFF:** `PPM_SFX_QUIET_DMA` pauses sample reads
   from 0xAF until the 68000 has zeroed `dma_cmd_count` (the runner's last act)
   or the next 0xAE. Firmware with it on: `95e55ebe` (stream on + heartbeat 3);
-  off: `26bbdd60` unchanged. Commit `6cb3847`. Risk: SFX crackle if a FIFO
+  off: `26bbdd60` unchanged. Commit `b3a7c40`. Risk: SFX crackle if a FIFO
   drains during the ~1-2 ms pause.
 - Card reverted `70c9a726 -> d6182af4` (md5 confirmed) per the hang rule.
 Recommendation: B first (firmware-only, same placement; tests the flicker
@@ -10627,7 +10627,7 @@ persists, as the decisive instrument for WHERE the VDP stopped; C as the
 volume experiment.
 
 **GO B received (2026-09-05, 13:00):** `PPM_SFX_QUIET_DMA 1` - firmware
-`95e55ebe` (stream on + heartbeat 3 + option B), ring RTL `a22aea4` @ seed 5,
+`95e55ebe` (stream on + heartbeat 3 + option B), ring RTL `8c5b241` @ seed 5,
 ROM-only -> expect dec2f09f's placement. Log `build-sfxquiet.log`. Deploys on
 gate per the standing order. Pre-reg: greyscale/sprites freeze and flicker vs
 70c9a726 and the baseline; possible SFX crackle during the pause is expected.
@@ -10670,7 +10670,7 @@ data (flicker) but the 0xDB payloads the game reads through the same window at
 scene transitions - a bad pointer there is the address error. Consistent with
 every record: the dark screen is the transition's fade, mid-way.
 
-**Heartbeat 4 (`9a024a6`):** the effective vectors 2/3/4/28 are copied from
+**Heartbeat 4 (`ac1965b`):** the effective vectors 2/3/4/28 are copied from
 the mailbox to bram 0xFB0 at loop idle. Firmware: stream on + heartbeat 4,
 option B off `20d392de`; with option B `9f0602a4`; heartbeat off `c642dfe3`.
 Option B parked (crackle, no visual change). Card reverted to d6182af4.
@@ -10705,7 +10705,7 @@ gameplay run is available from a state.
 (ii) Tape desync corrupting 0xDB payloads at transitions -> bad pointer ->
     fault. Not supported by the injection runs (weak coverage).
 
-**Prepared, default off - `PPM_PORT2_LOAD` (`5cd8751`):** on the LRU baseline,
+**Prepared, default off - `PPM_PORT2_LOAD` (`944bdc4`):** on the LRU baseline,
 a 4 KB scratch memcpy (SDRAM 0x1E0000 -> 0x1F0000) per 0xAD - the walk's port2
 traffic with none of its data. Prediction under (i): the baseline starts
 flickering / going dark like the stream cards; under (ii): unchanged.
@@ -10714,7 +10714,7 @@ Firmware: LRU + heartbeat 4 + load `b4cc86d8`; LRU + heartbeat 4, no load
 
 **GO received (2026-09-05, 14:17):** port2-load card - firmware `b4cc86d8` (LRU
 baseline + heartbeat 4 + `PPM_PORT2_LOAD` 4 KB scratch memcpy per 0xAD; stream
-off, option B off), ring RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's
+off, option B off), ring RTL `8c5b241` @ seed 5, ROM-only -> expect dec2f09f's
 placement. Log `build-port2load.log`. Deploys on gate per the standing order.
 Control is `bd0b6499` (same without the load) if needed. Pre-reg: the baseline
 goes dark / glitches like the stream cards => (i) arbitration / acknowledge
@@ -10833,7 +10833,7 @@ semantics and F fault path still running):**
   both a window DMA and a tile DMA; the last DMA of every mode-7 run is sized
   to the tail, so PPM_DA_PAD's copies are unneeded.
 
-**Prepared, default OFF - `PPM_SCRATCH_HIGH` (`35352aa`):** the MCU scratch
+**Prepared, default OFF - `PPM_SCRATCH_HIGH` (`9a51d06`):** the MCU scratch
 (loader unpack base, stream staging base and cap, the 0xAF tape re-arm) moves
 from 0x9000 to 0x1E0000, outside the game's 64 KB payload space; cmd_F2's
 0x9000 unpack (game data) stays. Firmware: LRU + heartbeat 4 + scratch high
@@ -10862,8 +10862,8 @@ the in-gameplay sprite flicker and the cell-transition dark screen (separate
 mechanisms; the tape's single-flop clk_ram->clk ack toggle and the dropped
 same-cycle ack are the flicker family, RTL).
 
-**Fix applied (design 1 / synthesis steps 1-6, 9-10; `d8b399b`, `e9bc85f`,
-decoder `925acc4`):** `ppm_block_unpack_addr` widened to 32 bits (0x1E0000
+**Fix applied (design 1 / synthesis steps 1-6, 9-10; `543bdb6`, `640efac`,
+decoder `3bcdbd9`):** `ppm_block_unpack_addr` widened to 32 bits (0x1E0000
 truncated to 0 in u16 - the loader would have unpacked over the dst-0
 backgrounds); preprocessor bounds (scratch >= 0x10000, scratch end <=
 0x1F8000; PPM_PORT2_LOAD and PPM_SCRATCH_HIGH refuse to coexist); cmd_F2's
@@ -10899,7 +10899,7 @@ flicker and dark-screen mechanisms, register-indirect vector writes.
 
 **GO received (2026-09-05, 16:18): card 1 first** - firmware `801da897` (LRU +
 heartbeat 4 + PPM_SCRATCH_HIGH; stream, option B and the load off), ring RTL
-`a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+`8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 `build-scratch1.log`. Deploys on gate per the standing order. Pre-reg as
 recorded above (shaft two rides vs d6182af4: #8 bands -> 0, snap_db_stale
 -> 0; flicker and the cell dark screen predicted unchanged).
@@ -10925,7 +10925,7 @@ no dark/glitch on this run. The storage-aliasing root cause is confirmed for
 bram writes at boot - decode the counters when the card comes back).
 
 **GO card 2 (2026-09-05):** `f12887c9` = stream + heartbeat 4 + PPM_SCRATCH_HIGH,
-ring RTL `a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement; deploys
+ring RTL `8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement; deploys
 on gate. Pre-reg: title after wait-through; stream background garbage / flicker
 vs the prior stream cards (70c9a726 / a9bdd55a); shaft still clean; cell dark
 yes/no; note lag. Dark -> menu exit -> sd in.
@@ -11013,7 +11013,7 @@ survives it, the next split is the relocation itself.
 
 **GO received (2026-09-05, 19:13): card 3** - firmware `059e7d13` (= card 1
 without the heartbeat: LRU + PPM_SCRATCH_HIGH, PPM_HEARTBEAT 0), ring RTL
-`a22aea4` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
+`8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 `build-scratch3.log`. Deploys on gate per the standing order. Pre-reg: by
 stopwatch, "presented by" -> WM logo on d6182af4 vs cc639d69 vs card 3, and
 the between-screens drops; #8 must stay clean. Pause/drops gone => the
@@ -11021,7 +11021,7 @@ heartbeat (ship without it); unchanged => the relocation, card 4 splits it.
 
 ### 2026-09-05 19:40 - card 3 on the SD: 51b67a50 (firmware 059e7d13, heartbeat off)
 
-Fit at seed 5 on ring RTL a22aea4, launched 19:13, fitter done 19:37, flow exit 0 at 19:40.
+Fit at seed 5 on ring RTL 8c5b241, launched 19:13, fitter done 19:37, flow exit 0 at 19:40.
 
     ALM 18,194 / 18,480 (98%)   M10K 72%
     setup -2.549   hold +0.264       (worst corner -2.596 / +0.004)
@@ -11046,7 +11046,7 @@ Tester (card 3, 51b67a50, heartbeat off): the boot pause is unchanged. Heartbeat
 refuted as the cost. The user's framing: 0.1.0 (shipping) has no pause and a broken
 elevator; card 1 has a clean elevator and the pause - compare the two.
 
-**What changed between 0.1.0 and card 1 (firmware only, same ring RTL a22aea4):**
+**What changed between 0.1.0 and card 1 (firmware only, same ring RTL 8c5b241):**
 switches added and ON in card 1: PPM_ONSET_RING, PPM_DA_PAD, PPM_BUSY_REST (+pulse 600),
 PPM_HEARTBEAT, PPM_SCRATCH_HIGH. Unconditional code since 0.1.0 (source diff of the two
 patches, outside any `#if PPM_` span): the 32-bit loader cursor, `ppm_sptr_shadow`, the
@@ -11083,7 +11083,7 @@ write to 0x1FE4, ~15 ALMs, placement re-roll).
 **Card 4 = shipping firmware + the #8 fix, nothing else:** HEAD source with the 0.1.0
 switch set (ONSET_RING 0, DA_PAD 0, BUSY_REST 0, HEARTBEAT 0) + PPM_SCRATCH_HIGH 1.
 mcu.txt `fce5dc45` (-O2, 19,084 bytes; -Os variant fe5fd800 not used). Reproducible
-(three builds). Same ring RTL a22aea4, seed 5 -> dec2f09f's placement expected.
+(three builds). Same ring RTL 8c5b241, seed 5 -> dec2f09f's placement expected.
 Pre-registered: boot pause gone AND #8 shaft clean => this is v0.2.0. Pause gone, shaft
 banded => scratch-high needs one of the dropped switches (DA_PAD next). Pause present =>
 the relocation itself, card 5 = card 4 minus SCRATCH_HIGH as the control.
@@ -11093,15 +11093,15 @@ not reproduced by the tag's own patch (-O2 69585468, -Os 90d5f61a): the patch ke
 moving for ~4 h after that firmware was built. Not a blocker; noted for the 0.2.0 release
 (commit the mcu.txt and the patch together).
 
-**GO received (2026-09-05, 20:05): card 4 - firmware `fce5dc45`, ring RTL a22aea4, seed 5,
-auto-deploy on gate.** rtl/PAPRIUM/mcu.txt = fce5dc45 verified; rtl/ differs from a22aea4 by
+**GO received (2026-09-05, 20:05): card 4 - firmware `fce5dc45`, ring RTL 8c5b241, seed 5,
+auto-deploy on gate.** rtl/PAPRIUM/mcu.txt = fce5dc45 verified; rtl/ differs from 8c5b241 by
 mcu.txt only. Fit launched 20:06 (`build-scratch4.log`). Card holds card 3 (51b67a50) until
 the gate passes; then archive as `scratch4-shipping-plus-fix.CANDIDATE`, copy to the SD, md5
 before/after, ping.
 
 ### 2026-09-05 20:33 - card 4 on the SD: 0945652f (firmware fce5dc45, shipping switches + PPM_SCRATCH_HIGH)
 
-Fit at seed 5 on ring RTL a22aea4, launched 20:05, fitter done 20:30, flow exit 0 at 20:32.
+Fit at seed 5 on ring RTL 8c5b241, launched 20:05, fitter done 20:30, flow exit 0 at 20:32.
 
     ALM 18,194 / 18,480 (98%)   M10K 72%
     setup -2.549   hold +0.264       (worst corner -2.596 / +0.004)
@@ -11157,7 +11157,7 @@ Per reader:
 Card 5 firmware `73075a01` (-O2, 19,216 bytes): card 4 + PPM_BUSY_REST 1 +
 PPM_BUSY_CLEAR_THROUGH_RESP 1. DA_PAD still 0 (single variable). The two `#error`
 apostrophes in mame.h are reworded (preprocessor warnings only; no code change).
-Launched at seed 5 on ring RTL a22aea4 (`build-scratch5.log`), auto-deploy on gate per
+Launched at seed 5 on ring RTL 8c5b241 (`build-scratch5.log`), auto-deploy on gate per
 the standing order; if the SD is not in the PC at flow exit the copy waits for "sd in".
 
 Pre-registered: shaft rows clean (no blank/shifted) AND no pause => card 5 ships as
@@ -11166,7 +11166,7 @@ Pause returns => the wait design is wrong somewhere; ship card 4 as 0.2.0 and re
 
 ### 2026-09-05 21:17 - card 5 on the SD: 3e491f73 (firmware 73075a01, busy-rest v2)
 
-Fit at seed 5 on ring RTL a22aea4, launched 20:51, fitter done 21:15, flow exit 0 at 21:17.
+Fit at seed 5 on ring RTL 8c5b241, launched 20:51, fitter done 21:15, flow exit 0 at 21:17.
 
     ALM 18,194 / 18,480 (98%)   M10K 72%
     setup -2.549   hold +0.264       (worst corner -2.596 / +0.004)
@@ -11184,7 +11184,7 @@ Tester (card 5, 3e491f73): shaft rows clean, no pause. GO: "ship card 5 as 0.2.0
 
     bitstream   3e491f73   build_output/gate-archive/scratch5-busyrest-v2.CANDIDATE.rbf_r, on the card
     firmware    73075a01   rtl/PAPRIUM/mcu.txt, committed in the release commit WITH the patch that builds it
-    RTL         a22aea4 (ring RTL), seed 5 -> dec2f09f's placement (ALM 18,194 / M10K 72% / setup -2.549 / hold +0.264)
+    RTL         8c5b241 (ring RTL), seed 5 -> dec2f09f's placement (ALM 18,194 / M10K 72% / setup -2.549 / hold +0.264)
     firmware config  PPM_SCRATCH_HIGH 1, PPM_BUSY_REST 1 + PPM_BUSY_CLEAR_THROUGH_RESP 1 (wait 4000),
                      PPM_DA_PAD 0, PPM_ONSET_RING 0, PPM_HEARTBEAT 0, stream off; everything else as 0.1.0
     recipe      scripts/build_mcu.sh (-O2) -> rtl/PAPRIUM/mcu.txt; quartus_sh -t generate.tcl paprium 5
@@ -11220,10 +11220,10 @@ pre-release with openfpga-Paprium_0.2.0.zip only.
 **0.2.0 published (2026-09-05, 21:33 local):** https://github.com/thekoalakoa/paprium-pocket/releases/tag/0.2.0
 pre-release, asset openfpga-Paprium_0.2.0.zip (1,002,493 bytes, md5 4da8021c): the same
 twelve files as 0.1.0's zip, rbf_r inside = 3e491f73, core.json 0.2.0 / 2026-09-05.
-Release commit b83d70a (firmware 73075a01 + patch + docs + core.json), tag 0.2.0 annotated.
+Release commit dfdea4b (firmware 73075a01 + patch + docs + core.json), tag 0.2.0 annotated.
 Two packaging fixes on the way: check_packages.sh scoped to Koala_Koa.* (the upstream
 drizzt.MegaDrive baseline package made it fail on 0.1.0 too), and both zippers now leave
-the repo-facing Cores/<pkg>/README.md out of the archive (5df0814). The SD card holds the
+the repo-facing Cores/<pkg>/README.md out of the archive (12e83a0). The SD card holds the
 release bitstream (3e491f73) already.
 
 **2026-09-05 21:55 - build logs moved to `build-logs/`.** The user asked for the fit
@@ -11245,7 +11245,7 @@ the old wording.
 
 Side finding while checking Pupdate: the inventory lists our sponsor link as drizzt's
 GitHub Sponsors page. That is `.github/FUNDING.yml`, which arrived unchanged in the
-baseline commit (b2b1dc8) from drizzt's repo, not a deliberate credit. The inventory
+baseline commit (19720cd) from drizzt's repo, not a deliberate credit. The inventory
 re-reads FUNDING.yml on every run, so changing it takes effect without a release.
 Left for the user to decide (no Sponsors listing on thekoalakoa; a `custom:` URL works).
 
@@ -11479,7 +11479,7 @@ parallel with this read; its verdicts are appended below when it returns.
     scratch5-busyrest-v2.txt - the ROM-only change kept dec2f09f's placement)
 
 Deployed per the standing order (GO'd work, gate passed). Rollback is the
-0.2.0 release rbf (3e491f73) or `git checkout 7ab2d55 -- rtl/PAPRIUM/mcu.txt`.
+0.2.0 release rbf (3e491f73) or `git checkout 54bb2c8 -- rtl/PAPRIUM/mcu.txt`.
 First run of scripts/deploy_bitstream.sh went out without arguments and wrote
 the generic md_ntsc.rbf_r name, leaving the card untouched (md5 verified before
 the retry); the Paprium package needs `deploy_bitstream.sh <rbf> paprium.rbf_r`.
@@ -11770,8 +11770,8 @@ Firmware-fixes bullet carries the three 0.2.1 animation changes and the floor; d
 ## 2026-09-09 - checked the synth session before deleting it; one salvage, and one non-bug
 
 Everything the "Paprium Synth work" session (25-29 Aug) produced is committed and on
-`origin/master`, including the three commits it flagged as unpushed at the time (`450d2ad`,
-`799aa05`, `1f5b5fa` - all now ancestors of `origin/master`). Two items existed only in the
+`origin/master`, including the three commits it flagged as unpushed at the time (`8880704`,
+`8d3e545`, `419ba57` - all now ancestors of `origin/master`). Two items existed only in the
 transcript. One is a method note worth keeping. The other looked like a bug and is not one.
 
 ### NOT A BUG: grunt names repeating
@@ -11788,7 +11788,7 @@ note is not mistaken for an open item by anyone reading back.
 
 The command-stream capture taken at the time did produce a real result and it stands on its own:
 `0xB0 paprium_sprite_init`, a 112-byte clear of the DMA/sprite table, was firing at init and
-being discarded. That became the sixth firmware fix at `e7e48ed`.
+being discarded. That became the sixth firmware fix at `e54835a`.
 
 ### Method note worth keeping: the command stream is deterministic
 
@@ -12080,7 +12080,7 @@ Two experiments bracket it:
 
 | | weapons | walk-in |
 |---|---|---|
-| `69e00e2` chain at EVERY looping end, all objects | **all settle** | **moonwalks** |
+| `b00d2a3` chain at EVERY looping end, all objects | **all settle** | **moonwalks** |
 | 0.2.5a AT-LOAD + stale | settle, late | **moonwalks** |
 | 0.2.4 queue armed at the end only | spin | walks |
 
@@ -12101,7 +12101,7 @@ Every weapon is 10 — knife `0xDC`, chain `0xDD`, neon stick `0xDE`, pipe `0xE0
 IDs; `0xE3` the spinning disc is 10; all three playable characters are 157 and every enemy is 39 or
 more. `PPM_CHAIN_PROP_ANIMS 32` sits in the gap.
 
-    a prop   takes a queued follow-up at ANY looping end   (69e00e2's rule, which settled every weapon)
+    a prop   takes a queued follow-up at ANY looping end   (b00d2a3's rule, which settled every weapon)
     an actor keeps 0.2.4's rule exactly                    (which kept the walk-in walking)
 
 **This is a containment boundary, not a discovery.** The cartridge is certainly not counting
@@ -12350,7 +12350,7 @@ still play the wrong instruments against the cart. No further rate or octave pai
 assignment question stays open without a clean falsifier: header order, program-select scope, the
 order list, program identity and the program table fields have each been tested; the one analysis
 left is an identity fit (which bank sample sounds on each voice rhythm in the composer mix), not run.
-The holds are notes, not renderer changes. Commits 1ad64b8 and 315f56a stand.
+The holds are notes, not renderer changes. Commits 249d29c and 829080b stand.
 
 #### 2026-09-18 (evening): SHIPPED - the per-patch FM octave and the f/2 timbre table
 

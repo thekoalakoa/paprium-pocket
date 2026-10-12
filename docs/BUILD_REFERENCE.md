@@ -278,7 +278,7 @@ Found while answering a headroom question, not from any symptom. **Nothing obser
 traces to this.** Planned for 0.2.3; docs only until then.
 
 `projects/megadrive_pocket.qsf:53-54` carry, unmodified from the drizzt baseline
-(b2b1dc8):
+(19720cd):
 
     set_global_assignment -name ALLOW_ANY_SHIFT_REGISTER_SIZE_FOR_RECOGNITION ON
     set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION ALWAYS
