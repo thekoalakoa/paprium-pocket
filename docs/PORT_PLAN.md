@@ -12424,10 +12424,16 @@ The Solarium, the credits, the elevator, dropped weapons, the attract demo, CPU 
 sound effects and echo. Fit: 18,184 ALM, 253 M10K, worst setup −0.739 ns, worst hold +0.071 ns,
 crossing re-check clean.
 
-**The release bitstream** is a later seed-2 fit of the same design plus one RTL fix, the cartridge
+**The release bitstream** is a seed-3 fit of the same design plus one RTL fix, the cartridge
 memory ignoring the 68000's byte writes ([below](#the-cartridge-memory-ignores-68000-byte-writes)),
-with the same firmware images: rbf_r `f0ec00cc`, 18,051 ALM, 253 M10K, worst setup −0.874 ns,
-worst hold +0.036 ns, crossing re-check clean.
+with the same firmware images: rbf_r `de85f7d5`, 18,079 ALM, 253 M10K, worst setup −1.026 ns,
+worst hold +0.085 ns, crossing re-check clean. The first fit of the fix, seed 2 (rbf_r `f0ec00cc`),
+passed the same gate and did not boot; seed 3 was picked from a six-seed sweep on the untimed SDRAM
+address pins ([below](#the-first-fit-of-the-fix-did-not-boot)). Hardware-passed 2026-10-11: five
+cold boots; Soft Resets across switches between Arcade and Original modes, Console, Mega CD and
+MegaWire; the MTS and Roof-Top drop-ins after a food pickup; the Arcade coin, with its sound; CPU MATE
+joining and playing; a long play including the elevator and The Solarium. Once afterwards a Soft
+Reset needed a second Soft Reset (the known issue below, kept and marked rare).
 
 This entry is the record; the player-facing summary is the README changelog, the menu and CPU MATE
 are written up in `docs/SCUM.md`, and the firmware build in `docs/firmware/README.md`.
@@ -12465,9 +12471,11 @@ demo) replayed through the firmware, counting per frame what was loaded, held, r
 Three hardware test builds went in order, each adding steps: test 1 (cache and float) fixed the
 credits and the float but showed a select-screen flicker and a glitch going from Original to Arcade;
 test 2 (budget and pose hold) removed both; test 3 (cache commands and animation queue) passed all ten
-regression items. The release is a new full fit: six seeds, two passed the gate, seed 2 chosen. It was
-fitted with the test firmware and given the release firmware by a memory-initialisation update; the
-same steps with the test firmware give back the fitted bitstream byte for byte.
+regression items. The first release build (`44c9fa69`) was a new full fit: six seeds, two passed the
+gate, seed 2 chosen. The final release (`de85f7d5`, seed 3, after the cartridge-memory fix) was made
+the same way. Each was fitted with the test firmware and given the release firmware by a
+memory-initialisation update; the same steps with the test firmware give back the fitted bitstream
+byte for byte.
 
 ### What did not work
 
@@ -12477,7 +12485,8 @@ without the per-piece drop, the two-load DMA floor, the four animation heuristic
 code (600 cycles of spills a draw), an uncompacted animation queue (256 bytes over), the stock
 anim-over debug line (3.8% of a frame a hit), seed 5 (−0.003 ns hold on the MCU's 68000 reset line);
 for CPU MATE, five versions of a 68000 routine and a hooked translation before the hook-free link on
-the MCU; and, for the cartridge-memory fix below, storing a byte write as the whole word.
+the MCU; and, for the cartridge-memory fix below, storing a byte write as the whole word, and its
+first fit (seed 2, gate-passed, black screen at every boot).
 
 ### Known issues added
 
@@ -12485,9 +12494,13 @@ the MCU; and, for the cartridge-memory fix below, storing a byte write as the wh
   registers (`0x11C560`–`0x11C60B`) lie inside the bar's tile data, which the game copies with a VDP
   DMA; the substitution covers DMA reads. Fix: move them into zero padding the game never reads (new
   fit).
-- **Console or Mega CD changed around a Soft Reset**: the firmware reads the model bits once, about
-  2 ms into the reset, so a later change gives one mixed boot; rarely, a black screen after a Soft
-  Reset, cause not established. Change first, then reset; reset again if needed. A latch was declined.
+- **Rarely, a Soft Reset after a Console or Mega CD change needs a second one**: the firmware reads
+  the model bits once, about 2 ms into the reset, so a later change gives one mixed boot; rarely, a
+  black screen after a Soft Reset, cause not established. Change first, then reset; reset again if
+  needed. A latch was declined. On the final release (seed 3), Soft Resets passed across mode,
+  Console, Mega CD and MegaWire changes, and once afterwards one needed a second Soft Reset. Whether
+  the black screen shares a cause with the untimed SDRAM pins
+  ([below](#the-first-fit-of-the-fix-did-not-boot)) is not established.
 
 ### The cartridge memory ignores 68000 byte writes
 
@@ -12499,16 +12512,18 @@ at a time, so a single-byte write changed just that byte. A census of the game's
 into that RAM found one that is the game's own check of the cartridge, run in ordinary play (a food
 pickup): it writes a word, writes one byte of it again, and reads the word back. A byte that sticks
 tells the game it is not on a genuine cartridge. Every release of this core, and Genesis Plus GX,
-keep the byte, so from the first check until the 68000 restarts the game believes it is on a copy
-and quietly does two things:
+keep the byte, so from the first check until the game is reset or switched off it believes it is on
+a copy and quietly does two things:
 
-- When enemies drop in from above (stages 3, 5, 10, 13, 14 and 22), it can take an object off its
-  update list. If that object is an enemy, it stops running: not drawn, takes hits but never dies,
-  and holds up the section. Leaving the pause screen does not repair the list. Measured in GPGX on
-  stages 3, 5 and 22: 3 of 3 such enemies held up their section.
-- In Original mode, clearing stage 13 fails to record a story flag 117 times in 256 (worked out from
-  the game's random table; 30 of 64 when run in GPGX), and without it the run ends after stage 21
-  instead of going on to stages 22–24 and the ending (read from the code; not run end to end).
+- When enemies drop in from above (MTS, Roof-Top, Central Park, Golden Of Seas, Deep Storage and The
+  Vault), it can take an object off its update list. If that object is an enemy, it stops running:
+  not drawn, takes hits but never dies, and holds up the section. Leaving the pause screen does not
+  repair the list. Measured in GPGX on MTS, Roof-Top and The Vault: 3 of 3 such enemies held up
+  their section.
+- In Original mode, clearing Golden Of Seas fails to record a story flag 117 times in 256 (worked out
+  from the game's random table; 30 of 64 when run in GPGX), and without it the run ends after Digniti
+  KTV instead of going on to The Vault, Sanophix Labs, The Solarium and the ending (read from the
+  code; not run end to end).
 
 Otherwise nothing changes: 216,526 frames run in lockstep with the game's flag clear and set were
 identical in every memory, on screen and in every command to the cartridge when neither moment came.
@@ -12536,6 +12551,59 @@ work RAM, 160 sprite commands missing). Ignored, they change nothing the game re
   (72,422 frames) and two-player (59,553 frames) runs to the credits give the same screen, memories
   and mailbox commands (511,584 and 439,906) on every frame, the only difference being the coin's
   stray bytes no longer stored.
-- Fit: seed 2 passed the gate first time, 18,051 ALM, 253 M10K, worst setup −0.874 ns, worst hold
-  +0.036 ns, crossing re-check clean; the release bitstream was made the same way as before (fitted
-  with the test firmware, release firmware put in by a memory update).
+- Fit: seed 3, 18,079 ALM, 253 M10K, worst setup −1.026 ns, worst hold +0.085 ns, crossing re-check
+  clean; the release bitstream was made the same way as before (fitted with the test firmware, release
+  firmware put in by a memory update). The first fit, seed 2, did not boot (next section).
+- Hardware (seed 3, 2026-10-11): enemies dropping in on MTS and Roof-Top after a food pickup, the
+  moment the game runs its check, behaved normally; the Arcade Stage Select coin credits and plays
+  its sound. The game's flag itself is not visible in play.
+
+### The first fit of the fix did not boot
+
+**What happened.** The first fit of the fix, seed 2 (rbf_r `f0ec00cc`; 18,051 ALM, worst setup
+−0.874 ns, worst hold +0.036 ns), passed the gate first time. On the Pocket it gave a black screen at
+once on every boot, with no boot text page; its test-firmware image did the same. The first release
+build of the unfixed design, `44c9fa69`, had booted throughout its hardware tests.
+
+**Why the fix was not suspected.** The new rule only acts on a 68000 write that raises one data
+strobe into the cartridge RAM. None happens from power-on to the menus: 0 in 3,000-frame GPGX boots
+(with and without a save), and boots under the old and new rule draw identical screens at 10
+checkpoints. A black screen with no text page means the boot stopped before the game's own code ran.
+
+**The likely cause: the SDRAM address pins are never timed.** The SDC sets no output delays on the
+`dram_*` pins, so STA reports them all as unconstrained. `platform/pocket/pocket.tcl` asks for
+`FAST_OUTPUT_REGISTER` on the SDRAM pins, but the fitter refuses it for 12 of them, `dram_a` 0–4, 6–8,
+11 and 12 and both `dram_dqm` bits (warning 176279, "cannot simultaneously use clear and load signals",
+`rtl/sdram.sv:256`), in every build checked. Those 12 are fabric registers whose route to the pad
+changes with each placement, while the command pins sit in the I/O cells. Measured with a session-only
+constraint (an inverted generated clock on `dram_clk`, tIS 1.5 ns), worst register-to-pad at Slow 85C,
+worst setup at Fast 85C, and bits below zero at Fast 85C:
+
+| fit | reg→pad S85 | setup F85 | bits < 0 | on hardware |
+|---|---|---|---|---|
+| seed 3 of the fix (release, `de85f7d5`) | 8.908 | +0.237 | 0 | passed |
+| 0.2.6 test 3 | 9.077 | +0.210 | 0 | good |
+| an unreleased trial build, seed 3 | 9.710 | −0.371 | 3 | good (soaked) |
+| `44c9fa69` (first 0.2.6 release build) | 9.737 | −0.056 | 1 | good; rare black screen after a warm Soft Reset |
+| the same trial build, seed 4 | 10.335 | −0.514 | 4 | froze twice in play |
+| seed 2 of the fix (`f0ec00cc`) | 12.836 | −1.880 | 8 | black screen at every boot |
+
+Of everything measured, it is the one that separates the two faulty fits from the good ones; every
+timed boot path is positive in all of them. A late address bit means a wrong row or column, so garbage
+on the boot page and ROM reads. That is the leading explanation, consistent with every hardware result,
+not proven. The `f0ec00cc` numbers come from a seed-2 refit of the same RTL, which reproduced its
+timing summary exactly.
+
+**What was done.** Seeds 1, 3, 4, 5 and 6 were fitted with the test firmware. Seeds 1, 3 and 6 pass the
+gate; 4 and 5 fail it (MCU read data −0.498 ns; the 68000 reset line −1.004 ns). Seed 3 is the only one
+at least as good as `44c9fa69` on the MCU's read-data crossing (+0.837 ns against +0.764), the Fast-0C
+hold (+0.085 against +0.071) and the 68000 reset paths (+0.553 against +0.096), and it has the best
+SDRAM pins of every fit measured; seeds 1 and 6 are close to `f0ec00cc` on those pins or past it. Its
+weak points, measured, with no effect seen on hardware: the APF-clock setup +0.757 ns on the CD-audio
+loader FIFO (hardware-tested fits +1.49 to +2.29), FX68K's `Ir` to micro-address multicycle path +2.455
+ns (a real budget of four cycles or more), and the APF bridge receive path, 11.83 ns (tested up to
+11.12).
+
+Not done in 0.2.6: timing these pins, or removing the clear/load conflict so the fitter can put the
+registers in the I/O cells. Until then, a new fit's SDRAM pins are worth measuring before it goes on
+hardware, as well as the gate.

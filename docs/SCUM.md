@@ -245,15 +245,16 @@ hardware check, run on those answers, gives the expected result in 272 of 272, a
 hardware: all 8 consoles give the right picture and region, the TMSS consoles boot, and every Mega CD unit
 gives the right picture, splash and region.
 
-### Known issue: a change around a Soft Reset can need a second reset
+### Known issue: rarely, a change around a Soft Reset needs a second reset
 
 The firmware reads the Console model bits and the MegaWire status **once**, about 2 ms after a reset
 starts, while everything else the options drive follows the menu live. A setting changed after that
 read, but before the game's hardware check a few seconds later, gives that one boot a mixed machine,
 for example the Genesis 3 picture after a change from Mega Drive to Mega Drive 2. The next reset is
 clean. Changing the setting **first and then** using Soft Reset is always consistent. Separately, a Soft
-Reset rarely ends on a black screen with a few pixels at the bottom edge, most often around a Console or
-Mega CD change; another Soft Reset recovers. Not fixed in 0.2.6: latching the options while the cartridge
+Reset rarely ends on a black screen with a few pixels at the bottom edge; another Soft Reset recovers. On
+the release build, Soft Resets passed across changes of mode, Console, Mega CD and MegaWire, and once
+afterwards one needed a second Soft Reset. Not fixed in 0.2.6: latching the options while the cartridge
 is in reset was considered and declined.
 
 ---

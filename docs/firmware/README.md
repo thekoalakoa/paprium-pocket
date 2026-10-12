@@ -85,7 +85,7 @@ the exact shipped firmware.
 
 ```bash
 ./scripts/build_mcu.sh --brain cpu-mate-brain      # installs the brain-bearing RELEASE images, md5s as above
-quartus_sh -t generate.tcl paprium 2               # the 0.2.6 fit used seed 2
+quartus_sh -t generate.tcl paprium 3               # the 0.2.6 fit used seed 3
 git checkout -- rtl/PAPRIUM/mcu.txt rtl/PAPRIUM/mcu_ext.txt rtl/PAPRIUM/wram_hi.txt rtl/PAPRIUM/wram_lo.txt
 ```
 

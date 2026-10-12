@@ -134,9 +134,9 @@ in the README, and [docs/SCUM.md](SCUM.md) for the details.
 ### Console and Mega CD: change first, then Soft Reset
 
 The game reads the console, the Mega CD unit, 32X Mode and MegaWire **once, at
-boot**. Change the setting first, then use **Soft Reset (mini game)**. If the Boom
-Box shows the wrong console afterwards, or the screen stays black, Soft Reset once
-more: that is a known issue in 0.2.6.
+boot**. Change the setting first, then use **Soft Reset (mini game)**. Rarely, the
+Boom Box shows the wrong console afterwards, or the screen stays black: Soft Reset once
+more. That is a known issue in 0.2.6.
 
 **Japan** (Mega Drive, Mega Drive 2, Mega Jet, Unknown) gives you the Japanese
 cartridge's extras — song titles at the start of each level, and other easter eggs.
@@ -259,9 +259,9 @@ There is one maintained list and this is not it: see
 [Known issues](../README.md#known-issues) in the README for what is open today, and
 [Fixed here](../README.md#fixed-here) for what has been closed since. As of 0.2.6 the
 open list is four items: two on the audio side, and two that come with the 0.2.6 menu
-options (the Hall of Fame name-entry bar with Arcade Stage Select or 6-Button on, and a
-Console or Mega CD change around a Soft Reset). Everything below is the per-release
-history this guide was written alongside, and is kept for that.
+options (the Hall of Fame name-entry bar with Arcade Stage Select or 6-Button on, and,
+rarely, a second Soft Reset needed after a Console or Mega CD change). Everything below
+is the per-release history this guide was written alongside, and is kept for that.
 
 (This section used to carry its own copy of the open list, which fell five releases
 behind and ended up advertising fixed bugs as open. One list only.)

@@ -48,7 +48,7 @@ Boot, decompression, graphics streaming, saves, the cartridge's own sound effect
 and music — with correct per-scene track selection and one-shot cues that stop
 rather than loop.
 
-Fits a Cyclone V `5CEBA4F23C8` at **98% ALM and 82% M10K** (0.2.6: 18,051 ALM, 253
+Fits a Cyclone V `5CEBA4F23C8` at **98% ALM and 82% M10K** (0.2.6: 18,079 ALM, 253
 M10K), on a device with less than half the logic of the MiSTer board this was ported
 from. From 0.2.2 the 68000 is [FX68K](https://github.com/ijor/fx68k) rather than the
 gate-level netlist, which freed about ten points of ALM; 0.2.6 spends most of them on
@@ -145,7 +145,7 @@ Everything else that was listed here has moved to [Fixed here](#fixed-here).
 | Issue | Status |
 |---|---|
 | Hall of Fame: garbage on the name-entry bar while **Arcade Stage Select** or **6-Button** is on | **Open (0.2.6).** The blinking highlight bar on the name-entry row shows garbage in the first 24 pixels of every 64-pixel group, worst at the left edge where the initials go. The code those two switches add is served from ROM space that looked like padding and is really the bar's tile data, which the game copies to VRAM with a DMA; the substitution covers DMA reads too. Little-Man alone does not do it, and with both switches off the bar is clean. Moving the code needs a new fit. Details in [docs/SCUM.md](docs/SCUM.md) |
-| Changing **Console** or **Mega CD** around a Soft Reset can need a second Soft Reset | **Open (0.2.6).** The firmware reads the console model and the MegaWire setting once, about 2 ms into a reset. A setting changed after that read gives that one boot a mixed machine, such as the wrong console picture; the next reset is clean. Change the setting first, then Soft Reset. Separately, a Soft Reset rarely ends on a black screen with a few pixels at the bottom edge, most often around such a change; another Soft Reset recovers. The cause of the black screen is not established |
+| Rarely, a Soft Reset after changing **Console** or **Mega CD** needs a second Soft Reset | **Open (0.2.6), rare.** The firmware reads the console model and the MegaWire setting once, about 2 ms into a reset. A setting changed after that read gives that one boot a mixed machine, such as the wrong console picture; the next reset is clean. Change the setting first, then Soft Reset. Separately, a Soft Reset can, rarely, end on a black screen with a few pixels at the bottom edge; another Soft Reset recovers. On the release build, Soft Resets passed across changes of mode, Console, Mega CD and MegaWire, and once afterwards a Soft Reset needed a second one. The cause of the black screen is not established |
 | The music is the released soundtrack, not the cartridge's synthesiser | **Open.** The real cartridge synthesises the music live on a 26-voice sampler and bends it with play: the crisis variant the game switches to, the sax man's cues, the pitch of hits. This port plays the album instead, so none of that reacts. The instrument bank and all 52 sequence modules are decoded; the event semantics are not, and a 26-voice renderer needs FPGA area the 68000 swap is expected to free. Tracked in `docs/PORT_PLAN.md` |
 | The "VM DAC" option does nothing when enabled | **Open.** On a real cartridge, enabling it routes the cartridge's PCM through the YM2612's DAC and thins the mix. Here the stream buffer the 68000 reads for it (cart RAM `0x1802–0x19FF`) is held at mid-scale, so the option is silent rather than static and the audio is unchanged. Making it work means the firmware keeping that buffer filled with the mixed PCM the game expects |
 
@@ -156,11 +156,13 @@ core this forks. All verified on real hardware: up to 0.2.5 in both Arcade and
 Original modes; the 0.2.6 rows on an arcade run to the credits plus the regression
 list in the [changelog](#changelog). The exception is the first row: what it fixes
 shows only by chance, and late in a run, so it was checked in a simulation of the
-core's cartridge memory and in an emulator running the same rule.
+core's cartridge memory and in an emulator running the same rule. On hardware, enemies
+dropping in on MTS and Roof-Top after a food pickup, the moment the game runs its
+check, played normally on the release build.
 
 | Fix | Was |
 |---|---|
-| When enemies dropped in from above, an enemy could turn invisible and unkillable and stop the screen scrolling, so the section could not be finished. In Original mode, a run could end after stage 21, without the last stages and the ending | **Cartridge memory** (0.2.6). The core's cartridge memory stored the console's single-byte writes, which a real cartridge does not. The game's own check of the cartridge, which runs in ordinary play, saw that and concluded it was not running on a genuine cartridge. From then until power-off it quietly did two things: when enemies dropped in, it could freeze an enemy out of the game, invisible and unkillable, holding up the section (pausing does not clear it); and in Original mode, clearing stage 13 skipped a story step about half the time, so the run ended after stage 21. Nothing on screen says why, and nothing else changes. Every earlier release of this core stored those bytes, and so does the emulator this project compares against, so comparing against it could not find this. The cartridge memory now ignores the console's single-byte writes (`ramdp_io.sv`), and the check passes as it does on a real cartridge. Word writes, and the cartridge MCU's own writes, are unchanged. Whether a real cartridge ignores such a byte or writes it over the whole word is not known; the game cannot tell the two apart, and [0.2.6: what worked, and what did not](#026-what-worked-and-what-did-not) says why this core ignores it |
+| When enemies dropped in from above, an enemy could turn invisible and unkillable and stop the screen scrolling, so the section could not be finished. In Original mode, a run could end after Digniti KTV, without the last three stages (The Vault to The Solarium) and the ending | **Cartridge memory** (0.2.6). The core's cartridge memory stored the console's single-byte writes, which a real cartridge does not. The game's own check of the cartridge, which runs in ordinary play, saw that and concluded it was not running on a genuine cartridge. From then until the game was reset or switched off, it quietly did two things: when enemies dropped in, it could freeze an enemy out of the game, invisible and unkillable, holding up the section (pausing does not clear it); and in Original mode, clearing Golden Of Seas skipped a story step about half the time, so the run ended after Digniti KTV. Nothing on screen says why, and nothing else changes. Every earlier release of this core stored those bytes, and so does the emulator this project compares against, so comparing against it could not find this. The cartridge memory now ignores the console's single-byte writes (`ramdp_io.sv`), and the check passes as it does on a real cartridge. Word writes, and the cartridge MCU's own writes, are unchanged. Whether a real cartridge ignores such a byte or writes it over the whole word is not known; the game cannot tell the two apart, and [0.2.6: what worked, and what did not](#026-what-worked-and-what-did-not) says why this core ignores it |
 | The end credits: sparkles drawn as squares of background art, and damaged tiles in the credits pictures | **Sprite cache** (0.2.6). The firmware's cache claimed its VRAM slots in its own order, so the sparkle sprite's block was loaded into slots that lie inside the credits background (slots 15–27, up to 15 damaged cells on the first page). The cache now follows the original cartridge's rules: every slot has a countdown that each use or load resets and every frame ages; aged slots fall into free, idle and recently-used lists; a missing block takes a free slot, then an idle one, then the slot of a related block, then a recently-used one, lowest slot first; a piece that still cannot be loaded is dropped alone, and at most 15 blocks load a frame. On five separate captures the sparkle block now lands in the first slot every time, clear of the background. The 0.2.0 elevator fix had no effect here: a different mechanism |
 | At the end of the game, characters frozen in mid-walk and floating across The Solarium's camera pan | **Sprite-table close** (0.2.6). While the HUD is hidden the game links the first sprite-table entry straight to entry 14. The firmware closed the table by clearing the link of its own last entry and uploading only that many entries, so the previous frame's entries from 14 on stayed linked in VRAM and kept drawing. The table is now closed the cartridge's way: an end mark at the entry count, entry 79's link cleared, one entry more uploaded (`PPM_FLOAT_ENDMARK`, [the MiSTer Paprium team](https://github.com/thekoalakoa/Paprium_MiSTer)'s patch). The end mark is in place on all 870 frames of the pan on a recorded solo run, and all 860 on a two-player run |
 | Busy fights: characters freezing in a pose for up to half a second | **Loads refused** (0.2.6). The old cache could never take a slot used in the previous frame, so in a busy fight a new pose's blocks were refused and the whole object was rewound to its previous frame; if that pose's block had meanwhile been evicted, the piece was drawn from VRAM tile 0, as garbage. In one 36-frame fight window of a recorded run: 32 loads, 1,038 refusals and 69 refused animation switches before; 130 loads and 0 refusals with the cache above. The DMA budget is also charged and gated as on the cartridge now, and a pose that does not fit is held whole or pre-loaded over several frames rather than drawn in part |
@@ -326,8 +328,9 @@ fix was immediately audible.
   but two new faults, a flicker on the character-select screen and a glitch with lost
   background colours going from Original mode to Arcade. Test 2 added the budget and
   the pose hold: both gone. Test 3 added the cache commands and the animation queue:
-  every item on the regression list passed. The release build passed the same list
-  again.
+  every item on the regression list passed. The first release build passed the same list
+  again; the final one, with the cartridge-memory fix, was checked once more (the
+  [changelog](#changelog) lists what).
 - **The select flicker had a number before it had a fix.** With the cache alone, a pose
   whose blocks did not fit the frame's DMA budget was drawn with pieces missing: Dice
   lost 74–84% of his pixels for single frames, every six frames, when the budget ran
@@ -392,8 +395,22 @@ fix was immediately audible.
 - **Fitter seeds.** Six seeds were fitted. Seed 5, the old shipping seed, failed by
   0.003 ns of hold on the MCU's 68000 reset line; 4 and 6 failed the crossing re-check
   (SDRAM to MCU data, MCU bus to work RAM); 3 failed setup at −3.84 ns. Seeds 2 and 1
-  passed; the release is seed 2. After the cartridge-memory fix the core was fitted
-  again on seed 2, which passed the same gate first time.
+  passed, and seed 2 became the first release build. After the cartridge-memory fix the
+  core was fitted again: seed 2 passed the gate but did not boot (the next entry); of
+  six seeds of the fixed design, 1, 2, 3 and 6 passed the gate, and the release is
+  seed 3.
+- **The first build of the cartridge-memory fix.** It passed the timing check, then did
+  not boot on the Pocket: a black screen at once, every time. The fix only changes what
+  happens when the console writes a single byte, and none is written while the core
+  boots, so the build was suspected rather than the fix. Twelve of the pins that carry
+  addresses to the Pocket's memory chip are not covered by the timing check, and their
+  timing changes from build to build. We measured them on this build and on four earlier
+  ones tried on hardware: this build was by far the slowest, and the one of the four that
+  had gone wrong on hardware (it froze in play) was the next slowest. Six seeds of
+  the fixed design were fitted, and the release is the one with the best margin on those
+  pins, better than every build measured before; it boots and plays. That these pins
+  caused the black screen is the leading explanation, consistent with every hardware
+  result so far, not a proof.
 - **Storing a single-byte write as the whole word.** Writing the byte over both halves of
   the word passes the game's check too, and may be what a real cartridge does. But the
   Arcade Stage Select coin writes a few stray bytes, some of them into the cartridge
@@ -559,12 +576,15 @@ python scripts/reverse_bitstream.py projects/output_files/megadrive_pocket.rbf b
 ```
 
 `generate.tcl` takes an optional second argument, a fitter seed. Timing on this
-device is seed-sensitive by several nanoseconds (0.2.6's six seeds ranged from
+device is seed-sensitive by several nanoseconds (0.2.6's first six seeds ranged from
 −0.74 to −3.84 ns of setup), so a single failing fit is not by itself evidence that a
-change broke timing. The shipping bitstream is seed 2, which is also what
-`projects/megadrive_pocket.qsf` says. The 0.2.6 gate was setup ≥ −2.60 ns, hold > 0,
-and a re-check of the clock crossings; seeds 2 and 1 passed it, and seed 2 passed it
-again after the last change (−0.87 ns).
+change broke timing. The shipping bitstream is seed 3, which is also what
+`projects/megadrive_pocket.qsf` says, so `quartus_sh -t generate.tcl paprium` and
+`quartus_sh -t generate.tcl paprium 3` fit the same. The 0.2.6 gate was setup ≥ −2.60 ns,
+hold > 0, and a re-check of the clock crossings. On the final design seeds 1, 2, 3 and 6
+passed it; seed 2 passed and did not boot, and seed 3 (−1.026 ns setup, +0.085 ns hold)
+was picked for the best timing on the memory chip's address pins, which the gate does
+not check ([0.2.6: what worked, and what did not](#026-what-worked-and-what-did-not)).
 
 Firmware is rebuilt separately with `./scripts/build_mcu.sh`, which installs four
 images into `rtl/PAPRIUM/` (`mcu.txt`, `mcu_ext.txt`, `wram_hi.txt`, `wram_lo.txt`) —
@@ -609,8 +629,8 @@ you obtain the ROM or the soundtrack** — see [What this is not](#what-this-is-
 ## Changelog
 
 **0.2.6** — the CPU MATE partner, the menu options, and the cartridge's own sprite
-rules. Bitstream seed 2: 18,051 ALM, 253 M10K, worst setup −0.874 ns, worst hold
-+0.036 ns.
+rules. Bitstream seed 3: 18,079 ALM, 253 M10K, worst setup −1.026 ns, worst hold
++0.085 ns.
 
 - **CPU MATE.** With a Mega CD unit chosen in the menu, the game offers its
   computer-controlled partner. The partner's brain, the game's own Mega CD AI, runs on
@@ -629,7 +649,7 @@ rules. Bitstream seed 2: 18,051 ALM, 253 M10K, worst setup −0.874 ns, worst ho
   longer freeze poses: the sprite cache, the DMA budget, the held and pre-loaded poses
   and the animation queue now follow the original cartridge's rules, which also replace
   the animation heuristics of 0.2.1–0.2.5.
-- **Invisible, unkillable enemies and Original-mode runs ending after stage 21 are
+- **Invisible, unkillable enemies and Original-mode runs ending after Digniti KTV are
   fixed.** The core's cartridge memory stored single-byte writes, which a real cartridge
   does not, so the game's own check of the cartridge concluded it was not genuine. The
   cartridge memory now ignores single-byte writes, and the check passes
@@ -641,15 +661,19 @@ rules. Bitstream seed 2: 18,051 ALM, 253 M10K, worst setup −0.874 ns, worst ho
   the MCU, a stale one-clock reply on APF file commands fixed, and debug output compiled
   out of the release firmware.
 - Two known issues come with the new options: the Hall of Fame name-entry bar with
-  Arcade Stage Select or 6-Button on, and a Console or Mega CD change around a Soft
-  Reset ([Known issues](#known-issues)).
+  Arcade Stage Select or 6-Button on, and, rarely, a second Soft Reset needed after a
+  Console or Mega CD change ([Known issues](#known-issues)).
 
 Hardware-tested on a real Pocket before release: default boot, all 8 consoles and every
 Mega CD unit (picture, splash, region), the TMSS consoles, MegaWire off, 32X Mode, and
 the regression list: the select screen, switching between Original and Arcade modes, The
 Solarium, the credits, the elevator, dropped weapons, the attract demo, CPU MATE, busy
 fights, sound effects and echo. Every Scum! switch and stage name was checked on the
-0.2.6 test builds.
+0.2.6 test builds. The final build, with the cartridge-memory fix, was checked again:
+five cold boots; Soft Resets across switches between Arcade and Original modes, Console,
+Mega CD and MegaWire; enemies dropping in on MTS and Roof-Top after a food pickup; the
+Arcade coin, which credits and plays the coin sound; CPU MATE joining and playing well;
+and a long play including the elevator and The Solarium.
 
 **0.2.2** — the 68000 changes. The core now runs [FX68K](https://github.com/ijor/fx68k)
 (Jorge Cwik, GPL-3, vendored in `rtl/fx68k/`) in place of the gate-level netlist. For a
