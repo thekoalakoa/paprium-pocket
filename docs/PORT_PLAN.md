@@ -12520,10 +12520,13 @@ a copy and quietly does two things:
   not drawn, takes hits but never dies, and holds up the section. Leaving the pause screen does not
   repair the list. Measured in GPGX on MTS, Roof-Top and The Vault: 3 of 3 such enemies held up
   their section.
-- In Original mode, clearing Golden Of Seas fails to record a story flag 117 times in 256 (worked out
-  from the game's random table; 30 of 64 when run in GPGX), and without it the run ends after Digniti
-  KTV instead of going on to The Vault, Sanophix Labs, The Solarium and the ending (read from the
-  code; not run end to end).
+- In Original mode, clearing Golden Of Seas fails to save Pang's KTV Member Card 117 times in 256
+  (worked out from the game's random table; 30 of 64 when run in GPGX), although Pang still hands it
+  over on screen. The bouncer at Digniti KTV lets an Original-mode run through to The Vault only with
+  the card; without it the run ends there with "THE END?". Both branches were run in GPGX at the
+  decision point: 453 of 453 without the card ended there, 421 of 421 with it went on to The Vault. The
+  fix never creates a card or opens the gate: it only stops an earned card from being dropped, and a
+  save that already lost the card needs Golden Of Seas cleared once more.
 
 Otherwise nothing changes: 216,526 frames run in lockstep with the game's flag clear and set were
 identical in every memory, on screen and in every command to the cartridge when neither moment came.
