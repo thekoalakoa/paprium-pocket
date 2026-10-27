@@ -870,3 +870,10 @@ package.
 The CPU MATE brain download is made from the game's own code, so it is not part of this
 repository and is not offered under its licence. It is useful only together with your
 own copy of the game.
+
+Paprium game content (WaterMelon IP)
+This project's GPLv3 license covers only our code. It does not include, and grants no rights to, Paprium's game ROM, code, music, graphics or other assets, which are owned by WaterMelon.
+
+Do not distribute ports, forks or modified builds of this project bundled with Paprium's ROM, decompiled game code or assets. Doing so infringes WaterMelon's copyright and is not covered by our license.
+Players must supply their own legally owned copy of the game.
+Any port or modification of our code that ships with WaterMelon content without WaterMelon's written permission is unauthorized, and we will report it.
