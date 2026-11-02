@@ -1,0 +1,6 @@
+# build products
+/build/
+__pycache__/
+*.pyc
+# machine-specific paths (toolchains, brain dir): see tools/fwbuild.py
+/paths.local.json

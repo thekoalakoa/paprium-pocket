@@ -1,12 +1,13 @@
 // pocket: paprium_snoop - passive capture of the 68000's writes into the Mega CD Word RAM window and
-// the PRG-RAM table window, queued for paprium_xram (client 1). xram stage 2 (option D).
+// the PRG-RAM table window, queued for paprium_xram (client 1). xram step 2 (the second step of our Pocket SRAM /
+// CRAM work; option D).
 // Nothing here drives the 68000 bus or DTACK, and nothing reaches SDRAM.
 //
 //   Word RAM  $600000-$61FFFF  -> SRAM bytes 0x20000-0x3FFFF (direct window, no remap; main writes
 //                                  $600000-$6110FF: objects, records, terrain, header)
 //   PRG-RAM   $420000-$421FFF  -> SRAM bytes 0x10000-0x11FFF (holds the 976 table bytes at $5F4-$723,
-//                                  $9C0-$BBF, $1C92-$1D31 of the sub program; rev-3 gate: bank 0 and
-//                                  the sub held in reset)
+//                                  $9C0-$BBF, $1C92-$1D31 of the sub program; the third version of the condition: bank
+//                                  0 and the sub held in reset)
 //
 // A 68000 word at A lands in SRAM word (base + A[16:1]) as it is: UDS -> UB# (DQ[15:8]), LDS -> LB#
 // (DQ[7:0]), the "16-bit native" order of paprium_xram, so the RV reads it with `lh`.
@@ -22,17 +23,17 @@
 //
 // en_mirror / en_prg are quasi-static levels from paprium_mcd_link (synchronised in core_top).
 //
-// buddy_s2/sys (integration): main's terrain send cursor $FF9920 (a word in 68000 work RAM, which the brain
-// reads at every call: the block main's NEXT send will overwrite) is tapped here too. md_board's cart_addr /
-// cart_lwr / cart_uwr are the 68000's address and the VDP's global write strobes for EVERY write (md_board.v:
-// cart_address = VA, cart_lwr = ~LWR, the same LWR that writes ram_68k), so a write to $FF9920 is seen exactly
-// like a Word RAM write, and goes through the same two-clock filter and FIFO into SRAM word CURSOR_W
+// The integration of the second step of our 0.2.x CPU MATE work: main's terrain send cursor $FF9920 (a
+// word in 68000 work RAM, which the brain reads at every call: the block main's NEXT send will overwrite) is tapped
+// here too. md_board's cart_addr / cart_lwr / cart_uwr are the 68000's address and the VDP's global write strobes for
+// EVERY write (md_board.v: cart_address = VA, cart_lwr = ~LWR, the same LWR that writes ram_68k), so a write to $FF9920
+// is seen exactly like a Word RAM write, and goes through the same two-clock filter and FIFO into SRAM word CURSOR_W
 // (byte 0x12000, the brain's rvmap 'curt'). Gated by en_mirror (Mega CD Mode): with the option off, nothing.
 
 module paprium_snoop #(
 	parameter [16:0] MIRROR_BASE_W = 17'h10000,  // SRAM word address of $600000 (byte 0x20000)
 	parameter [16:0] PRG_BASE_W    = 17'h08000,  // SRAM word address of $420000 (byte 0x10000)
-	parameter [16:0] CURSOR_W      = 17'h09000   // buddy_s2/sys: SRAM word of main's cursor $FF9920 (byte 0x12000)
+	parameter [16:0] CURSOR_W      = 17'h09000   // 0.2.x CPU MATE work: SRAM word of main's cursor $FF9920 (byte 0x12000)
 )(
 	input  wire        clk,                       // clk_sys_53_69
 	input  wire        reset,
@@ -57,7 +58,7 @@ module paprium_snoop #(
 
 	wire in_mirror = en_mirror & (cart_addr[23:17] == 7'b0110000);       // $600000-$61FFFF
 	wire in_prg    = en_prg    & (cart_addr[23:13] == 11'h210);          // $420000-$421FFF
-	wire in_cur    = en_mirror & (cart_addr[23:1] == 23'h7FCC90);              // $FF9920 (buddy_s2/sys)
+	wire in_cur    = en_mirror & (cart_addr[23:1] == 23'h7FCC90);              // $FF9920 (0.2.x CPU MATE work)
 	wire act       = (in_mirror | in_prg | in_cur) & (cart_lwr | cart_uwr);
 
 	reg  [2:0] we_st = 3'b000;

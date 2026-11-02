@@ -7,7 +7,7 @@
 # against the shipping build - cmdlog starts at ~98% before any instrumentation is
 # added, so shipping's free ALMs are not diagnostic budget. That comparison is only
 # possible if the numbers survive, and Quartus overwrites its reports every build.
-# This has already cost one wasted round: Probe B was judged against shipping,
+# This has already cost one wasted build: Probe B was judged against shipping,
 # installed, and broke at boot.
 set -euo pipefail
 D="$(cd "$(dirname "$0")/.." && pwd)"

@@ -1,10 +1,13 @@
+# Copyright (C) 2026 Marsupial Solutions LLC
+# SPDX-License-Identifier: GPL-3.0-or-later
 """The Scum! patch table - every word the cartridge substitutes on a ROM read when a
 Scum! switch is on - and the generator for its case table in
 rtl/PAPRIUM/paprium_scum.sv.
 
     python scripts/scum_table.py --write     regenerate the table in paprium_scum.sv (needs no ROM)
-    python scripts/scum_table.py --check     check your ROM: the patch sites, the caves' space and
-                                             the stage word are what this table was made for
+    python scripts/scum_table.py --check     check your ROM: the patch sites, the cave's space,
+                                             the flip point and the stage word are what this
+                                             table was made for
     python scripts/scum_table.py --rom OUT   write a statically patched COPY for an emulator test
                                              (all switches on); local only
 
@@ -20,9 +23,24 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paprium_data
 
-HEALTH_CAVE = 0x0BF000      # zero padding before the 0x0C0000 animation container (scum_health_cave.s)
-PAD_CAVE = 0x11C560
+# The health cave lives in the zero padding before the 0x0C0000 animation container, which
+# the game never reads (measured on GPGX routes, docs/SCUM.md). Nothing may go in
+# 0x11C560-0x11C75F: that block is the Hall of Fame name-entry bar's tile data, which the
+# game copies with a VDP DMA, and the core substitutes DMA reads too (the 0.2.6 known issue).
+# 0.3.0 synth step: Arcade Mode is a virtual Grand Stick III in port 1 (paprium_pads /
+# paprium_gs3), and the game runs its own arcade code from the stick's switches and coin.
+# So the arcade nops (0x0B5AB8, 0x0B5ACC), the Multiplayer nop (0x0B5B1A), the pad hook
+# (0x0B2392), the pad cave (0x0BF040) and its registers (0x0BF0C0), and the coin stub
+# (0x0BF100) are gone, and scripts/scum_pad_cave.s with them: 122 words became 32
+HEALTH_CAVE = 0x0BF000      # scum_health_cave.s
 STAGE_WORD = 0x0B0A14       # arcade start stage (krikzz), 0x0001 = Block 888
+# The flip point: the pad read's last instruction (movem.l -$c(a6),d2/a2-a3 at 0x0B238C;
+# before the hook, while there was one). paprium_scum takes a new set of switches only on a
+# served read of this word, where no cave can be running: the health cave is a leaf and the
+# VBlank handlers are leaves. So a switch change can never land inside a patched instruction
+# or inside a cave, even when the Pocket menu froze the 68000 in one
+FLIP_POINT = 0x0B238C
+HOF_BAR = (0x11C560, 0x11C760)
 
 # players take no damage: the jsr replaces the two instructions of the damage-vs-health
 # decision; the cave zeroes d3 (the damage) for object slots 1..[$FF9903]-1 (objects are
@@ -45,29 +63,13 @@ HEALTH_CAVE_CODE = [
     0x4E75,                     # rts
 ]
 
-# pad hook: Pezz V.06's injection into the game's pad words, in the game's own bit
-# order (Z=bit 8, Y=9, X=10, Mode=11); then adroxe's Mode-press credit in Arcade Mode.
-# The cave also has a one-pad CPU MATE join on flags bit 1, which 0.2.6 holds at 0
-PAD_CAVE_CODE = [   # assembled from scripts/scum_pad_cave.s (vasm -m68000 -Fbin)
-    0x4E5E, 0x3039, 0x0011, 0xC604, 0x8179, 0x00FF, 0x7028, 0x3039,
-    0x0011, 0xC608, 0x8179, 0x00FF, 0x702A, 0x3039, 0x0011, 0xC606,
-    0x8179, 0x00FF, 0x7038, 0x3039, 0x0011, 0xC60A, 0x8179, 0x00FF,
-    0x703A, 0x0839, 0x0000, 0x0011, 0xC601, 0x6712, 0x3039, 0x00FF,
-    0x702A, 0x0240, 0x0800, 0x6706, 0x4EB9, 0x000B, 0x5960, 0x0839,
-    0x0001, 0x0011, 0xC601, 0x6724, 0x3039, 0x00FF, 0x702A, 0x0240,
-    0x0800, 0x6718, 0x4A79, 0x00FF, 0x8810, 0x6610, 0x0079, 0x0080,
-    0x00FF, 0x7038, 0x0079, 0x0080, 0x00FF, 0x703A, 0x4E75,
-]
-
-
 def _seq(base, words):
     return [(base + 2 * i, w) for i, w in enumerate(words)]
 
 
-# (group, note, [(address, word)]). The RTL enables each group from its switch;
-# G_HOOK is on with Arcade Mode or 6-Button
+# (group, note, [(address, word)]). The RTL enables each group from its switch
 GROUPS = [
-    ('G_HEALTH', 'players take no damage (jsr to the slot test); specials cost no health',
+    ('G_HEALTH', "players take no damage (jsr to the slot test); a player's throws do no damage to enemies (two nops)",
      _seq(0x02FAC4, [0x4EB9, HEALTH_CAVE >> 16, HEALTH_CAVE & 0xFFFF]) +
      _seq(0x030E8A, [0x4E71, 0x4E71]) +
      _seq(HEALTH_CAVE, HEALTH_CAVE_CODE)),
@@ -75,22 +77,18 @@ GROUPS = [
      _seq(0x01A9FA, [0x4E71, 0x4E71])),
     ('G_LIVES', 'lives are never spent: the decrement becomes nop',
      _seq(0x02A4EE, [0x4E71])),
-    ('G_ARCADE', 'arcade mode (adroxe): the two branches that skip the 0x810F arcade command become nop',
-     _seq(0x0B5AB8, [0x4E71]) + _seq(0x0B5ACC, [0x4E71])),
-    ('G_HOOK', 'pad hook: 0x0B2392 jmp to the pad cave at 0x11C560',
-     _seq(0x0B2392, [0x4EF9, PAD_CAVE >> 16, PAD_CAVE & 0xFFFF]) +
-     _seq(PAD_CAVE, PAD_CAVE_CODE)),
+    # no arcade, Multiplayer or pad-hook group: the synth step's Grand Stick III (above)
     # no CPU MATE group: the partner runs on the cartridge MCU (docs/SCUM.md)
 ]
-REGS = [('arcade_w', 0x11C600), ('p1_held_w', 0x11C604), ('p2_held_w', 0x11C606),
-        ('p1_press_w', 0x11C608), ('p2_press_w', 0x11C60A)]
-# The pad cave and its registers sit in 512 bytes of 0xFF. They are not free space: they are
-# the Hall of Fame name-entry bar's tile data, which the game copies with a VDP DMA, and the
-# substitution covers DMA reads (the 0.2.6 known issue, docs/SCUM.md)
-PAD_BLOCK = (0x11C560, 0x11C760)
+# the zero padding the cave space must be (checked word by word)
 HEALTH_BLOCK = (HEALTH_CAVE, HEALTH_CAVE + 2 * len(HEALTH_CAVE_CODE))
-# SHA-256 of the original words at every patch site outside the two caves, in table order
-SITES_SHA256 = '3a0c884f04f80c54ce963ab4c377ea98ccd03594ef1c2c1dd1f203238e8485fe'
+# SHA-256 of the original words at every patch site outside the cave, in table order
+# (since the 0.3.0 synth step: the eight words at 0x02FAC4, 0x030E8A, 0x01A9FA, 0x02A4EE; the digest of test build 4,
+# the 0.3.0 hardware test build of the MCU fast path, covered
+# its 14 words, these eight + the arcade, Multiplayer and hook sites)
+SITES_SHA256 = 'c34466859043a650a8a4a76f4c20b9483e900221b03a87f1961cec1c5a07138a'
+# SHA-256 of the original words of the flip-point instruction (three words at FLIP_POINT)
+FLIP_SHA256 = 'fa2d669c7ce2fd0f655ca98d46d383f0443b12c5dc1be90542a28e353f5ba75a'
 
 
 def _in(a, block):
@@ -99,7 +97,12 @@ def _in(a, block):
 
 def site_words(rom):
     return b''.join(rom[a:a + 2] for _, _, words in GROUPS for a, _ in words
-                    if not _in(a, PAD_BLOCK) and not _in(a, HEALTH_BLOCK))
+                    if not _in(a, HEALTH_BLOCK))
+
+
+def scum_words():
+    """Every address the RTL answers for (patch words and the stage word)."""
+    return [a for _, _, words in GROUPS for a, _ in words] + [STAGE_WORD]
 
 
 def check(rom):
@@ -108,16 +111,21 @@ def check(rom):
         for a, _ in words:
             assert a % 2 == 0 and a not in seen, hex(a)
             seen.add(a)
-            if _in(a, PAD_BLOCK):
-                assert rom[a:a + 2] == b'\xff\xff', 'pad cave word 0x%06X is not 0xFFFF' % a
-            if _in(a, HEALTH_BLOCK):
-                assert rom[a:a + 2] == b'\x00\x00', 'health cave word 0x%06X is not zero padding' % a
-    for _, a in REGS:
-        assert rom[a:a + 2] == b'\xff\xff' and a not in seen, hex(a)
+    assert STAGE_WORD not in seen and FLIP_POINT not in seen
+    # the Hall of Fame bar tiles: never again
+    bad = [a for a in scum_words() + [FLIP_POINT] if _in(a, HOF_BAR)]
+    assert not bad, 'Scum! word(s) inside the Hall of Fame bar tiles 0x11C560-0x11C75F: ' + \
+        ' '.join('0x%06X' % a for a in bad)
+    # every word the cave takes over must be zero padding
+    for a in seen:
+        if _in(a, HEALTH_BLOCK):
+            assert rom[a:a + 2] == b'\x00\x00', 'cave word 0x%06X is not zero padding' % a
     assert rom[STAGE_WORD:STAGE_WORD + 2] == b'\x00\x01', 'stage word'
     assert hashlib.sha256(site_words(rom)).hexdigest() == SITES_SHA256, \
         'the patch sites do not hold the words this table was made for: a different ROM revision?'
-    return len(seen) + len(REGS) + 1
+    assert hashlib.sha256(rom[FLIP_POINT:FLIP_POINT + 6]).hexdigest() == FLIP_SHA256, \
+        'the flip point is not the pad read\'s last instruction before the hook'
+    return len(seen) + 1
 
 
 def table():
@@ -127,17 +135,16 @@ def table():
         for a, w in words:
             out.append("\t\t24'h%06X: begin g = %-9s w = 16'h%04X; end   // 0x%06X"
                        % (a >> 1, g + ';', w, a))
-    out.append('\t\t// registers the pad cave reads (also inside the Hall of Fame bar tiles)')
-    for sig, a in REGS:
-        out.append("\t\t24'h%06X: begin g = G_REG;    w = %s; end   // 0x%06X" % (a >> 1, sig, a))
     out.append('\t\t// arcade start stage (krikzz): 0x0001 = Block 888')
     out.append("\t\t24'h%06X: begin g = G_STAGE;  w = {8'h00, stage_byte}; end   // 0x%06X"
                % (STAGE_WORD >> 1, STAGE_WORD))
+    out.append('\t\t// the flip point (never substituted): new switches are taken on a served read here')
+    out.append("\t\t24'h%06X: begin g = G_FLIP;   w = 16'h0000; end   // 0x%06X" % (FLIP_POINT >> 1, FLIP_POINT))
     return '\n'.join(out) + '\n'
 
 
 def main():
-    n = sum(len(words) for _, _, words in GROUPS) + len(REGS) + 1
+    n = sum(len(words) for _, _, words in GROUPS) + 1
     if '--write' in sys.argv:
         p = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rtl', 'PAPRIUM',
                          'paprium_scum.sv')
@@ -145,7 +152,7 @@ def main():
         i = s.index('\n', s.index('// @@scum-table-begin')) + 1
         j = s.index('\t\t// @@scum-table-end')
         open(p, 'w', newline='\n').write(s[:i] + table() + s[j:])
-        print('wrote %d words into %s' % (n, os.path.normpath(p)))
+        print('wrote %d words and the flip point into %s' % (n, os.path.normpath(p)))
         return
     rom = open(paprium_data.rom_path(), 'rb').read()
     check(rom)
@@ -156,9 +163,10 @@ def main():
             for a, w in words:
                 r[a:a + 2] = w.to_bytes(2, 'big')
         open(out, 'wb').write(r)
-        print('static all-on copy (registers left 0xFFFF) ->', out)
+        print('static all-on copy (registers left zero) ->', out)
     else:
-        print('ok: %d words; the patch sites, the caves and the stage word match this table' % n)
+        print('ok: %d words; the patch sites, the cave, the flip point and the stage word match this table; '
+              'nothing in the Hall of Fame bar tiles' % n)
 
 
 if __name__ == '__main__':

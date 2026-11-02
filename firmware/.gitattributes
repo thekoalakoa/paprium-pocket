@@ -1,0 +1,3 @@
+# Keep every byte as committed: the 0.2.6 sources mix CRLF and LF, and the milestone-1 images are byte-identical only
+# if nothing converts line ends.
+* -text

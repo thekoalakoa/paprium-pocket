@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Decode paprium_vdplog.bin - the GPGX VDP control-write census.
 
-Written for the FX68K soak (ISA lane, 2026-09-07). The question it exists to
+Written for the FX68K soak (our testing and debugging of the builds that use the FX68K 68000 core; its CPU-timing side,
+2026-09-07). The question it exists to
 answer: does VDP register $8B (scroll mode) actually churn mid-frame, or is it
 written once per scene with a constant value? If it is constant, then the
-DTACK->w213 latency the +14 campaign has been optimising cannot move the
+DTACK->w213 latency that the "+14" tuning has been optimising cannot move the
 picture, because latching a constant late is invisible.
 
 Secondary: $8C carries RS0/RS1, which decide H32 vs H40. The sim harness needs
 that to be told which mode the failing scenes actually run in.
 
 Record layout (8 bytes, little-endian), written by ppm_vdplog() in
-gpgx-build/core/vdp_ctrl.c:
+GPGX's core/vdp_ctrl.c:
     [0]   reg    bit7 = 1 -> Z80-issued write; bits 4..0 = register number
     [1]   value
     [2:4] hpos   cycles modulo MCYCLES_PER_LINE (3420)

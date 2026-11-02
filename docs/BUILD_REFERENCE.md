@@ -64,6 +64,16 @@ right, because the global switch cannot reach the wide instances. Finish it ther
 seed spread on this tree is 1.19 ns, and the doc's own rule is to re-seed before
 concluding a change cost timing. It passes the gate either way.
 
+## 0.3.0: the fit gate
+
+The 0.3.0 work was done in numbered stages; stage 1 gave the cart MCU the new firmware's own start-up, scheduler,
+dispatcher and board layer.
+Every seed of a stage-1 fit goes through `scripts/gate/run_gate.sh` (how to run it, what it checks and how it was
+proven: `scripts/gate/README.md`): the slack gate below plus the crossing re-check, the class envelope against the
+shipped 0.2.6 seed 2, the dot-clock crossing (vidsta), the stage-1 STA query list and the SDRAM pins (fit.rpt packing,
+pad budgets, and the limits on the worst register-to-pad delay and on the SDRAM pins' setup at the fast corner). A
+seed that fails any of them is rejected even when it passes the slack line.
+
 ## Install rule
 
 **Hard:**
@@ -122,7 +132,9 @@ comparison", which reads like confirmation and is not. Quartus reads
     cp build_output/mcu/mcu.txt rtl/PAPRIUM/mcu.txt      # or the build is a no-op
 
 (Since fixed: `build_mcu.sh` installs what it builds, and since 0.2.6 that is four
-images, `mcu.txt`, `mcu_ext.txt`, `wram_hi.txt` and `wram_lo.txt`; see
+images, `mcu.txt`, `mcu_ext.txt`, `wram_hi.txt` and `wram_lo.txt`, and since test build 4 (a 0.3.0 build B Jam tested on his own
+Pocket) six, the WRAM as the four
+lanes `wram_b0.txt` .. `wram_b3.txt`; see
 docs/firmware/README.md. The two-condition gate below still applies.)
 
 This cost a whole 25-minute fit, and the failure is invisible to the timing gate:
@@ -180,8 +192,8 @@ number that happened to land on the right side. It booted; that is evidence abou
 the region where a build is known to work rather than inside the region where we
 had never looked.
 
-Seed 2 was installed deliberately, against the gate and against the reviewer's
-advice, as a listen test - the reasoning being that "does the fix work" and "can we
+Seed 2 was installed deliberately, against the gate and against the advice given at
+the time, as a listen test - the reasoning being that "does the fix work" and "can we
 ship it" are separate questions. It did not boot, so it answered neither. The gate
 was right and the shortcut bought nothing.
 
@@ -337,7 +349,7 @@ shift-register lines are a separate mechanism and only affect `ALTSHIFT_TAPS` in
 Cost: **+50 to +90 ALM** if all seven go back to flops, near zero if the three non-CDC
 instances are retargeted to MLAB instead. Against ~2,133 free either is noise.
 
-**Gate it normally: fit, STA, title gate, then card.** Placement will shift. Do not assume
+**Gate it normally: fit, STA, title gate, then a hardware test build.** Placement will shift. Do not assume
 the freed M10K buys slack - the `nosfx` section above measured 1,600 ALM and 40 M10K freed
 with setup getting *worse*.
 

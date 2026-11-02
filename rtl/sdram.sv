@@ -17,8 +17,14 @@
 // You should have received a copy of the GNU General Public License 
 // along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 //
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 module sdram
+// paprium: the controller's clock in Hz (this core runs it on clk_md, VCO/6). The refresh compares below come from
+// it, so a PAL build (VCO/6 = 106,406,848 Hz) keeps the same refresh time. cartridge.sv passes core_top's value.
+// 0.3.0 new core rule (scripts/clkcheck.py rule R4): the default is 0 = unset and every instance sets it; see
+// clk_md_hz_check below
+#(parameter integer CLK_MD_HZ = 0)
 (
 
 	// interface to the MT48LC16M16 chip
@@ -60,7 +66,11 @@ module sdram
 	input      [15:0] din2,
 	output     [15:0] dout2,
 	input             req2,
-	output reg        ack2
+	output reg        ack2,
+
+	// paprium: a VDP DMA read slot has opened (core_top's cart_dma, the VDP's l6 | l8, one clk register in
+	// cartridge.sv); its port-1 read follows. 0 in the builds without Paprium
+	input             hold1
 );
 
 assign SDRAM_nCS = 0;
@@ -131,6 +141,32 @@ reg  [7:0] starve2 = 0;
 wire       port2_pending = (ack2 != req2);
 wire       boost2 = port2_pending && (starve2 >= STARVE2_LIMIT);
 
+// paprium: refresh interval and the port-1 yield.
+//
+// The chip needs 8,192 auto refreshes every 64 ms, one per 7.8125 us at most. With no traffic a refresh is granted
+// RFS_TOP + 2 ticks after the previous one (the compare tick, then the IDLE grant), so RFS_TOP = the 7.8125 us tick
+// count - 2: 836 at NTSC (838 ticks = 7.804 us), 829 at PAL (831 ticks = 7.810 us). Upstream's 850 gave 852 ticks
+// = 7.934 us, 1.6 % over. RFS_HALF arms the early refresh that rides on the next access (upstream's 425).
+//
+// The yield: the early refresh (RFS_HALF, carried in rfs from a grant) used to go first at IDLE even with a port-1
+// read waiting. When a port-2 (MCU) access was in flight as a VDP DMA cart read arrived, the read then waited for
+// the access AND a refresh and missed its 13-tick deadline: the VDP took the previous word again (4 pixels of a
+// tile row repeated). Now only the top refresh (rfs_top, set at RFS_TOP) is mandatory; an early one waits while
+// port 1 is pending and port 2 is not boosted, and port 0/1 grants keep it pending (rfs <= rfs2 | rfs) so it runs
+// at the next free IDLE. Port 1's worst case is then 13 ticks (one access in flight plus its own), and no refresh
+// interval exceeds RFS_TOP + 2 + one access in flight. Not covered: a boost2 grant ahead of a waiting port 1.
+localparam integer RFS_IV    = CLK_MD_HZ / 128000;   // ticks in 7.8125 us (64 ms / 8,192), rounded down
+localparam integer RFS_TOP_I = RFS_IV - 2;            // rfs_cnt is 10 bits: fine up to a 131 MHz clock
+localparam   [9:0] RFS_TOP   = RFS_TOP_I[9:0];
+localparam   [9:0] RFS_HALF  = RFS_TOP / 2;
+
+// pocket: 0.3.0 new core - an unset (0) or out-of-range CLK_MD_HZ stops elaboration in every tool: the instance below
+// names a module that does not exist. Unchecked, 0 would still build (RFS_TOP = 1022, about 9.5 us between refreshes at
+// NTSC, over the chip's 7.8125 us), and so would a clock too fast for the 10-bit rfs_cnt
+generate if (CLK_MD_HZ <= 0 || RFS_TOP_I < 2 || RFS_TOP_I > 1023) begin : clk_md_hz_check
+	sdram_CLK_MD_HZ_is_unset_or_out_of_range clk_md_hz_bad();
+end endgenerate
+
 reg [15:0] dout;
 
 
@@ -139,18 +175,56 @@ assign dout1 = dout;
 assign dout2 = dout;
 
 
+// paprium: the DMA hold (the new core's VDP DMA fix). A VDP DMA cart read is not waited for (no DTACK): the VDP's FIFO
+// latch closes at a fixed tick of its strobe (CAS0, 16-20 ticks), and the full-system co-sim (2026-10-14) measured that
+// a word whose cart_data changes 13 or 14 ticks after the strobe starts is lost - the VDP stores the previous word
+// again, 4 pixels of a tile row - while one that changes by 10 is kept. Port 1 is granted on the second edge after the
+// strobe starts and cart_data changes 9 ticks after it, so any access already running when the request arrives costs up
+// to 6 ticks of that margin: the yield above stops a refresh chaining behind such an access, not the access itself.
+// Measured on the WaterMelon logo: a port-2 MCU read (the SFX feeder) or a refresh granted 0-4 ticks before the strobe.
+// The VDP announces every DMA slot: cart_dma (md_board's vdp_dma, the VDP's l6 | l8) rises 7 or 9 ticks before CAS0
+// and falls with it. hold1 is cart_dma one register later (cartridge.sv), so hold_start's edge is 5 (or 7) ticks
+// before the strobe and 7 (9) before port 1's grant edge. From that edge until port 1 is granted, or HOLD_MAX edges
+// for a slot that reads work RAM and never requests port 1, nothing else is granted: no refresh (top or early), no
+// port 0, no port 2 (boosted or not), and port 1 ignores boost2. An access granted on the edge before hold_start ends
+// on the strobe's own edge, so the read is granted on time and cart_data changes 9 ticks into the strobe, every
+// time. With cart_dma low (the 68000's reads, every non-Paprium build) the arbitration is the same as before, clock
+// for clock. Costs: another port waits up to HOLD_MAX + 1 + 7 ticks per DMA slot (slots are >= 32 ticks apart), and a
+// refresh due inside a hold waits for it (bench: longest interval 838-840 -> 855 ticks, only where the top refresh of
+// an idle SDRAM meets a DMA slot; DMA traffic itself carries the early refresh every ~430-480 ticks)
+localparam [3:0] HOLD_MAX = 4'd15;
+reg        hold1_d = 1'b0;
+reg        hold_on = 1'b0;
+reg  [3:0] hold_n  = 4'd0;
+wire       hold_start = hold1 & ~hold1_d;
+wire       hold = hold_start | hold_on;
+
+always @(posedge clk) begin
+	hold1_d <= hold1;
+	if (hold_start) begin
+		hold_on <= 1'b1;
+		hold_n  <= 4'd0;
+	end
+	else if (hold_on) begin
+		hold_n <= hold_n + 1'd1;
+		// released on the edge after port 1's grant (state START with ram_req[1]), or by the cap
+		if ((state == STATE_START && ram_req[1]) || hold_n == HOLD_MAX) hold_on <= 1'b0;
+	end
+end
+
 // access manager
 always @(posedge clk) begin
 	reg [9:0] rfs_cnt;
-	reg rfs, rfs2;
+	reg rfs, rfs2, rfs_top;
 	
 	rfs_cnt <= rfs_cnt + 1'd1;
-	if (rfs_cnt == 850) begin
+	if (rfs_cnt == RFS_TOP) begin
 		rfs <= 1;
+		rfs_top <= 1;   // paprium: the top refresh never yields
 		rfs_cnt <= 0;
 	end
 
-	if (rfs_cnt == 425) rfs2 <= 1;
+	if (rfs_cnt == RFS_HALF) rfs2 <= 1;
 
 	// Track how long port2 (MCU) has been waiting unserved.
 	if (port2_pending) begin
@@ -159,36 +233,37 @@ always @(posedge clk) begin
 		starve2 <= 0;
 
 	if(state == STATE_IDLE && mode == MODE_NORMAL) begin
-		if (rfs) begin
+		if (rfs && !hold && (rfs_top || !(ack1 != req1 && !boost2))) begin   // paprium: an early refresh yields to a waiting port 1; nothing goes during a DMA hold
 			rfs <= 0;
 			rfs2 <= 0;
+			rfs_top <= 0;
 			rfs_cnt <= 0;
 			we <= 0;
 			dqm <= 2'b00;
 			active <= 0;
 			state <= STATE_START;
 		end
-		else if (ack0 != req0 && !boost2) begin
+		else if (ack0 != req0 && !boost2 && !hold) begin   // paprium: not during a DMA hold
 			{ba,a} <= addr0;
 			data <= din0;
 			we <= wr[0];
 			dqm <= wr[0] ? ~{wrh0,wrl0} : 2'b00;
 			active <= 1;
 			ram_req[0] <= 1;
-			rfs <= rfs2;
+			rfs <= rfs2 | rfs;   // paprium: a yielded refresh stays pending
 			state <= STATE_START;
 		end
-		else if (ack1 != req1 && !boost2) begin
+		else if (ack1 != req1 && (!boost2 || hold)) begin   // paprium: a DMA read is not overtaken by a boosted port 2
 			{ba,a} <= addr1;
 			data <= din1;
 			we <= wr[1];
 			dqm <= wr[1] ? ~{wrh1,wrl1} : 2'b00;
 			active <= 1;
 			ram_req[1] <= 1;
-			rfs <= rfs2;
+			rfs <= rfs2 | rfs;   // paprium: a yielded refresh stays pending
 			state <= STATE_START;
 		end
-		else if (ack2 != req2) begin
+		else if (ack2 != req2 && !hold) begin   // paprium: not during a DMA hold
 			{ba,a} <= addr2;
 			data <= din2;
 			we <= wr[2];

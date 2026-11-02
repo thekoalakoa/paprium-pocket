@@ -11,7 +11,7 @@ firmware-observable thing left in the stream path.
 
 ## Layout
 
-In the snapshot arena (the 1024 bytes reclaimed from the unused object-table dump),
+In the snapshot arena (the 1024 bytes reclaimed from the unused object-table record),
 at `SNAP_OFF_ARENA = 8 + 640` within the save window.
 
     records, 16 bytes x 48, at arena + 0:
@@ -82,4 +82,4 @@ Same algorithm over `decoder_ram[dst .. dst+len)` and a fence over
 |---|---|
 | CRCs match | The payload is byte-correct. #8 leaves the stream path; next is 68000 -> VDP DMA and the name table |
 | CRCs differ | The unpack is wrong. Still firmware, and the decompressor is the suspect |
-| Rows of zeros | Print them. A suppressed zero has hidden a finding in this project before - `dst = 0` was the answer to the previous card |
+| Rows of zeros | Print them. A suppressed zero has hidden a finding in this project before - `dst = 0` was the answer to the previous hardware test build |

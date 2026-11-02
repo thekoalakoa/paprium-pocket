@@ -18,7 +18,7 @@ Reports, per channel, for the chosen window:
 
 Usage:
   python scripts/capture_tone.py [--start S] [--dur D] [--top N] FILE...
-  python scripts/capture_tone.py --start 0 --dur 3 "og hardware music tests"/*.mkv
+  python scripts/capture_tone.py --start 0 --dur 3 CAPTURE_FOLDER/*.mkv
 """
 
 import argparse

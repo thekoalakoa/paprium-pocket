@@ -46,6 +46,7 @@
 -- # ********************************************************************************************* #
 -- # The NEORV32 Processor - https://github.com/stnolting/neorv32              (c) Stephan Nolting #
 -- #################################################################################################
+-- Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -184,7 +185,7 @@ begin
           ctrl.rd_req <= '0';
           ctrl.wr_req <= '0';
           -- buffer all outgoing signals --
-          ctrl.we   <= wren_i;
+          ctrl.we   <= wren_i or ctrl.wr_req; -- changed in 0.3.0: a buffered write stays a write
           ctrl.adr  <= addr_i;
           ctrl.wdat <= data_i;
           ctrl.sel  <= ben_i;
@@ -211,8 +212,8 @@ begin
 
         when CANCELED => -- wait for cycle to be completed either by peripheral or by timeout (ignore result of transfer)
         -- ------------------------------------------------------------
-          ctrl.wr_req <= ctrl.wr_req or wren_i; -- buffer new request
-          ctrl.rd_req <= ctrl.rd_req or rden_i; -- buffer new request
+          ctrl.wr_req <= ctrl.wr_req or (wren_i and xbus_access); -- buffer new request (changed in 0.3.0: external accesses only)
+          ctrl.rd_req <= ctrl.rd_req or (rden_i and xbus_access); -- buffer new request (changed in 0.3.0: external accesses only)
           -- wait for bus.peripheral to ACK transfer (as "aborted" but still somehow "completed")
           -- or wait for a timeout and force termination
           ctrl.timeout <= std_ulogic_vector(unsigned(ctrl.timeout) - 1); -- timeout counter
@@ -222,6 +223,8 @@ begin
 
         when RESYNC => -- make sure transfer is done!
         -- ------------------------------------------------------------
+          ctrl.wr_req <= ctrl.wr_req or (wren_i and xbus_access); -- changed in 0.3.0: a request in RESYNC is kept
+          ctrl.rd_req <= ctrl.rd_req or (rden_i and xbus_access); -- changed in 0.3.0: a request in RESYNC is kept
           if (wb_ack_i = '0') then
             ctrl.state <= IDLE;
           end if;

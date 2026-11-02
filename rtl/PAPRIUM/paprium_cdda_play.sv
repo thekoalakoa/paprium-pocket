@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Marsupial Solutions LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 // ---------------------------------------------------------------------------
 // Paprium CDDA player - the consumer half of the background-music path.
 //
@@ -12,6 +14,13 @@
 //     which works out at ~2808 clocks per step.
 //   - the ~50 ms track-start mute that hides the initial buffer fill.
 //
+// pocket: 0.3.0 new core (the clock-following change) - the three counts follow the clock parameter
+// CLK_HZ (core_top) instead of NTSC literals. At NTSC the divider (compare
+// CLK_HZ/48000 = 1118, period 1119) and the fade step (CLK_HZ/19125 rounded up
+// = 2808) are the same numbers as before; the mute becomes CLK_HZ/20 =
+// 2,684,658 clocks instead of 2,685,000 (6 us shorter). PAL: 1108 (47,974 Hz),
+// 2782, 2,660,171.
+//
 // What is NOT ported is the memory side. MiSTer reads a 64 KB ring buffer in
 // DDR3 through a burst master, and buffers that behind a 256-sample M10K FIFO
 // to smooth DDR3 latency. Here the ring buffer already IS block RAM
@@ -25,6 +34,8 @@
 // ---------------------------------------------------------------------------
 
 module paprium_cdda_play #(
+	// clk's frequency in Hz (core_top's CLK_HZ). 0 = not set: refused below.
+	parameter integer CLK_HZ = 0,
 	// Ring size in 32-bit stereo samples. Must be a power of two.
 	parameter RING_SAMPLES = 4096,         // 16 KB = ~85 ms at 48 kHz
 	// Derived. Declared here rather than as a localparam in the body because
@@ -61,6 +72,21 @@ module paprium_cdda_play #(
 );
 
 
+	// ---- clock-derived counts (the clock-following change) ----
+	localparam integer SAMPLE_CMP_I = CLK_HZ / 48000;                       // period SAMPLE_CMP + 1 clocks
+	localparam integer MUTE_CLKS_I  = CLK_HZ / 20;                          // 50 ms
+	localparam integer FADE_CLKS_I  = (CLK_HZ + 75 * 255 - 1) / (75 * 255); // per sector: 1 / (75 x 255) s, rounded up
+	localparam [10:0] SAMPLE_CMP = SAMPLE_CMP_I[10:0];
+	localparam [21:0] MUTE_CLKS  = MUTE_CLKS_I[21:0];
+	localparam [19:0] FADE_CLKS  = FADE_CLKS_I[19:0];
+
+	// synthesis translate_off
+	initial begin
+		if (CLK_HZ <= 0 || SAMPLE_CMP_I > 11'h7FF || MUTE_CLKS_I > 22'h3FFFFF || 255 * FADE_CLKS_I > 20'hFFFFF)
+			$fatal(1, "paprium_cdda_play: CLK_HZ = %0d is unset or too large for the counters", CLK_HZ);
+	end
+	// synthesis translate_on
+
 	// ---- pause state ----
 	reg paused;
 	always @(posedge clk) begin
@@ -82,7 +108,7 @@ module paprium_cdda_play #(
 		if (reset)
 			mute_ctr <= 0;
 		else if (track_start)
-			mute_ctr <= 22'd2685000;
+			mute_ctr <= MUTE_CLKS;
 		else if (mute_ctr > 0)
 			mute_ctr <= mute_ctr - 1'd1;
 	end
@@ -109,7 +135,7 @@ module paprium_cdda_play #(
 			end
 			else begin
 				fading     <= 1;
-				fade_step  <= {12'd0, fade_sectors} * 20'd2808;
+				fade_step  <= {12'd0, fade_sectors} * FADE_CLKS;
 				fade_timer <= 0;
 			end
 		end
@@ -135,7 +161,7 @@ module paprium_cdda_play #(
 		sample_tick <= 0;
 		if (reset)
 			sample_div <= 0;
-		else if (sample_div >= 11'd1118) begin
+		else if (sample_div >= SAMPLE_CMP) begin
 			sample_div  <= 0;
 			sample_tick <= 1;
 		end

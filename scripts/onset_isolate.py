@@ -34,16 +34,18 @@ Derived from a commercial ROM: keep the output local.
 """
 
 import sys, subprocess, numpy as np
-sys.path.insert(0,"<HOME>/Downloads/PAPRIUM project/paprium-pocket/scripts")
+import os
+sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import voice_notes, mwmm
 from scipy.signal import butter, sosfiltfilt
 from scipy.stats import mannwhitneyu
-SP="<HOME>/AppData/Local/Temp/claude/<PROJECT>/<SESSION>/scratchpad"
-CAP="<HOME>/Downloads/captures master/captures/og hardware music tests/16 Dark Rock.mkv"
+# Usage: python scripts/onset_isolate.py <music modules folder> <your own capture of the track>
+MODS=sys.argv[1]
+CAP=sys.argv[2]
 SR=48000; LAG=1.48; G=0.060; HALF=0.035
 x=np.frombuffer(subprocess.run(["ffmpeg","-v","error","-t","240","-i",CAP,"-ac","1","-ar",str(SR),"-f","f32le","-"],
                 capture_output=True).stdout,dtype=np.float32).astype(float)
-MOD={m.n:m for m in mwmm.load_all(SP+"/music-modules")}[22]
+MOD={m.n:m for m in mwmm.load_all(MODS)}[22]
 tl,_=voice_notes.timeline(MOD,list(range(26)),2)
 SAX={23,24,25}
 ev=[(t,v,pg) for (t,v,pg,b0,b1) in tl if b0 and b0!=0x0E and v not in SAX and t<225]

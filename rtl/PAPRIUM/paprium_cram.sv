@@ -1,7 +1,18 @@
+// Copyright (C) 2026 Marsupial Solutions LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 // pocket: paprium_cram - one die of the Pocket's cellular PSRAM (cram0, CE0#) in asynchronous
 // mode, for the CDDA ring (port A), the SFX echo line (port E), a spare stream-read port
 // (port C, reserved, tied off) and the MCU window 0x09000000-0x093FFFFF (port B). xram
-// stage 1 + echo line.
+// step 1 (the first step of our Pocket SRAM / CRAM work) + echo line.
+// pocket: 0.3.0 synth step (for the synth's CRAM clients, paprium_synth_cram, in the synth's first version; the
+// firmware's docs/MCU_INTERFACE.md v1.3 section 3.8) - port A is the sound-cache slot's (from test build 4a on, the
+// first 0.3.0 hardware test build of the sound cache); port C is the synth's stream reads (wave samples, SFX words, the
+// curve: paprium_synth_cram); port E takes a die word address and a pair / single flag instead of a 13-bit slot at a
+// fixed base, so the synth reaches its echo rings (pairs) and dac_buf (single halves) at the frozen die-0 map inside
+// the MCU window, and it reports when its write and read registers are free (e_wbusy / e_rbusy). A pair is the word
+// pair addr (bits 15:0), addr | 1 (bits
+// 31:16), addr even. Test build 4 / 4a's echo line (audio_sfx) maps its slot s to the pair {8'h84, s, 1'b0} (core_top),
+// which is exactly the old E_BASE_W 0x210000 + 2s: the same operations in the same order on every clock.
 //
 // Part (Analogue developer docs and the AS1C8M16PL datasheet Rev 1.0): AS1C8M16PL-70BIN, 16 MB =
 // two 4M x 16 dies wired in parallel except CE0#/CE1#, 1.8 V, address/data multiplexed (A[21:16]
@@ -13,8 +24,9 @@
 // Die-0 word map:
 //   0x000000-0x1FFFFF  port B window (MCU) and port C (reserved)
 //   0x200000-0x201FFF  CDDA ring, 16 KB (paprium_cdda_buf_cram RING_BASE_W)
-//   0x210000-0x213E7F  SFX echo line, 8,000 slots x 32 bit (port E, E_BASE_W): slot s is the
-//                      word pair E_BASE_W + 2s (bits 15:0) and E_BASE_W + 2s + 1 (bits 31:16)
+//   0x210000-0x213E7F  SFX echo line, 8,000 slots x 32 bit (port E): slot s is the
+//                      word pair 0x210000 + 2s (bits 15:0) and 0x210000 + 2s + 1 (bits 31:16)
+//                      (synth step: the synth's rings and dac_buf are inside 0x000000-0x1FFFFF instead)
 //   0x3FFFFF           never accessed
 //
 // Initialisation (every power-on reset; the CRAM keeps power across core loads and a previous
@@ -41,9 +53,9 @@
 //   C-read   reserved, same interface as A-read (tied off).
 //   B        MCU window (level request, ack held until the request drops). The two halves of a
 //            32-bit access are NOT atomic, so a ring write never waits behind a whole B access.
-//            Request drop (buddy_s2, review finding 3): a request that drops while its operation is
-//            in the engine, or between its two halves, is abandoned (`b_drop`): the operation ends
-//            without an ack and its pending second half is never done. Before, a new request that
+//            Request drop (found in the review of the second step of our 0.2.x CPU MATE work): a request that
+//            drops while its operation is in the engine, or between its two halves, is abandoned (`b_drop`): the
+//            operation ends without an ack and its pending second half is never done. Before, a new request that
 //            came up before the engine was idle again got the dropped one's ack, or its second half
 //            on top of the dropped one's first (got {new hi, old lo}). NEORV32 1.4.8.1 drops a
 //            request only after its 127-cycle bus timeout (+ <= 31 clocks in the gateway's CANCELED
@@ -53,7 +65,7 @@
 //            absorb one operation), so the NEORV32's 127-clock bus timeout cannot be reached however
 //            busy the streams are: a 32-bit B access is bounded at ~2 x (B_AGE + 3 operations).
 //
-// Op timing (the facts probe's cycle plan, STA + datasheet-model checked). F = FSM edge, the
+// Op timing (the cycle plan from our probe build, checked with STA and the datasheet model). F = FSM edge, the
 // pins follow one edge later (E0 = F1):
 //   read : E0 CE#=0 ADV#=0 A[21:16] + A/DQ = address, UB#=LB#=0; E1 ADV#=1; E2 A/DQ released;
 //          E3 OE#=0; the IOE samples at E(rd); E(rd+1) CE#/OE#/UB#/LB# high.
@@ -77,7 +89,6 @@ module paprium_cram #(
 	parameter        N_PU   = 16384,               // clocks, >= 150 us (8,054)
 	parameter        N_CEL  = 1024,                // clocks, >= 10 us (537)
 	parameter        B_AGE  = 16,                  // clocks a B half may wait behind E / A-read / C
-	parameter [21:0] E_BASE_W = 22'h210000,        // port E slot 0 (bits 13:0 must be 0)
 	parameter [7:0]  E_AGE  = 8'd255               // clocks E may wait before it goes ahead of aged B
 )(
 	input  wire        clk,                        // clk_sys_53_69
@@ -95,20 +106,24 @@ module paprium_cram #(
 	output reg         a_rd_done,                  // pulse, a_rdata valid
 	output reg  [15:0] a_rdata,
 
-	// port C: reserved stream reads (tie c_rd low)
+	// port C: stream reads (synth step: the synth's, paprium_synth_cram; tie c_rd low without it)
 	input  wire        c_rd,
 	input  wire [20:0] c_raddr,                    // die word address in 0x000000-0x1FFFFF
 	output reg         c_rd_done,
 	output reg  [15:0] c_rdata,
 
-	// port E: SFX echo line, 32-bit slots
-	input  wire        e_wr,                       // pulse
-	input  wire [12:0] e_wslot,
+	// port E: die word address + pair / single (synth step); test build 4 / 4a's echo line uses pairs only
+	input  wire        e_wr,                       // pulse, only when e_wbusy = 0 (else counted in stat_e_lost)
+	input  wire [21:0] e_waddr,                    // die word address (a pair: even)
+	input  wire        e_wpair,                    // 1 = the pair addr / addr | 1 (bits 15:0 / 31:16); 0 = addr alone (bits 15:0)
 	input  wire [31:0] e_wdata,
 	input  wire        e_rd,                       // pulse, only when no E read is outstanding
-	input  wire [12:0] e_rslot,
-	output reg         e_rd_done,                  // pulse, e_rdata valid
+	input  wire [21:0] e_raddr,
+	input  wire        e_rpair,
+	output reg         e_rd_done,                  // pulse, e_rdata valid ([15:0] only for a single half)
 	output reg  [31:0] e_rdata,
+	output wire        e_wbusy,                    // synth step: the write register holds halves not yet started
+	output wire        e_rbusy,                    // synth step: the read register holds halves not yet started
 
 	// port B: MCU window (byte address inside the 4 MB window)
 	input  wire        b_req,
@@ -185,13 +200,16 @@ module paprium_cram #(
 	reg  [20:0] cr_addr;
 	reg  [15:0] aw_data;
 
-	// port E: one slot write and one slot read in flight, two halves each (bit 0 = even word)
+	// port E: one write and one read in flight, one or two halves each (bit 0 = the first half, at the address;
+	// bit 1 = the second, at address | 1)
 	reg   [1:0] ew_pend = 2'b00, er_pend = 2'b00;
-	reg  [12:0] ew_slot, er_slot;
+	reg  [21:0] ew_addr, er_addr;
 	reg  [31:0] ew_data;
 	wire        e_pend  = (ew_pend != 2'b00) | (er_pend != 2'b00);
 	reg   [7:0] e_wait  = 8'd0;                    // clocks E has been pending
 	wire        e_old   = e_wait >= E_AGE;
+	assign      e_wbusy = (ew_pend != 2'b00);
+	assign      e_rbusy = (er_pend != 2'b00);
 
 	reg         b_done = 1'b0;                     // acked, waiting for the request to drop
 	reg         b_act  = 1'b0;                     // first half done, second pending
@@ -260,11 +278,11 @@ module paprium_cram #(
 		if (c_rd) begin cr_pend <= 1'b1; cr_addr <= c_raddr; end
 		if (e_wr) begin
 			if (ew_pend != 2'b00) stat_e_lost <= stat_e_lost + 1'd1;
-			ew_pend <= 2'b11; ew_slot <= e_wslot; ew_data <= e_wdata;
+			ew_pend <= {e_wpair, 1'b1}; ew_addr <= e_waddr; ew_data <= e_wdata;
 		end
 		if (e_rd) begin
 			if (er_pend != 2'b00) stat_e_lost <= stat_e_lost + 1'd1;
-			er_pend <= 2'b11; er_slot <= e_rslot;
+			er_pend <= {e_rpair, 1'b1}; er_addr <= e_raddr;
 		end
 
 		if (!b_req) begin
@@ -337,22 +355,22 @@ module paprium_cram #(
 				end
 				else if ((ew_pend != 2'b00) & (~(b_pend & b_old) | e_old)) begin
 					if (ew_pend[0]) begin
-						ew_pend <= e_wr ? 2'b11 : {ew_pend[1], 1'b0};
-						launch(O_E, 1'b1, 1'b0, {E_BASE_W[21:14], ew_slot, 1'b0}, ew_data[15:0],  2'b11, 1'b0, 1'b0);
+						ew_pend <= e_wr ? {e_wpair, 1'b1} : {ew_pend[1], 1'b0};
+						launch(O_E, 1'b1, 1'b0, ew_addr, ew_data[15:0],  2'b11, 1'b0, 1'b0);
 					end
 					else begin
-						ew_pend <= e_wr ? 2'b11 : 2'b00;
-						launch(O_E, 1'b1, 1'b0, {E_BASE_W[21:14], ew_slot, 1'b1}, ew_data[31:16], 2'b11, 1'b1, 1'b1);
+						ew_pend <= e_wr ? {e_wpair, 1'b1} : 2'b00;
+						launch(O_E, 1'b1, 1'b0, {ew_addr[21:1], 1'b1}, ew_data[31:16], 2'b11, 1'b1, 1'b1);
 					end
 				end
 				else if ((er_pend != 2'b00) & (~(b_pend & b_old) | e_old)) begin
 					if (er_pend[0]) begin
-						er_pend <= e_rd ? 2'b11 : {er_pend[1], 1'b0};
-						launch(O_E, 1'b0, 1'b0, {E_BASE_W[21:14], er_slot, 1'b0}, 16'h0000, 2'b11, 1'b0, 1'b0);
+						er_pend <= e_rd ? {e_rpair, 1'b1} : {er_pend[1], 1'b0};
+						launch(O_E, 1'b0, 1'b0, er_addr, 16'h0000, 2'b11, 1'b0, ~er_pend[1]);   // a single half is the last
 					end
 					else begin
-						er_pend <= e_rd ? 2'b11 : 2'b00;
-						launch(O_E, 1'b0, 1'b0, {E_BASE_W[21:14], er_slot, 1'b1}, 16'h0000, 2'b11, 1'b1, 1'b1);
+						er_pend <= e_rd ? {e_rpair, 1'b1} : 2'b00;
+						launch(O_E, 1'b0, 1'b0, {er_addr[21:1], 1'b1}, 16'h0000, 2'b11, 1'b1, 1'b1);
 					end
 				end
 				else if (ar_pend & ~(b_pend & b_old)) begin

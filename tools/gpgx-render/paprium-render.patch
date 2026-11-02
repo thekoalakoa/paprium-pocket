@@ -1,5 +1,5 @@
---- "../src/Full Source/core/cart_hw/paprium.h"	2025-07-05 23:16:37.249963800 -0400
-+++ ../gpgx-build/core/cart_hw/paprium.h	2026-08-26 22:19:11.517513300 -0400
+--- a/core/cart_hw/paprium.h	2025-07-05 23:16:37.249963800 -0400
++++ b/core/cart_hw/paprium.h	2026-08-26 22:19:11.517513300 -0400
 @@ -454,7 +454,7 @@
  	int l = 0, r = 0;
  
@@ -23,7 +23,7 @@
  
  
 +/* ------------------------------------------------------------------------
-+ * render: offline dump of the cartridge's own music.
++ * render: an offline render of the cartridge's own music.
 + *
 + * The cart synthesises its music from sequence data and samples in ROM - it is
 + * not CD audio. This walks the same path paprium_audio() does, per sample, but
@@ -64,7 +64,7 @@
 +	 * it as a side effect, and the MP3 path is disabled for rendering. Without it the
 +	 * sequencer steps but emits no notes. */
 +	paprium_s.music_track = track;
-+	/* render diagnostic: dump the inputs the synth depends on, so a silent
++	/* render diagnostic: save the inputs the synth depends on, so a silent
 +	 * output can be traced to which stage produced nothing. */
 +	{
 +		FILE *dbg = fopen("<HOME>/gpgxbuild/render_state.bin", "wb");
@@ -140,7 +140,7 @@
  
  	paprium_s.music_segment = -1;
 +
-+	/* render: PAPRIUM_RENDER="track:seconds:outfile" dumps one track and stops.
++	/* render: PAPRIUM_RENDER="track:seconds:outfile" renders one track and stops.
 +	 * Sits at the end of init because the fast-loadstate block above has already
 +	 * read music_ptr and wave_ptr straight from ROM, so nothing needs to boot. */
 +	{

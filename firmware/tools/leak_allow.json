@@ -1,0 +1,28 @@
+{
+ "what": "Allow-list of tools/leakguard.py: the ONLY chip values this tree may hold as typed numbers. B Jam's decision of 2026-10-10: the chip's two hand-typed tables are typed into our firmware as plain numbers, and nothing else is ever added here (tests/check_leakguard.py fails if this file holds any other entry).",
+ "rule": "An entry allows the guard's hits that lie inside ONE C array definition `<type> <symbol>[...] = { ... };` in a file matching path_glob, and only when that array has exactly `count` values of `elem` whose little-endian bytes hash to values_sha256 (the same rule for the linked object `symbol` in the built ELF sections). In a built section, a window that overlaps the matching object is allowed too when each of its bytes is inside an allowed object or zero: the linker's fill, or a zero byte beside the table. The chip has zero bytes beside both tables too, so such windows equal the cart program; this was measured on 2026-10-30 on the s5 images (the firmware built with FW_S5), and B Jam's decision of 2026-10-30 approved the rule. A window with any other byte outside them still fails (tests/check_leakguard.py). A same-named array that differs in any value, in its count or in its place is not allowed, and the guard fails on it. Both tables are typed into core/song/song_tables.c, with the song engine; tests/check_leakguard.py check 2 requires that each entry matches exactly there and nowhere else.",
+ "entries": [
+  {
+   "id": "note_pitch",
+   "symbol": "chip_note_pitch",
+   "path_glob": "core/*",
+   "elem": "u16",
+   "count": 108,
+   "values_sha256": "3e19e83a88c4759c4b0e496fda67d72d15dfdbeec217521ffbdee266643b5470",
+   "chip": "the cart chip's note pitch table, which the note lookup reads",
+   "note": "B Jam's decision of 2026-10-11: type the 108 real values. The bytes after the table are read from the player's ROM at boot (song_note_tail), so the note lookup's reads past the table see the same bytes as on the cart. An earlier entry had count 110, which included four of those bytes.",
+   "stage": "5"
+  },
+  {
+   "id": "fm_pitch",
+   "symbol": "chip_fm_fnum",
+   "path_glob": "core/*",
+   "elem": "u16",
+   "count": 13,
+   "values_sha256": "32c3b305cd5abccf603f4b03b00df6fef57c9fe77944aaa7a0b2bba295748af7",
+   "chip": "the cart chip's FM fnum table, which the FM pitch lookup reads",
+   "note": "13 values.",
+   "stage": "5"
+  }
+ ]
+}

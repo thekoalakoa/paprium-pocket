@@ -1,4 +1,5 @@
 // ym3438, ym7101, fc1004 common cells
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 module ym_sr_bit #(parameter SR_LENGTH = 1)
 	(
@@ -266,6 +267,93 @@ endmodule
 	assign nval = ~mem;
 	
 endmodule*/
+
+// pocket (0.3.0 stage 1, V1b - F4 shadow pins): ym_sr_bit / ym_dlatch_1 / ym_dlatch_2 with one more output, the value
+// their output takes at the next MCLK (the register's own D input: v2_assign / mem_assign). Otherwise line for line
+// the cells above. ym7101 uses them for the 13 latches behind the VRAM pins RAS1 / CAS1 / WE0 / OE1, so the pins'
+// next values can be registered next to vram_alt (vram_alt.v, SHADOW). Separate modules, so the ~470 other
+// instances of the cells keep their ports.
+module ym_sr_bit_nx #(parameter SR_LENGTH = 1)
+	(
+	input MCLK,
+	input c1,
+	input c2,
+	input bit_in,
+	output sr_out,
+	output sr_out_nx
+	);
+	
+	reg [SR_LENGTH-1:0] v1 = 0;
+	reg [SR_LENGTH-1:0] v2 = 0;
+	
+	wire [SR_LENGTH-1:0] v2_assign = c2 ? v1 : v2;
+	
+	assign sr_out = v2[SR_LENGTH-1];
+	assign sr_out_nx = v2_assign[SR_LENGTH-1];
+	
+	always @(posedge MCLK)
+	begin
+		if (c1)
+		begin
+			if (SR_LENGTH == 1)
+				v1 <= bit_in;
+			else
+				v1 <= { v2[SR_LENGTH-2:0], bit_in };
+		end
+		v2 <= v2_assign;
+	end
+endmodule
+
+module ym_dlatch_1_nx #(parameter DATA_WIDTH = 1)
+	(
+	input MCLK,
+	input c1,
+	input [DATA_WIDTH-1:0] inp,
+	output [DATA_WIDTH-1:0] val,
+	output [DATA_WIDTH-1:0] nval,
+	output [DATA_WIDTH-1:0] nval_nx
+	);
+	
+	reg [DATA_WIDTH-1:0] mem = {DATA_WIDTH{1'h0}};
+	
+	wire [DATA_WIDTH-1:0] mem_assign = c1 ? inp : mem;
+	
+	always @(posedge MCLK)
+	begin
+		mem <= mem_assign;
+	end
+	
+	assign val = mem;
+	assign nval = ~mem;
+	assign nval_nx = ~mem_assign;
+	
+endmodule
+
+module ym_dlatch_2_nx #(parameter DATA_WIDTH = 1)
+	(
+	input MCLK,
+	input c2,
+	input [DATA_WIDTH-1:0] inp,
+	output [DATA_WIDTH-1:0] val,
+	output [DATA_WIDTH-1:0] nval,
+	output [DATA_WIDTH-1:0] nval_nx
+	);
+	
+	reg [DATA_WIDTH-1:0] mem = {DATA_WIDTH{1'h0}};
+	
+	wire [DATA_WIDTH-1:0] mem_assign = c2 ? inp : mem;
+	
+	always @(posedge MCLK)
+	begin
+		mem <= mem_assign;
+	end
+	
+	assign val = mem;
+	assign nval = ~mem;
+	assign nval_nx = ~mem_assign;
+	
+endmodule
+// pocket-end
 
 module ym_edge_detect
 	(

@@ -4,6 +4,15 @@ Working repo forked from `drizzt/openFPGA-MegaDrive` v0.3.0 (Pocket port of
 Nuked-MD-FPGA via MegaDrive_MiSTer). Source of the Paprium delta:
 `MisterPezz82/Paprium_MegaDrive_MiSTer` (same upstream lineage).
 
+This file is a dated working log. In it, "the tester" is B Jam, who tests the builds on his own Pocket and also has
+the original hardware; "the user" and "the player" are him too where an entry speaks of a report, a test, a decision or
+listening (elsewhere they mean anyone using the core, or the player's character in the game). A "test build" is a
+build put on his SD card for a hardware test (older entries, and his quoted words, also call one a "card": the CRC
+card, the onset-ring card); the numbers start again with each piece of work. Where an entry says "the review", a
+separate review of the plans and the results gave its go for a fit or its call on what to do next. The 0.3.0 work was done in
+numbered stages: 1 = the new firmware's own start-up, scheduler, dispatcher and board layer, 2 = the sprite engine,
+3 = the unpackers, saves, zoom and MegaWire, 4 = the sound bank cache, 5 = the music: our own song engine and synth.
+
 ## Phase 1 findings
 
 ### The delta is small and clean
@@ -45,7 +54,7 @@ Against that:
 - The **base** Pocket MegaDrive core is already at **~82% ALM**
   (`projects/megadrive_pocket.qsf:29`).
 - To fit at all, the Pocket core has **already dropped**: `md_plus.sv`,
-  `mdp_audio.sv`, `md_io.sv`, `cheatcodes.sv`, `VM2413/`, `mboot.mif`,
+  `mdp_audio.sv`, `md_io.sv`, `cheatcodes.sv`, `mboot.mif`,
   `EEPROM_STM95.sv`, and the pad/lightgun/multitap/keyboard muxes (`rtl/core.qip`).
 - The **SVP ships as a separate bitstream** because it cannot coexist with the
   save hardware (`rtl/cartridge.sv:23-31`).
@@ -176,26 +185,23 @@ diff and are *not* ported yet. They are self-contained ROM-read substitutions
 and pad hooks; they cost area we have not measured yet, so they wait until the
 core fits and boots.
 
-## Findings from the actual ROM dump
+## Findings from a local copy of the ROM
 
-Header of the local dump (8,231,927 bytes), offsets from the file start:
+Header of the local copy (8,231,927 bytes), offsets from the file start:
 
-```
-0x100  SEGA MEGA DRIVE (C) WM  2020.JUN  PAPRIUM
-0x180  GM MK-12056-00
-0x1B0  (no "RA" marker)
-```
+- `0x180`, the product serial: not the one MiSTer's core looks for
+- `0x1B0`: no save-memory marker
 
 Two things follow, both already fixed in the tree:
 
 1. **The serial does not match what the MiSTer core looks for.** MiSTer's quirk
-   table activates Paprium on `cart_id[87:0] == "GM T-574120"`; this dump reads
-   `GM MK-12056-00`. Serial-based detection would silently fail on it. This is
+   table activates Paprium on one product serial (its `cart_id[87:0]` check);
+   this copy carries a different one. Serial-based detection would silently fail on it. This is
    the concrete reason `paprium_quirk` is hard-wired to the `PAPRIUM` parameter
-   rather than sniffed from the header — different Paprium dumps carry different
+   rather than sniffed from the header — different copies of Paprium carry different
    serials, and a dedicated bitstream does not need to guess.
 
-2. **The header declares no battery RAM.** There is no `"RA"` at `0x1B0`, so the
+2. **The header declares no battery RAM.** No save-memory marker at `0x1B0`, so the
    stock detection leaves `sram_present` low, APF never allocates a save slot,
    and the MCU's backup RAM never persists. The Paprium build now announces the
    save unconditionally, and `SAVE_SIZE` is 4 KB there instead of 64 KB —
@@ -291,25 +297,20 @@ Hardware testing is reasonable now. The core is no further outside timing than
 the base core that already works on real Pockets, so a bring-up attempt will tell
 us something real rather than just re-measuring a known violation.
 
-## Correction: there are two dumps, and the earlier analysis used the wrong one
+## Correction: the earlier analysis used the wrong copy of the game
 
-The "Findings from the actual ROM dump" section above analysed
-`Paprium (JUE) v1.0.zip`. That is not the cartridge dump. The correct one ships
-inside the ROM+Core+OST archive as `src/paprium/paprium.bin`:
-
-| | `Paprium (JUE) v1.0.bin` | `src/paprium/paprium.bin` |
-|---|---|---|
-| Size | 8,231,927 | **8,388,608 (exactly 8 MiB)** |
-| 0x110 | `(C) WM  2020.JUN` | `(c)T574 2018.DEC` |
-| 0x180 serial | `GM MK-12056-00` | **`GM T-574120-00`** |
-| 0x1B0 | no marker | **`RA`** |
+The findings section above analysed a copy of the game that is not the
+cartridge's own image. That copy is 8,231,927 bytes; the cartridge's image is
+**exactly 8 MiB (8,388,608 bytes)**, and its header differs from the other
+copy's in the copyright and date line, the product serial and the save-memory
+marker.
 
 So both earlier claims were wrong **about the right file**:
 
-- The serial **does** match what MiSTer's quirk table looks for
-  (`cart_id[87:0] == "GM T-574120"`). Serial detection would work fine.
-- The header **does** declare battery RAM, so `sram_present` would be set
-  normally.
+- The cartridge image's serial **does** match what MiSTer's quirk table looks
+  for (its `cart_id[87:0]` check). Serial detection would work fine.
+- The cartridge image's header **does** declare battery RAM, so `sram_present`
+  would be set normally.
 
 The two code changes those findings motivated are still correct, but for weaker
 reasons than stated. Hard-wiring `paprium_quirk` to the `PAPRIUM` parameter is
@@ -320,8 +321,8 @@ the header sets it anyway. Neither is load-bearing on the bad analysis.
 The size difference is the substantive part: the MCU expects a full 8 MiB
 writable ROM image in SDRAM, with the decompression workspace starting at byte
 0x800000 immediately above it (`paprium_cart.sv`: `stream_addr = 24'h400000 +
-...`, a word address). The 8,231,927-byte file is not that image. **Use
-`src/paprium/paprium.bin`.**
+...`, a word address). The 8,231,927-byte file is not that image. **Use the
+exact 8 MiB cartridge image.**
 
 ## Hardware test log
 
@@ -330,7 +331,7 @@ writable ROM image in SDRAM, with the decompression workspace starting at byte
 Boots, boot minigame playable, reset into the real game works. Heavy tile
 glitching; sprites present and positioned correctly, gameplay and collision
 working, but their pixel data was garbage. English text clean, Japanese text
-blurry. Identical on two different dumps.
+blurry. Identical on two different ROM images.
 
 Everything broken was data that reaches VRAM through the decompression stream
 window; everything clean was data that does not. The control path - object
@@ -497,8 +498,8 @@ What would actually fix it:
 
 - **Decode the cartridge's own wave ROM.** The DATENMEISTER chipset holds the
   real music compressed; nobody has decoded that format, which is why every
-  implementation substitutes an external OST. A reverse-engineering project in
-  its own right.
+  implementation substitutes an external OST. Working that format out is a
+  project in its own right.
 - **Record the scene from a real cartridge**, trim and convert to `trackNN.pcm`.
   Crude but sufficient - the blob makes dropping it in trivial.
 - **Identify which index the TV requests** - cheap and worth doing regardless.
@@ -611,7 +612,7 @@ looked tractable.
 ### What works
 
 The harness runs end to end and writes a correctly-formed WAV of exactly the
-right length. State dumped from inside the renderer confirms the data path:
+right length. State written out from inside the renderer confirms the data path:
 
 | | |
 |---|---|
@@ -640,7 +641,7 @@ was never written at all, the external sample-bank loader is `if(0)`, and the
 synth is bypassed by an early `return`. That reads as abandoned mid-development,
 not superseded once MP3s worked.
 
-Finishing it means reverse-engineering the `MWMM` module format against the ROM
+Finishing it means working out the `MWMM` module format from the ROM's data
 and completing someone else's half-written parser. That is a project in its own
 right, not a debugging session.
 
@@ -721,7 +722,7 @@ ROM** (`paprium.h:1774`): base `paprium_music_ptr` = `0x001400B0`, read from ROM
 `0x10054`; one big-endian u32 per track at `base + track*4`. The word at entry 0
 is `0x0000003E` - 62, the track count.
 
-Dumping that table:
+Listing that table:
 
 - **52 live entries, 52 distinct offsets, exactly 10 nulls.**
 - The ten nulls are indices **8, 9, 10, 13, 26, 31, 41, 44, 45, 48** - the same
@@ -729,8 +730,7 @@ Dumping that table:
 - The 52 live offsets sort into a clean ascending run, no overlaps, sensible
   module sizes (~0x300-0x1E00 bytes), and all 52 share the 8-byte prologue
   `81 0E 57 4D 4D 4D 00 01`. The parse is sound.
-- Identical in two independent dumps: `hw-test/Paprium.md` and
-  `src/paprium/paprium.bin`.
+- Identical in two independent images of the cartridge.
 
 **So the cartridge itself has no music for those ten indices.** Not "the OST
 omitted them" - the game's own data has nothing there, and the 26-voice synth
@@ -1076,7 +1076,7 @@ notes plus isolated audio is the per-program root pitch anchor that
 `pitch = 12*byte1 + byte0 + C` is missing. Best candidates are 4 Asian Chill and
 22 Dark Rock: constant tempo, 82.0 s loop, all three voices marked, ~640 notes.
 
-REFUTED along the way, so nobody repeats it: the unreferenced patterns are NOT
+Refuted along the way, so nobody repeats it: the unreferenced patterns are NOT
 the sax layer (only 4 of the 9 published sax tracks have any, and 15 modules have
 spare data without being sax tracks); there is no per-track sax flag table
 anywhere in the 8 MB ROM as a byte array or a bitmask, under any encoding
@@ -1087,7 +1087,7 @@ Incidental: the 8-byte table at ROM 0x118358, immediately after the BGM name
 table and on the same XOR 0xAA key, is the default high-score table - `_RetrO`,
 `BARMAN`, `SILVER`, `LEOZZY`, `TITUS`, `OGDEN`.
 
-#### FOUND: the FM patch bank, ROM 0x004000, XOR 0xA8A2
+#### Found: the FM patch bank, ROM 0x004000, XOR 0xA8A2
 
 Recorded elsewhere in this document as "never located". It is at **ROM 0x004000,
 135 records of 32 bytes, under a repeating word XOR of 0xA8A2** - 0xA8 on even
@@ -1137,7 +1137,7 @@ what a faithful renderer needs.
 
 Independently of the table, the timbre of each patch was measured straight from
 the captures, exploiting the solved clock to window each note individually.
-Results are in the scratchpad as `fm/fm_timbre.csv`: 60 patches with harmonics
+Results were kept in a local working folder as `fm/fm_timbre.csv`: 60 patches with harmonics
 1-14 in dB, attack time, decay rate, SNR and an A/B/C grade.
 
 It works, but it is enrichment rather than identification. Under
@@ -1269,8 +1269,8 @@ ships.
 
 **The hardware root sweep** (onset-signature method: the dB each onset of a program adds over
 the 60 ms before it, per band, on the capture and on renders with the program's root swept;
-recovery, null-spread, bootstrap and sham controls; every batch re-run by an independent
-verifier). Of 36 programs, six got an applied value: 0x37 nominal (the x6 shaker that was the
+recovery, null-spread, bootstrap and sham controls; every batch re-run independently as a
+check). Of 36 programs, six got an applied value: 0x37 nominal (the x6 shaker that was the
 "static"), 0x0A root 49, 0x15 51, 0x5F 49, 0x19 57, 0x61 49. 0x07 measured 50 at one site but
 applying it as a 12-TET rule on other tracks added 4-6 dB of 9-16 kHz and was refused. Stock
 roots 0x3F 106, 0x25 60, 0x29 36.5 and 0x0B 40 are refuted with no replacement. Twenty
@@ -1406,7 +1406,7 @@ sample's measured root land at median -10 cents, 90% within 50. Program 0x21,
 asked for notes about 52 semitones below its measured root, still lands at
 -20/-5/+5/+15 cents.
 
-THE ANCHOR IS CONFIRMED 420 TIMES OVER. The same pipeline on the chip voices,
+The anchor is confirmed 420 times over. The same pipeline on the chip voices,
 which are not sample-rate-driven at all: FM voices 0-5, n=242, MIDI 16..94,
 median +0 cents, 85% within 25; PSG voices 6-9, n=178, MIDI 48..82, median +0
 cents, 85% within 25. That is 420 independent confirmations of C = +11, and it
@@ -1439,7 +1439,7 @@ all there is no reason it would sound at the written pitch - and the scatter ove
 band result is an arrangement correlation that density matching did not remove.
 UNRESOLVED; do not quote either as settled.
 
-#### RETRACTED: program 0x34 is not detuned - that tone belongs to voice 10
+#### Retracted: program 0x34 is not detuned - that tone belongs to voice 10
 
 Urban, voice 17, three clean written pitches in 0.6 s windows:
 
@@ -1461,7 +1461,7 @@ The integers are not pinned: 18/16/15, 38/34/32 and 63/56/53 all fit the error.
 Harmonic profile at the measured frequencies: h1:h2:h3 = 0.55 : 1.00 : 0.92, the
 SECOND harmonic loudest, reproduced on track 54 at h1/h2 = 0.56.
 
-**ALL OF THE ABOVE IS RETRACTED.** Program 0x34's 16-byte bank entry is sixteen
+**All of the above is retracted.** Program 0x34's 16-byte bank entry is sixteen
 ZERO bytes - no pointer, no length, no sample - so voice 17 owns nothing to
 sound. The tone was voice 10's bass line, an octave down, measured through a
 harmonic series that is cleanly 1 : 2.007 : 2.992 : 3.983:
@@ -1488,7 +1488,7 @@ and 43.6 Hz. An all-zero bank entry and a tone that belongs to another voice are
 together a better explanation than a sample nobody can find.
 
 Independently confirmed while establishing this: krikzz's own FPGA,
-repos/mega-ppm/fpga/audio_sfx.sv, instantiates exactly six playback clocks -
+mega-ppm's fpga/audio_sfx.sv, instantiates exactly six playback clocks -
 48000, 24000, 12000, 9600, 6000, 5333 - matching GPGX's SFX table {1,2,4,5,8,9}
 as divisors of 48 kHz. GPGX's MUSIC table {2,4,5,8,9,10} contains 4800 Hz, which
 that hardware cannot generate, and its own comment marks two entries with a
@@ -1544,7 +1544,7 @@ somewhere else entirely. Envelope and note length show nothing. Brightness and
 which-sample are METHOD BLIND: only 7 voice-parts in all 52 modules ever change
 the operand, and none of the three tracks that do has a single solo window.
 
-WHAT WAS WON INSTEAD. Command 0x02 is CONFIRMED as pan against hardware - the
+What was won instead: command 0x02 is confirmed as pan against hardware - the
 first time pan has been tested at all here. Per-50 ms L/R balance, capture
 against our render over 1518 loud frames, r = 0.290, against a circular-shift
 null (which preserves autocorrelation) averaging -0.008 with sd 0.045 and a
@@ -1567,10 +1567,10 @@ fundamental is the second harmonic.
 
 #### The 0xE0 distinction that survives, and one claim that did not
 
-Adjudication of the three tests corrected them in four places and drew a
+A review of the three tests corrected them in four places and drew a
 distinction none of them made. It is the useful residue of the whole run:
 
-  * "Changing 0xE0 TRANSPOSES the note"  - REFUTED, twice, with passing controls.
+  * "Changing 0xE0 TRANSPOSES the note"  - refuted, twice, with passing controls.
   * "0xE0 declares the sample CLOCK and the driver resamples to the written note"
     - NOT TESTED. It predicts ZERO pitch change by construction, so every
     measurement above is consistent with it. It fits the byte layout, fits the
@@ -1582,7 +1582,7 @@ Corrections worth keeping. Test 1's design claim that voice 20 "switches only it
 0xE0 operand" is wrong: its row-0 record is `05 04 0f 0e 01 09 e0 00`, which also
 re-issues command 0x01 with operand 0x09. The value is constant across both
 groups so the PITCH result stands, but any level or spectral comparison anchored
-there is confounded - which is why the adjudicator withdrew its own most
+there is confounded - which is why that review withdrew its own most
 interesting measurement, a +3.1 to +5.7 dB lift across 4-16 kHz in group A where
 the render control shows +/-0.03 dB. Real, but attributable to the 0x01 re-issue,
 and with no cliff at 6, 12 or 24 kHz it does not support a Nyquist reading
@@ -1652,7 +1652,7 @@ note in our model (pitch class C), which is validated on hardware by the sax A/B
 at 33 of 41 pitches within 0.6 semitone, while 0x01 in words 1-3 has operands
 spanning 0..255 and looks nothing like a note.
 
-TESTED, REFUTED: playing the pitch-range codes that sit in words 1-3 as extra
+Tested and refuted: playing the pitch-range codes that sit in words 1-3 as extra
 notes. There are 20,400 of them corpus-wide, 10.6% of all pitch-range codes, and
 we discard every one - but rendering them makes Dark Rock's 35-42 s mid band
 slightly WORSE, 17.3% to 16.9% against the capture's 53.3%.
@@ -1692,7 +1692,7 @@ So roughly 591 notes are real audio the ROM does not contain, about 230 are
 correctly silent, and 453 remain unknown. "Dead selector" was wrong as a blanket
 reading and so was "all missing audio".
 
-0x35 is a CONFIRMED null, not a power failure. Sensitivity was calibrated by
+0x35 is a confirmed null, not a power failure. Sensitivity was calibrated by
 injection: a real bank sample transposed to 0x35's pitches and placed at its note
 times is detected at 5% of a normal wave-voice level (p = 6.3e-3), and at 25% it
 reproduces 0x0F's effect size exactly. Dark Rock also carries a built-in positive
@@ -1788,7 +1788,7 @@ isolated note to 1.08 dB over harmonics 1-8; the album differs from that same
 note by 8.89 dB. Rendering from album timbres would make the port sound like the
 album rather than like the cartridge, which is the opposite of the goal.
 
-#### SOLVED: the absolute pitch anchor is C = +11
+#### Solved: the absolute pitch anchor is C = +11
 
     MIDI note = 12*byte1 + byte0 + 11
 
@@ -2006,7 +2006,7 @@ Three checks catch it, and `--verify` re-runs them:
 
 #### Confirmed: the punk-TV audio is SFX 0x4A
 
-Identified by ear from the dump. **`sfx_074` / index `0x4A`** - the longest entry
+Identified by ear from the files `scripts/dump_sfx.py` writes. **`sfx_074` / index `0x4A`** - the longest entry
 in the bank: 29,920 samples, 6000 Hz, 4-bit packed, 4.99 s, 14,960 bytes at ROM
 `0x2B6...` (`sfx_ptr + 0x0584CA`).
 
@@ -2054,21 +2054,21 @@ left to fix.
 If the SFX path does turn out not to deliver it, this port can serve the cue
 through the music path instead, because we now hold the sample:
 
-`sfx-dump/sfx_074_punktv_48k_stereo.pcm` - the same audio resampled 6000 -> 48000
+`sfx_074_punktv_48k_stereo.pcm` (in the folder `scripts/dump_sfx.py` writes) - the same audio resampled 6000 -> 48000
 Hz with linear interpolation and duplicated to stereo, 957,440 bytes, already in
 the blob's track format. Drop it in at whichever index the track-number diagnostic
 reports and the scene plays its own sound, with no `mcu.txt` rebuild and no
-reverse engineering.
+further decoding work.
 
 That is the payoff from the two findings meeting: the diagnostic names the index,
-and the SFX dump supplies the audio to put there. **Do not do both** - if the SFX
+and the SFX files `dump_sfx.py` writes supply the audio to put there. **Do not do both** - if the SFX
 path already plays `0x4A`, adding it to the blob doubles it.
 
 ### Note: the 1.000 s "silences" in the blob are our own tooling
 
 Recorded so it is not mistaken for evidence. `scripts/build_cdda.sh` runs
 `dd if=/dev/zero bs=192000 count=1` for any cue entry pointing at `Blank.wav`, so
-`cdda/track08.pcm` and its nine siblings are exactly one second of zeros because
+the `track08.pcm` it writes and its nine siblings are exactly one second of zeros because
 *our script made them that way*. The length says nothing about the game, and the
 real `Blank.wav` has never been read by anything here.
 
@@ -2259,7 +2259,7 @@ overturned the moment hardware was asked.
    the wrong explanation.
 4. **"It is a gap in the substitute `mega-ppm` firmware, so it is unfixable."**
    The firmware framing is accurate - the NEORV32 image really is a ~16 KB
-   reimplementation and the STM32/MAX 10 really are undumped - but it was applied
+   reimplementation and the STM32/MAX 10 really have never been read out - but it was applied
    to a cue that works. Reaching for the unfixable explanation is the most
    expensive mistake available, because it stops the search.
 
@@ -2276,7 +2276,7 @@ build required - revert one at a time and see if the cue disappears:
 - **Audio Filter** back to Model 1. The strongest candidate: the cue is a 6 kHz
   sample and the Genesis low-pass models attenuate exactly that region. If this
   is it, our LPF may be more aggressive than hardware and worth comparing.
-- **Region** back to Auto. If Auto is detecting Japan for a `T-574120-00` cart
+- **Region** back to Auto. If Auto is detecting Japan for this cart
   the detection is wrong (`detected_jap`, written by the loader at bridge address
   `0x18`, consumed at `core_top.sv:599`), and that is a real bug affecting more
   than audio.
@@ -2331,7 +2331,7 @@ with a reset rather than a full reload.
 That also resolves a discrepancy worth recording: the RTL says Auto and Export
 must be *identical* for this core. The Paprium package's `core.json` lists one
 entry and no loader, so nothing ever writes bridge address `0x18`, `detected_jap`
-stays 0, and `cfg_jap` is 0 for both. The header is `JUE` and the loader's
+stays 0, and `cfg_jap` is 0 for both. The header names all three regions and the loader's
 priority is US > EU > JP, so even with a loader it would resolve to Export. The
 code reading was right; the observation was confounded.
 
@@ -2391,7 +2391,7 @@ down, then started again.
     to reach the mini-game:  power the Pocket OFF (not sleep), wait a few
                              seconds, power on, launch the core
 
-**RETRACTED - this did not affect any real test.** The above was written
+**Retracted - this did not affect any real test.** The above was written
 asserting that the elevator, intro-flicker and boss-priority retests had been
 run with "quit and relaunch" and were therefore tainted. They were not: the
 hardware testing for this project has used a **full power cycle before every
@@ -2420,7 +2420,7 @@ is not state at all. The only writable state on the card is the save:
 
 backed by BRAM at `ADDR_BRM 0x5000000`, which the firmware reads and writes
 through `cmd_DF_eep_rd` / `cmd_E0_eep_wr` in banks of 0x200. Paprium's cartridge
-carries a real M24C64 EEPROM (`paprium-dump/ChipDocs/m24c64wp.pdf`), so a
+carries a real M24C64 EEPROM (its datasheet is in a third-party Paprium research repository), so a
 "first boot done" flag there would produce exactly the observed behaviour: the
 mini-game was seen during Test 1 on a fresh save and has not been seen since.
 
@@ -2439,7 +2439,7 @@ audio_cfg` and `0xB0 sprite_init`, both of which now execute during boot where
 they previously did nothing. An older `.rbf` plus a cold boot separates those.
 
 
-### CONFIRMED: the save gates the mini-game, and its music is not MWMM
+### Confirmed: the save gates the mini-game, and its music is not MWMM
 
 Renaming `/Saves/paprium/common/<romname>.sav` and cold booting brought the
 mini-game back, after a **language-selection screen** that also only appears on a
@@ -2501,7 +2501,7 @@ and would have *added* logic to a change meant to remove it.
 Worth recording because the RTL said so before hardware did. This core's
 `core.json` lists a single bitstream and no loader, so nothing ever wrote bridge
 address `0x18`, `detected_jap` stayed 0, and Auto resolved to Export every time.
-Even with a loader the header is `JUE` and the loader's priority is US > EU > JP,
+Even with a loader the header names all three regions and the loader's priority is US > EU > JP,
 so Auto would still have meant Export. The register is gone.
 
 ### The audio filter arithmetic, which came out backwards
@@ -2542,18 +2542,18 @@ costs nothing and needs no rebuild - it is metadata. Source:
 
 ## The MCU firmware is open source - and ours is not the published build
 
-`krikzz/mega-ppm` is cloned to `repos/mega-ppm`. `mcu/` holds real C source -
+We cloned `krikzz/mega-ppm` locally. Its `mcu/` holds real C source -
 `main.c`, `paprium.c/h`, `mame.c/h`, `mdp.c/h`, **`sfx.c/h`**, `everdrive.c/h`,
 `cfg.h` and a `Makefile` that produces the `mcu.txt` we load with `$readmemh`.
 
 **This corrects an earlier claim in this document.** The elevator corruption, boss
-sprite priority and the SFX faults were repeatedly filed as "upstream firmware,
-needs the undumped STM32/MAX 10". The chips are indeed undumped and that remains
-irrelevant: the firmware this core actually runs has published source.
+sprite priority and the SFX faults were repeatedly filed as upstream firmware
+faults that would need the STM32/MAX 10 read out. Those chips have indeed never been
+read out, and that remains irrelevant: the firmware this core actually runs has published source.
 
 ### But our image is not krikzz's
 
-    repos/mega-ppm/mcu/mcu.txt         35,615 bytes   245 lines   ec08f761...
+    mega-ppm mcu/mcu.txt               35,615 bytes   245 lines   ec08f761...
     paprium-pocket/.../mcu.txt         35,906 bytes   248 lines   0f1a2b90...
 
 Byte-identical to MiSTer's, and **different from krikzz's from line 1** - line 2
@@ -2581,7 +2581,7 @@ we hit is reproducible against a second implementation. Diverging gives that up.
 
 ### What their engineering record already tells us
 
-`repos/paprium-mister/docs/KNOWN_ISSUES.md`, 258 lines. Highlights that change
+The MiSTer core's `docs/KNOWN_ISSUES.md`, 258 lines. Highlights that change
 what is worth trying here:
 
 - **The sprite-attribute fix was already built and tested on hardware, and did NOT
@@ -2668,7 +2668,7 @@ So the shipping configuration is now confirmed end to end:
 
 ### Process note: a duplicate package cost a round trip
 
-An old copy of the core package sat at `hw-test/pocket-install/`, frozen at
+An old copy of the core package sat in a local test folder (`pocket-install/`), frozen at
 2026-08-26. It was installed by mistake - reasonably, given the directory name -
 which silently reverted the card to the 8/26 bitstream and menu. The symptom
 (removed menu entries still listed) looked like a failed build.
@@ -2680,7 +2680,7 @@ Two consequences worth recording:
    nothing. Hardware refuted that theory independently and the default was
    reverted before shipping, so no bad code went out, but the reasoning was
    unsupported at the time it was written down.
-2. `hw-test/pocket-install/` now contains only a README pointing at `pkg/`. The
+2. That local `pocket-install/` folder now contains only a README pointing at `pkg/`. The
    package is built in exactly one place, and `scripts/deploy_to_sd.sh` force-
    copies the whole directory and prints the resulting menu so a stale file is
    visible before ejecting.
@@ -2695,7 +2695,7 @@ immediately.
 
 **The correct sample is identified: `0x1C`** (`sfx_028_0x1C_9600Hz_4bit_2.15s.wav`),
 9600 Hz, 4-bit, 2.15 s, autocorrelation 0.895 - one of the most tonal in the bank.
-Identified by ear from the dump; it is the death sound for large "fat" enemies and
+Identified by ear from the extracted SFX files; it is the death sound for large "fat" enemies and
 most bosses. What plays instead is an ordinary enemy's death sound.
 
 ### How the request reaches us
@@ -2783,7 +2783,7 @@ the analysis behind it should not have to be redone.
 
 ### The blob today
 
-    cdda-blob/paprium.pcm   2,245,919,744 bytes   195 minutes
+    paprium.pcm             2,245,919,744 bytes   195 minutes
     48 kHz, 16-bit, stereo, headerless PCM at 192 KB/s
 
 53 unique tracks. Deduplication is not worth doing: the only repeats are the ten
@@ -2942,7 +2942,7 @@ changed in four commits, and only two firmware changes are described:
 
 ### The tree builds standalone
 
-`repos/mega-ppm/mcu/` is self-contained. The Makefile's `NEORV32_HOME = ../neorv32`
+mega-ppm's `mcu/` is self-contained. The Makefile's `NEORV32_HOME = ../neorv32`
 is misleading - the paths actually resolve to a bundled `lib/`:
 
     lib/include/neorv32.h      the framework headers
@@ -2961,7 +2961,7 @@ Build settings are pinned by the Makefile: `-O2`, `-march=rv32im`, `-mabi=ilp32`
    `make` reproduces `ec08f761`, the toolchain is pinned and everything downstream
    is trustworthy. If it does not, no diff against our binary means anything,
    because compiler drift will differ on every function.
-3. **Disassemble both images and diff.** ~4,000 instructions is tractable. With the
+3. **List both images as instructions and diff the listings.** ~4,000 instructions is tractable. With the
    toolchain pinned, the differences ARE MisterPezz82's changes, which both
    confirms the two documented ones and reveals anything undocumented.
 4. **Re-apply the two changes** to krikzz's source and rebuild.
@@ -3032,7 +3032,7 @@ listening. Neither is urgent; the RTL work above is not blocked by either.
 
 ---
 
-## SOLVED: the punk-TV cue never loops, and why
+## Solved: the punk-TV cue never loops, and why
 
 Root cause, from the channel-7 capture. This is measured, not inferred.
 
@@ -3043,7 +3043,7 @@ Root cause, from the channel-7 capture. This is measured, not inferred.
     352   ch7: vol=0C0  fifo=EMPTY  pcm=29920    ...fully ramped, nothing playing
 
 **29,920 is exactly the length of sample `0x4A`** - 4.99 s at 6 kHz, matching the
-SFX table dump. The MCU pushed the entire sample, it ended, and the PCM count never
+SFX table as `dump_sfx.py` lists it. The MCU pushed the entire sample, it ended, and the PCM count never
 moved again. The second TV repeats it: 29921 -> 59840, exactly two plays all
 session, neither looping.
 
@@ -3097,7 +3097,7 @@ contribute too. Three fixes shipped and audibly working.
 **536 bytes spare, 3.3%.** A newer GCC producing slightly larger code overflows.
 `EFFORT ?= -O2` in the Makefile is overridable, so `-Os` is the fallback. Toolchain
 being installed is xPack `riscv-none-elf-gcc` 15.2.0, far newer than krikzz's, so
-a byte-identical rebuild is unlikely - which means the disassembly-diff route to
+a byte-identical rebuild is unlikely - which means the listing-diff route to
 recovering MisterPezz82's changes probably will not work, and the two documented
 changes have to be re-applied by hand instead.
 
@@ -3140,7 +3140,7 @@ bytes - the two-line `sfx_loop` fix would overflow it. `-Os` comes in smaller th
 krikzz's own build with 880 bytes spare.
 
 **Byte-identical reproduction is off the table**, as expected. So the
-disassembly-diff route to recovering MisterPezz82's undocumented changes is dead,
+listing-diff route to recovering MisterPezz82's undocumented changes is dead,
 and their two documented ones have to be re-applied by hand.
 
 ### -Os is a risk, and growing the IMEM is the better answer
@@ -3184,7 +3184,7 @@ Before the fix that count froze at 29,920 forever and the volume ramp climbed on
 a dead channel. Two lines in `sfx_loop`, in krikzz's `mega-ppm` source.
 
 This is the first bug fixed by **changing the firmware** rather than working around
-it. Two days ago that was filed as impossible - needing chips nobody has dumped.
+it. Two days ago that was filed as impossible - needing chips nobody has read out.
 It needed a compiler, a 40-line build script, and reading `sfx.c`.
 
 ### The three predicted regressions, all confirmed
@@ -3395,8 +3395,8 @@ channel 7, to see whether the cue is allocated and then evicted.
 **2026-08-29.** This overturns the premise the whole project has run on.
 
 Every version of this document, the README and the install guide has said Paprium's
-music "is generated by hardware that has never been dumped, so it cannot be
-reproduced". **That is wrong.** The instrument samples are in the cartridge ROM,
+music is generated by hardware that nobody has ever read out, so it cannot be
+reproduced. **That is wrong.** The instrument samples are in the cartridge ROM,
 in an open format, and `ffmpeg` decodes them.
 
 ## Where
@@ -3427,7 +3427,7 @@ reads it - `(sample * 65536 / 256) - 32768`. 1.38 MB, matching its
 `wave_ram[0x180000]` allocation.
 
 `scripts/dump_wave.py` does the extraction. Decode with ffmpeg; the result is
-derived from the user's own ROM and stays local, like the SFX dump.
+derived from the user's own ROM and stays local, like the extracted SFX.
 
 ## It is a sampler, not a tone generator
 
@@ -3455,7 +3455,7 @@ Being precise, because the temptation is to over-read this.
 - **GPGX's synth is unvalidated.** It sits behind an unconditional `return` and has
   never executed, so its table layout is an assumption nobody has tested. Do not
   treat it as documentation.
-- **The MWMM sequence format** is partially reverse-engineered. Modules carry
+- **The MWMM sequence format** is partly worked out. Modules carry
   `81 0E 57 4D 4D 4D`, and that leading `0x81` means they are LZO-compressed -
   which this port can now decode.
 - **Where a 26-voice renderer would live.** Not the MCU, which already services the
@@ -3466,9 +3466,9 @@ Being precise, because the temptation is to over-read this.
 Solved: the samples exist, are reachable, and decode. That removes the blocker
 everyone assumed was permanent.
 
-Not solved: the program table, the sequence format, and the renderer. This is a
-real reverse-engineering project, not a weekend - but it is no longer gated on
-hardware nobody has dumped.
+Not solved: the program table, the sequence format, and the renderer. Working them
+out is a real project, not a weekend - but it no longer waits on hardware nobody
+has read out.
 
 
 ## All 52 music modules decompress
@@ -3576,7 +3576,7 @@ Other things to try once that is known:
 ## Eight commands are muted, not two
 
 The firmware stubs more than the two upstream mentioned. From
-`repos/mega-ppm/mcu/paprium.c`, with krikzz's own comments:
+mega-ppm's `mcu/paprium.c`, with krikzz's own comments:
 
 | cmd | comment | GPGX |
 |---|---|---|
@@ -3787,7 +3787,7 @@ Two process points fell out of it:
   recorded in advance earn their keep precisely when they disagree with a later,
   more elegant story
 
-### CONFIRMED: it is a PCM stream buffer (2026-08-31)
+### Confirmed: it is a PCM stream buffer (2026-08-31)
 
 Filling `0x1802-0x19FF` with `0x80` **killed the hash on hardware**. VM DAC no
 longer produces static.
@@ -4176,7 +4176,7 @@ module. Worth capturing 0x8D/0xD6 during a boss fight.
 
 ## Validated against the released recordings - and the pitch model FAILED
 
-`cdda/trackNN.pcm` and `music-modules/trackNN.mwmm` are **the same piece**: the
+The album's `trackNN.pcm` and the module `trackNN.mwmm` are **the same piece**: the
 cue's TRACK numbers line up with the module numbers (TRACK 01 = "90's Acid Dub
 Character Select" = track01.mwmm "90's Acid Dubstep"). That gives objective
 ground truth, so the decode does not have to be judged by ear.
@@ -4339,7 +4339,7 @@ command slots being pooled in with note slots.
 
 **The mini-game.** It appears only on a cold start. `Reset Core` does NOT clear
 SDRAM (see "Reset Core does not clear SDRAM" above) - that is precisely why the
-documented workflow is "play the mini-game, reset the core, play the real game".
+documented procedure is "play the mini-game, reset the core, play the real game".
 To see it again the core must be **fully exited and relaunched**.
 
     1. rename /Assets/paprium/common/paprium.pcm -> paprium.pcm.off
@@ -4407,7 +4407,7 @@ indirect:
    behave like indices, and there is no frequency register anywhere in the
    hardware we hold to point them at (see the SFX-engine correction above). The
    referenced structure would have to live outside the module - in the ROM, or in
-   the STM32 firmware that has never been dumped.
+   the STM32 firmware that nobody has ever read out.
 2. **Pitch is stateful in a way a histogram cannot see** - relative to a running
    value updated by commands that are themselves not yet identified. A chroma
    test cannot detect that, and nothing weaker than a full interpreter would.
@@ -4417,10 +4417,10 @@ we have.
 
 ## Honest bottom line
 
-    container  order list, 26 voices, patterns, rows, slots     SOLVED
-    text       XOR 0xA5                                          SOLVED
-    reference  album validated against hardware, 50 tracks       SOLVED
-    payload    event semantics, pitch                            NOT SOLVED
+    container  order list, 26 voices, patterns, rows, slots     solved
+    text       XOR 0xA5                                          solved
+    reference  album validated against hardware, 50 tracks       solved
+    payload    event semantics, pitch                            not solved
 
 The tooling built here is durable and correct: `identify_track.py`,
 `validate_pitch.py`, `validate_tempo.py`, and a cached 50-track reference make
@@ -4428,9 +4428,9 @@ any future hypothesis decisively testable in seconds against a known chance
 level. That is what was missing for the whole first half of this work.
 
 What would actually unlock the payload is **the STM32F446 firmware**, which is
-the only place the synth has ever existed. `repos/paprium-dump` documents glitch
+the only place the synth has ever existed. A third-party Paprium research repository documents glitch
 attacks against exactly that chip (`ChipWhisperer/Paprium_STM32_Glitch_CW.py`,
-CVE-2020-0574 for the MAX 10). Until such a dump exists, further guessing at
+CVE-2020-0574 for the MAX 10). Until such a read-out exists, further guessing at
 event semantics is not a good use of effort - the search space is unbounded and
 the tests can only ever say no.
 
@@ -4550,7 +4550,7 @@ echo. **That is wrong.** The engine has no chromatic pitch:
 
 Eight rates and a cycle-skip cannot play a melody. Whatever renders MWMM is a
 **separate mechanism that has never been seen** - not in RTL, not in firmware
-(krikzz substitutes CDDA and never implemented it), and not in any dump. That
+(krikzz substitutes CDDA and never implemented it), and not in any read-out of the cart's chips. That
 also explains why the module's values look like indices rather than frequencies:
 there is no frequency register anywhere in the hardware we have.
 
@@ -4819,7 +4819,7 @@ cap for port 2 entirely rather than tuning a threshold.
 timing for no benefit.
 
 
-## SETTLED: MCU starvation is not the elevator's cause
+## Settled: MCU starvation is not the elevator's cause
 
 Both directions tested on hardware.
 
@@ -5446,7 +5446,7 @@ simultaneous inputs - motion inputs such as forward-forward-B dashes stay
 unreachable - and it needs the 6-button menu option turned OFF, which is a
 confusing thing to ship.
 
-## SOLVED (diagnosis): the big-enemy death is 0x1A + flag 0x0100
+## Solved (diagnosis): the big-enemy death is 0x1A + flag 0x0100
 
 The capture settles it. `0x1A` was requested four times:
 
@@ -5729,7 +5729,7 @@ stream pointer at the decoded data.** `0xDA` is a real consumer of the window, n
 a stray write. That is a fact worth having: it was a reasonable hypothesis, it was
 cheap to test, and it is now closed.
 
-It also matches the reviewer's middle row - "0xDA is a real consumer; freeze
+It also matches the review's middle row - "0xDA is a real consumer; freeze
 desyncs later DMA -> do not ship the freeze, go to dest capture / decoder_ram."
 
 ### What it does NOT establish
@@ -5766,7 +5766,7 @@ theory alive. Destinations only ever in the workspace kill it and leave
 
 ## Probe B design, and a correction to the address-space assumption
 
-A reviewer flagged that `0xDA` and `0xDB` must not be bucketed against one map,
+A review flagged that `0xDA` and `0xDB` must not be bucketed against one map,
 since they use different argument conventions. Correct on the decoding. But
 checking `ppm_unpack` shows **both destinations live in the SAME space, and it is
 neither a 68000 address nor 0x800000**:
@@ -5844,7 +5844,7 @@ Note the headroom this opens if it works: a linear `x + 1` mapping stays below
 `0xC000` all the way to block index 95, i.e. **95 slots against today's 53** - but
 only as much of that hole as testing proves is actually free.
 
-## SETTLED: tying cfg_6btn off COST 1,151 ALMs
+## Settled: tying cfg_6btn off cost 1,151 ALMs
 
 Controlled experiment, three builds:
 
@@ -6059,7 +6059,7 @@ Treat "13-14 blocks/frame" as a **band, not a spec**: display-on fetches, 68000 
 traffic and the SAT DMA all draw on the same budget. The prediction that survives
 regardless is that a 53-block refill cannot happen in one vblank.
 
-## REMAP REFUTED: tiles 800-863 are NOT free - the game owns them
+## Remap refuted: tiles 800-863 are NOT free - the game owns them
 
 Hardware, cap restored to 53 with a linear `(x + 1)` map putting slots 49-52 at
 tiles 800-863 (`0x6400-0x6BFF`): **the cell-room floor glitched immediately.** The
@@ -6120,7 +6120,7 @@ from two immediate constants, findable in the ROM:
     0310C0:  317C 1200 1F12     move.w  #$1200,($1F12,a0)   ; dma_budget = 4608
 
 `317C` is `move.w #imm,(d16,A0)`, and the base long at `0xAF83C` is **0x00000000** -
-a value from the address table already dumped at `0xAF810`. So `ramdp` is at 68000
+a value from the address table already listed at `0xAF810`. So `ramdp` is at 68000
 address 0 and `0x1F12` is `dma_budget`, exactly as the struct predicted.
 
 | | words | blocks/frame at 0x110 |
@@ -6158,8 +6158,8 @@ at finer grain than a fixed 16-tile, `0x110`-word charge.
 
 **That is a POLICY difference, not a hardware one, and it is not a route.** The
 Pocket is a Cyclone V - wrong family for a MAX 10 bitstream - and the Datenmeister
-bitstream has never been dumped; it is still inside an epoxied 10M02. There is no
-file to instantiate and no reverse-engineered command set to reimplement. What is
+bitstream has never been read out; it is still inside an epoxied 10M02. There is no
+file to instantiate and no worked-out command set to reimplement. What is
 missing is the packing and DMA policy, not a chip. GPGX looks cleaner for a
 different reason again: emulated VRAM writes are free. EverDrive Pro, MiSTer and
 Pocket all push the real VDP pipe.
@@ -6397,7 +6397,7 @@ values - and CDDA will never bend those slices. **Extras that live only in the
 wavbank stay missing until someone implements sampler voices, which is a new
 engine, not a flag fix.**
 
-## SOLVED: flag 0x0100 steps the SAMPLE RATE, it is not amplify
+## Solved: flag 0x0100 steps the SAMPLE RATE, it is not amplify
 
 Established from hardware, and it closes the big-enemy death sound.
 
@@ -6557,7 +6557,7 @@ So the menu is not indexing rows 128-255. The layout that fits every observation
 That is exactly why `9A` sounded like `1A` on stock and like deep-`1A` on the
 patched build - it is `0x80 | 0x1A`, i.e. "row 0x1A with the rate step".
 
-### CONFIRMED on hardware, 2026-08-31 - sweep run, item closed
+### Confirmed on hardware, 2026-08-31 - sweep run, item closed
 
 **The extra 128 entries are variants, not new samples.** Run on shipping
 `397b28eb`, which carries the rate step; on stock `61d1ddd3` every pair sounds
@@ -6573,10 +6573,10 @@ choice: row `0x00` is 127 bytes, about 2.6 ms, far too short to judge pitch.
 Predictions were computed from the table before playing, so the sweep had a
 falsifier rather than a listen-and-see:
 
-    positive controls    52 / D2   24000 -> 12000 Hz   0.95 s -> 1.90 s   VERIFIED
-                         20 / A0   24000 -> 12000 Hz   1.42 s -> 2.83 s   VERIFIED
-    long-sample confirm  1C / 9C    9600 ->  6000 Hz   4.31 s -> 6.89 s   VERIFIED
-    negative control     22 / A2    5333 -> 5333 Hz    identical          VERIFIED
+    positive controls    52 / D2   24000 -> 12000 Hz   0.95 s -> 1.90 s   verified
+                         20 / A0   24000 -> 12000 Hz   1.42 s -> 2.83 s   verified
+    long-sample confirm  1C / 9C    9600 ->  6000 Hz   4.31 s -> 6.89 s   verified
+    negative control     22 / A2    5333 -> 5333 Hz    identical          verified
 
 The negative control is what makes this a result and not an impression: `22` is
 already at rate index 5, so it cannot step, and it came back identical while the
@@ -6709,7 +6709,7 @@ The five registers and their address maths:
     reg  5  sprite attributes   (v & 0x7F) << 9       SAT     = 0x280
     reg 13  hscroll table       (v & 0x3F) << 10      hscroll = 0x400
 
-**REFUTED: static search of the ROM for VDP register tables (2026-08-31).**
+**Refuted: static search of the ROM for VDP register tables (2026-08-31).**
 Scanning for runs of `0x8rvv` words with ascending register numbers finds only
 false positives - an 8 MiB ROM is full of ascending byte runs in the 0x80-0x9F
 range, and the "tables" it returns decode to values that are themselves 0x8r
@@ -6729,7 +6729,7 @@ What is left, cheapest first:
 1. **Emulator VDP viewer.** Read regs 2/3/4/5/13/16 in the cell room and in
    INTERCOM; write down the five addresses and their sizes. Five minutes.
 2. **A logging GPGX.** `tools/gpgx-render` already has a libretro host and the
-   core source is in `gpgx-build/`, so patching the VDP register write path to
+   core source is in our local GPGX build folder, so patching the VDP register write path to
    log every distinct layout with a frame number is a small change - and it
    catches per-scene changes that reading a viewer by eye can miss. It still
    needs someone to play to those scenes.
@@ -6848,7 +6848,7 @@ Two candidates, and the emulator session distinguishes them:
 unrelated and lowest value. Only these are actually gated:
 
     cap-53 / remap              five addresses + map sizes, cell room + INTERCOM
-    player/bombs behind scenery SAT dump + regs 3/17/18
+    player/bombs behind scenery SAT capture + regs 3/17/18
 
 The same playthrough is convenient for both, not required.
 
@@ -6872,7 +6872,7 @@ probe was the cheap decisive test for the firmware side and it came back negativ
   Firmware-only, identical fit. Hardware-accurate routing deferred - see above
 - Rooftop boss sprite priority - never investigated
 - Intro pixel flicker - cosmetic
-- ~~Boom Box `N` vs `N+0x80` sweep~~ **CONFIRMED 2026-08-31** - the high 128 slots
+- ~~Boom Box `N` vs `N+0x80` sweep~~ **Confirmed 2026-08-31** - the high 128 slots
   are rate variants, not unheard samples. Positive controls, a long-sample
   confirmation and a saturated negative control all verified. See above
 
@@ -6952,7 +6952,7 @@ and is free to write its own entries into the same shared buffer.
 That closes the loop with the hardware probe. Forcing `0x8000` moved other sprites
 and did not move the player or the bombs, which is exactly what a shared buffer
 predicts: **we only ever touch the entries we append.** Three independent sources
-agree, so this is settled without a dump:
+agree, so this is settled without a capture:
 
     GPGX source        SAT staged at 0xB00, count 68k-owned
     mega-ppm header    same buffer, same counter
@@ -7006,7 +7006,7 @@ one SAT DMA above. **It never touches plane A, plane B, window or hscroll** - th
 So regs 2, 3, 4, 13, 17 and 18 still need the emulator, and the plaintext ROM scan
 for them is still refuted. The emulator session is now smaller than it was: SAT
 base is known, one of the two questions about the player is answered, and what is
-left is the plane/window/hscroll set plus a SAT dump to see whether the player is
+left is the plane/window/hscroll set plus a SAT capture to see whether the player is
 in the table.
 
 # QUEUED: fix the ownership map, then build on it - after masking and the elevator
@@ -7275,7 +7275,7 @@ The SAT-entry-to-object map added for this run was **wrong** - it attributed the
 not used for any conclusion here. The tester's identification from the rendered
 layout has now been more reliable than the instrumentation twice running.
 
-# ROOFTOP SOLVED: SPRITE MASKING, not priority - 2026-09-01
+# Rooftop solved: sprite masking, not priority - 2026-09-01
 
 Probe and snapshot run together on hardware. This closes the question.
 
@@ -7585,7 +7585,7 @@ cited for what it fails to show.
 
 ## Where the rooftop item stands now
 
-    window plane            REFUTED - never enabled, in any scene
+    window plane            refuted - never enabled, in any scene
     SAT priority            already refuted on hardware by the forced-0x8000 probe
     is the player in the SAT  STILL OPEN, and not answerable from GPGX
 
@@ -7601,7 +7601,7 @@ the standing rule that no new bitstream is built for this without a decision.
 # The VDP capture needs no compiler - use a savestate
 
 Genesis Plus GX savestates already contain everything the capture was going to be
-built for. From the source in `gpgx-build/core`:
+built for. From the source in GPGX's `core/` folder:
 
     state.c      16-byte version "GENPLUS-GX 1.7.6", then work_ram[0x10000],
                  zram[0x2000], zstate, zbank, io_reg[0x10], then the VDP block
@@ -7650,7 +7650,7 @@ on screen** - the question is what the SAT says at the moment the player is clip
 
 ## Running it
 
-There is no RetroArch on this machine, but `src/genesis_plus_gx_libretro_x64/`
+There is no RetroArch on this machine, but a local copy of GPGX's libretro build
 holds a Paprium-capable GPGX core already. Any RetroArch install can load that core
 plus the ROM. Turn savestate compression off if the parser cannot find the payload,
 though it handles zlib.
@@ -7758,7 +7758,7 @@ identical to shipping, bitstream md5 different, no RTL touched.
 
 Either outcome is worth more than the current state, which is a change carried on
 a withdrawn premise. **Standing instruction is that cap-49 stays and no new VRAM
-bitstream is built without a dump - this does not override that.** It is here so
+bitstream is built without a capture - this does not override that.** It is here so
 the decision is made on what is actually known.
 
 ## Process note
@@ -7799,7 +7799,7 @@ down as such:
 
     IMA ADPCM music                FIXED, hardware-verified
     VM DAC static                  FIXED, hardware-verified
-    Boom Box N vs N+0x80           VERIFIED - the menu is a flag UI, nothing unheard
+    Boom Box N vs N+0x80           verified - the menu is a flag UI, nothing unheard
     Auto-boot + save               FIXED, hardware-verified, save loads and writes
     Elevator scrolling squares     CHARACTERISED - fill-rate bound at 10-16
                                    blocks/frame from a ROM constant
@@ -7807,7 +7807,7 @@ down as such:
                                    falls back to previous_offset
     Intro pixel flicker            ACCEPTED - cosmetic, self-corrects
     Rooftop player/bombs behind BG  **NOT YET** - open, and the probe only ruled a
-                                   cause out. Needs a SAT dump to reach
+                                   cause out. Needs a SAT capture to reach
                                    CHARACTERISED
     cap-53 / VRAM remap            **NOT YET** - needs five VDP addresses
 
@@ -7872,7 +7872,7 @@ shipping fingerprint** (cmdlog is 308).
 ## Open, and what each is actually blocked on
 
     cap-53 / remap            five VDP addresses + map sizes, cell room + INTERCOM
-    player/bombs behind BG    SAT dump (is the player in the table?) + regs 3/17/18
+    player/bombs behind BG    SAT capture (is the player in the table?) + regs 3/17/18
     frozen walks / squares    NOTHING - fill-rate bound, 10-16 blocks/frame
     intro pixel flicker       unrelated, lowest value
 
@@ -7880,7 +7880,7 @@ Closed 2026-08-31: **Boom Box N vs N+0x80**. Swept with predicted pairs and a
 saturated negative control - the top half is the same 127 rows with the rate-step
 flag. Nothing unheard in the bank, and the mixer does not grow.
 
-**No new Pocket bitstream for sprites or VRAM until a SAT/register dump exists.**
+**No new Pocket bitstream for sprites or VRAM until a SAT/register capture exists.**
 
 ## Gates learned the hard way (all in BUILD_REFERENCE)
 
@@ -8210,7 +8210,7 @@ everything else looked right and only a NEWLY needed block starved - a pillar
 smashed for the first time being exactly that. `ppm_dma_refresh()` now runs in
 `frame_start`, before any `0xAD` can arrive.
 
-**Open caveat, from the reviewer:** if the 68000 writes `dma_total`/`dma_budget`
+**Open caveat, from the review:** if the 68000 writes `dma_total`/`dma_budget`
 AFTER `0xAE`, the refresh is now too early and starves the same way. The
 falsifier is in the build - if pillars stay whole while "refused, out of DMA
 budget" is still high, log both words at `0xAE` and at the first `0xAD` rather
@@ -8218,7 +8218,7 @@ than moving the call again on a hunch.
 
 ### Instruments that replaced the guesses
 
-    anim-over drops                      0 - REFUTED the early-out suspect outright
+    anim-over drops                      0 - refuted the early-out suspect outright
     block loads refused, DMA budget      the starvation path
     block loads refused, slot full       PPM_VRAM_SAFE_SLOTS pressure, a different bug
 
@@ -8444,10 +8444,10 @@ failing path. **Read the path report first next time.**
 The three worst are VDP clock-prescaler flops into **Z80 transparent latches**.
 The first 68000-internal path is fourth, 0.2 ns better than the worst.
 
-### Experiment: reverse-engineer the MWMM synth
+### Experiment: work out the MWMM synth
 
 **On its own branch, after #8.** This is the cartridge's music hardware - the part
-that has never been dumped and the reason the port substitutes the released
+nobody has ever read out and the reason the port substitutes the released
 soundtrack. Reproducing it would remove that substitution entirely.
 
 Targets named so far: the **sax layer**, the **crisis cue `0xD6`**, and **hit
@@ -8766,7 +8766,7 @@ captured - it is a lead, not a measurement.
 Written before the capture exists, deliberately. Every wrong turn in this
 investigation has been a number read after the fact and fitted to the theory
 that was already in hand - the `masks[8]` overflow, the mask-group cap of 5,
-the "predecessor rewired past a run". The criteria below are the reviewer's,
+the "predecessor rewired past a run". The criteria below are the review's,
 agreed while the fit was still running, and they are not to be renegotiated
 once the numbers are on the table.
 
@@ -8832,8 +8832,8 @@ frame"** on the CRC capture and again on this one. Nothing in `mcu/mame.c`
 writes `t[17..22]`. The reader was added by `cb1a341` (2026-09-03), the
 commit that *parked* the RTL read-back after five failed fits - the writer
 lived in that read-back and was never fitted, never committed. The bytes are
-zeroed on every capture. The line is retired in the decoder and marked NOT
-MEASURED; it is not cited anywhere in docs/, only in chat, where it was used
+zeroed on every capture. The line is retired in the decoder and marked as not
+measured; it is not cited anywhere in docs/, only in discussion, where it was used
 to rule out pointer desync. **Pointer desync is not ruled out. It has never
 been observed either way, because the firmware cannot read the pointer.**
 
@@ -8920,7 +8920,7 @@ read-only) immediately after each of its five pointer writes (`0xDA`, `0xDB`,
 that carried any traffic. 99 epochs, 10 bytes each, in the arena; the onset
 ring and the CRC table are compiled out (`#error` if two claim the arena).
 
-**Why two counters and no "expected" from firmware.** The reviewer's
+**Why two counters and no "expected" from firmware.** The review's
 criterion is "count vs expected words-per-epoch". The firmware cannot know
 what the game consumed - it only knows where it pointed. So the expected
 count is taken from the 68000 side of the same bus, in the same clock domain
@@ -8996,8 +8996,8 @@ first-mismatch frame survives regardless.
 ### Correction: the footage does not settle wrong-place vs wrong-picture
 
 Above, the tester's "they looked shifted" was written up as settling it for
-the tape. That was too strong. The reviewer watched the 2026-09-03 capture
-(clip clock ~9:19-9:21) and reports the SQUARES phase, from ~00:44: wrong
+the tape. That was too strong. A review of the 2026-09-03 capture
+(clip clock ~9:19-9:21) reports the SQUARES phase, from ~00:44: wrong
 square tiles on the elevator floor - sign fragments, solid colours, UI bits
 replacing the green hex floor - accumulating on the floor 00:46-01:40 and
 scrolling with the plane; horizontal garbage bands in the distant BG from
@@ -9005,7 +9005,7 @@ scrolling with the plane; horizontal garbage bands in the distant BG from
 reads as **wrong art in the right cells**, not the floor slid over.
 
 The two observations are of two phases. The tester described the precursor
-(seconds before the squares); the reviewer described the squares. The tape
+(seconds before the squares); the review described the squares. The tape
 theory predicts that progression - one word of drift shifts a tile's rows
 within itself, several words fetch a *neighbouring tile's pattern* from the
 same stream into the same VRAM slot, which is wrong art in the right cell -
@@ -9029,7 +9029,7 @@ What the footage does constrain, for any theory:
   one.
 
 Refinement for the FLAT outcome only: if `ack == oe` through the band, the
-reviewer's read then points at pattern VRAM being written by something other
+review's read then points at pattern VRAM being written by something other
 than the window. The next step is offline and costs no ALMs - log in GPGX
 which VRAM tile addresses the game DMAs into during the shaft, and check
 whether anything else in the shipping layout can land on tiles 800-863.
@@ -9066,7 +9066,7 @@ to `ppmio`, in any build.
 Lesson, same as the last three: a number that fits the symptom is not a
 measurement. The numbers that refuted it (`hi_abb_c`, the linker origin, the
 map decode) were three greps away and were checked *before* the theory went
-to the reviewer - which is the only reason this section is a withdrawal
+to review - which is the only reason this section is a withdrawal
 rather than a correction.
 
 #### What the epoch card actually changed
@@ -9079,7 +9079,7 @@ shows a hang mechanism on reading. The fit passed every gate (-2.404).
 
 #### The bisect, and why the control is the ring firmware
 
-Reviewer's order: firmware side first. The cleanest firmware-side control is
+The review's order: firmware side first. The cleanest firmware-side control is
 not a stub - it is the **ring firmware unchanged** (`PPM_ONSET_RING 1`,
 `PPM_EPOCH_RING 0`, mcu.txt `14844a95`, the same switches as the firmware
 inside `dec2f09f`, which booted and ran two elevators today). It never reads
@@ -9125,7 +9125,7 @@ is in the RTL additions, or in a glitch both placements share.
 
 #### Cut 2: mux term out, counters pinned
 
-Reviewer's call: drop the `mcu_dati` slot-5 term, keep the counters. One
+The review's call: drop the `mcu_dati` slot-5 term, keep the counters. One
 correction to make that a real cut: with the term gone nothing reads
 `cnt_ack_l`/`cnt_oe_l`, and the fitter sweeps the counters, latches and
 `oe_st` as dead logic - "keep the counters" silently becomes the ring build,
@@ -9189,7 +9189,7 @@ Reading, once a seed passes and is booted:
     (seed 8, 9 in progress)
     cut-2 seed 8   ALM 18,026   setup -4.609   hold +0.039   md5 6bbcb0bd   FAIL
 
-**Locked with the reviewer (13:09):** cut 2 is not extended past seed 9 -
+**Locked in review (13:09):** cut 2 is not extended past seed 9 -
 five unread `noprune` registers on the bus is an odd shape for the fitter,
 and four placements spanning -4.609..-2.812 read as a worse netlist, not bad
 luck. If seed 9 misses, the fallback is the ORIGINAL epoch RTL (`4b098e0`) at
@@ -9207,7 +9207,7 @@ none within the gate. Not extended, per the lock. Fallback sweep started
     epoch-rtl seed 6   ALM 18,105   setup -2.835   hold +0.061   md5 074cfd28   FAIL
     epoch-rtl seed 7   ALM 18,122   setup -3.057   hold +0.082   md5 13b68037   FAIL
 
-**Reviewer, 14:2x:** finish seeds 8-9; if both miss, stop - do not burn
+**The review, 14:2x:** finish seeds 8-9; if both miss, stop - do not burn
 10-13. Next fit either way is the functional cut: the slot-5 read inside
 `fpgio.sv`, `paprium_cart`'s mux byte-identical to the ring build's. GPGX
 offline read-pattern logger greenlit as a parallel track (zero ALMs).
@@ -9225,9 +9225,9 @@ holes, partial pages)?
 
 ### GPGX window-read logger: pipeline proven, boot and subway logged
 
-**What `gpgx-build/` actually was.** Not the pristine fork: `paprium.h` there
+**What our local GPGX build folder actually was.** Not the pristine fork: `paprium.h` there
 was the MWMM music-render instrumentation from the synth work - hard-coded
-`<HOME>/gpgxbuild/render_*.bin` paths, an `exit(1)` when its render
+`<HOME>/gpgxbuild/render_*.bin` paths (in the author's home folder), an `exit(1)` when its render
 input is missing, an `exit(0)` when a render finishes. A core built from it
 "crashed" at content load with no Windows crash record, because it was
 exiting on purpose. Three rebuilds were spent on compiler and flag theories
@@ -9241,15 +9241,15 @@ patch, as-shipped Makefile.
 **Build recipe** (msys2 gcc 16.2; the fork's `Makefile.libretro`):
 `/c/msys64/usr/bin/make -f Makefile.libretro platform=win CC="gcc -pipe"
 CXX="g++ -pipe" -j4` compiles every object; the final link fails inside
-gcc's driver with "Cannot create temporary file in C:\WINDOWS" whenever it
+gcc's driver with "Cannot create temporary file" (in the Windows system folder) whenever it
 is spawned through msys make (libiberty cannot find a temp dir through that
 environment - not gcc's `-pipe`, not make's own temp files, not the
 optimisation flags, all three were chased). Run the link line directly from
-the shell: it is saved as `gpgx-build/link.cmd` (`eval "$(cat link.cmd)"`).
+the shell: it is saved as `link.cmd` in that folder (`eval "$(cat link.cmd)"`).
 RetroArch on Windows writes nothing to stdout; `--verbose --log-file` is
 how it reports. `--max-frames=N` runs headless-ish and exits; `-e N` loads
 save slot N at startup; `--max-frames-ss` writes a screenshot to
-`C:\RetroArch-Win64\screenshots`.
+RetroArch's own `screenshots` folder.
 
 **Tooling.** `scripts/apply_gpgx_winlog.py` (idempotent; hooks the page
 turn, `paprium_r16`'s default branch, `paprium_r8`, `paprium_cmd` for
@@ -9257,8 +9257,8 @@ turn, `paprium_r16`'s default branch, `paprium_r8`, `paprium_cmd` for
 `paprium_winlog.bin` in the frontend's cwd), `scripts/analyze_winlog.py`
 (epochs delimited the way the firmware's epoch counter delimits them;
 validated on planted logs including the early-page attribution, which was
-off by one in the first draft), and `vdp-capture/launch-winlog.cmd`
-(RetroArch on our core, cwd pinned so the log lands in `vdp-capture\`).
+off by one in the first draft), and a local `launch-winlog.cmd`
+(RetroArch on our core, cwd pinned so the log lands in the capture folder).
 
 **Boot, 900 frames:** 10,656 window reads in 8 active epochs, every one
 strictly sequential from `0xC000`, mode-7 pages (1,024 words) read to the
@@ -9397,7 +9397,7 @@ PASS (hangs; the control shares it), cut-2 @5-9 FAIL x5, epoch @6-9 FAIL
 x4, fcut@5 FAIL. **Two passing placements in twelve.** Every RTL variant
 re-rolls, and the fitter's tail is ~1.5 ns wide around the gate.
 
-Recommendation, for the reviewer to accept or overrule: **pause RTL fits.**
+Recommendation, for the review to accept or overrule: **pause RTL fits.**
 The GPGX track has produced a mechanism - fixed-size vblank DMA over-reading
 a short payload tail - that the epoch counter cannot see even when it
 works, because the tape counts correctly and still delivers the wrong
@@ -9411,7 +9411,7 @@ has a different mechanism and the counter was never going to find it.
 subway state 8 for 600 frames to a log **byte-identical** to the first
 build's (`c934a5f8`): 22,619 records, epoch 11, 256 words past the page.
 The instrument is deterministic; the finding is not an artefact of one
-build. Fitter idle pending the reviewer's sweep-or-pause call. Card on
+build. Fitter idle pending the review's sweep-or-pause call. The SD card holds
 `dec2f09f`.
 
 **Cell room (cellroom.state), 30 s, no input:** a live scene (Tug mid-fight)
@@ -9420,7 +9420,7 @@ five states on hand only the subway streams unattended. The elevator log
 therefore needs a human ride, or a state saved at the instant the car
 starts descending (the shaft scrolls on its own from there).
 
-### DMA hook: the subway over-read landed in background tiles (CONFIRMED)
+### DMA hook: the subway over-read landed in background tiles (confirmed)
 
 Core `fda1ce92` (`gpgx_winlog_build.sh --dma`), subway state 8, 600 frames:
 15,744 68k-bus DMAs, **12 sourced from the stream window**, one per frame at
@@ -9468,7 +9468,7 @@ over-reading DMA gets the same bytes on the Pocket that it gets in GPGX.
 Firmware-only: a ROM-only change refits onto the ring RTL at seed 5 with
 the placement `dec2f09f` already has (-2.549, boots), exactly as the
 control demonstrated. Not built until the elevator log says the mechanism
-is present in the shaft. The fitter stays idle by the reviewer's call.
+is present in the shaft. The fitter stays idle by the review's call.
 
 ### The page model's over-read content is an exact formula; the tape can reproduce it
 
@@ -9661,12 +9661,12 @@ invoked as `... | tail -1 && retroarch ...`, so the pipe returned tail's
 status and RetroArch ran on the stale 15:58 core. The "0 of 69 mailbox
 reads", the PC readings and the frame-order run from those cores are
 **withdrawn**. The build script now refuses a core older than the run and a
-header missing the hooks it just applied; the applier is written with the
-Write tool and contains no escape sequences.
+header missing the hooks it just applied; the applier is written as a plain
+file, not through a shell heredoc, and contains no escape sequences.
 
 With a real core (`2c72e463`, 17:26), the train state: **the game reads
 `0x1FE4` (`reg_status_1`) exactly once between every `0xDB` write and its
-first window read, 69 of 69.** The routine, disassembled from the ROM:
+first window read, 69 of 69.** The game's routine:
 
     07F452  move.w  #$40, -$c(a6)      size = 64 bytes
     07F460  move.l  #$db06, -(a7)
@@ -9687,7 +9687,7 @@ still clear from the previous command, the game skips the loop, and its
 sixteen longwords come off the tape from wherever it sat: `0x9000`, the
 sprite pad, after the frame-end rewind. `move.l (a0)` with `a0` fixed is
 tape semantics; for this code to work the retail cart must raise busy in
-hardware on the command write. The reviewer's pre-registered branch
+hardware on the command write. The review's pre-registered branch
 "polls -> race dies" met the subtler case: it polls a flag the Pocket
 raises too late. The race lives.
 
@@ -9723,9 +9723,9 @@ taken (10)` = ~66 cycles = ~8.6 us at 7.67 MHz. `PPM_BUSY_PULSE_LOOPS` is
 at one `0xAF` per frame that is 0.24% of a frame of MCU time, and it delays
 the response - hence the game's next command - by the same 40 us. Firmware
 with pad + busy-rest on: `mcu.txt` (see build log); off: `8111bd8a` (the
-card). Ready to fit on the reviewer's go: ring RTL, seed 5, ROM-only.
+build on the SD card). Ready to fit on the review's go: ring RTL, seed 5, ROM-only.
 
-### PPM_BUSY_REST fit: GO (reviewer, 17:37), pre-registered
+### PPM_BUSY_REST fit: GO (from the review, 17:37), pre-registered
 
 Ring RTL (`8c5b241`), seed 5, firmware pad 1 + busy-rest 1 = `mcu.txt
 7e43f08f`. ROM-only on the ring RTL: expected placement `dec2f09f`'s
@@ -9794,7 +9794,7 @@ fixed the rows; this is what was under them.
 unpack cache, but assign VRAM tiles in list order (`16 + 16k` for the
 k-th block of the frame) and DMA every listed block from its SDRAM slot
 every frame, as the retail cart does. The game's `dma_budget` is sized for
-it (16 blocks; GPGX streams 9 in the shaft). Design for the reviewer.
+it (16 blocks; GPGX streams 9 in the shaft). Design for the review.
 
 **Pulse narrowed** to `0xDB`/`0xDA` only; other commands keep busy up. New
 firmware md5 in the build log; the card still carries the wide-pulse
@@ -9820,7 +9820,7 @@ cached blocks costs budget the cache was saving; if a scene's list exceeds
 the budget the game itself would also exceed it on the retail cart, so the
 budget refusals should not rise. The onset ring measures exactly that.
 
-### The list-order placement fix, fully specified (for the reviewer's go)
+### The list-order placement fix, fully specified (for the review's go)
 
 What the retail cart does (GPGX, and the log): every frame, decode every
 block in the frame's tile list and stream them into VRAM from tile 16
@@ -9892,9 +9892,9 @@ falls back as it does on a budget refusal today); staging is `0x9000 +
 0x200 x list`, the same region today's per-load unpack uses at frame end,
 so no new collision with the `0xDA` sprite-pad payloads; the per-block
 budget charge moved from load time to stream time. Not fitted. Rides on
-dec2f09f's placement as a ROM-only change, on the reviewer's go.
+dec2f09f's placement as a ROM-only change, on the review's go.
 
-### PPM_LIST_ORDER_VRAM fit: GO (reviewer, 19:1x), pre-registered
+### PPM_LIST_ORDER_VRAM fit: GO (from the review, 19:1x), pre-registered
 
 Ring RTL, seed 5, firmware pad 1 + busy-rest 1 (pulse `0xDB`/`0xDA` only)
 + list-order 1 = `mcu.txt 6255f498`. Queued behind the narrowed-pulse fit.
@@ -10011,9 +10011,9 @@ any of them exhausted marks the object's blocks unavailable
 (`ppm_stream_over` counts it; not exposed yet). Budget charged per sprite
 (`words + 0x10`) and never stops the stream. Arithmetic: GPGX moves ~2,432
 words a frame in the shaft; with the overhead the Pocket charges ~2,640
-against the game's 2,816-word budget there. Not fitted; the reviewer's go.
+against the game's 2,816-word budget there. Not fitted; the review's go.
 
-### Corrected-stream fit: GO (reviewer, 20:0x), pre-registered
+### Corrected-stream fit: GO (from the review, 20:0x), pre-registered
 
 Ring RTL (`8c5b241`), seed 5, firmware pad 1 + busy-rest 1 (pulse
 `0xDB`/`0xDA`) + corrected per-sprite stream = `mcu.txt f36cc836`. ROM-only:
@@ -10033,8 +10033,8 @@ mid-walk; watch dma_remaining and overruns on heavy frames.
 residual start-screen pause and mild lag in large groups; the narrow pulse
 helped, not to zero. Shaft still bad, banded (busy-rest only, expected).
 Title clean: the revert is clean. This is the playable baseline; the
-corrected-stream fit stays GO with title-intact first. Capture archived as
-narrowpulse-run1.sav; counters above.
+corrected-stream fit stays GO with title-intact first. Capture archived
+locally; counters above.
 
 #### Corrected-stream build 95dcfe40: dec2f09f's placement (sixth). On the card.
 
@@ -10090,7 +10090,7 @@ under the stream. Prediction: title <= 80 every frame; shaft ~154. A
 cursor past the scene's plane art is the corruption, frame by frame.
 Firmware with the instrument on: see build log; off: 2c522e9f.
 
-### Fixed-stream fit: GO (reviewer, 21:0x), pre-registered
+### Fixed-stream fit: GO (from the review, 21:0x), pre-registered
 
 Ring RTL, seed 5, firmware pad 1 + busy-rest 1 (narrow pulse) + stream 1
 (no budget refusal during the stream, cursor always advances, no fallback
@@ -10145,7 +10145,7 @@ GPGX per-object / per-sprite logger (`apply_gpgx_winlog.py` kinds 13, 14, 15;
 
 The pre-registered "cursor max <= 80 on the title" came from the boot900 log,
 which ends at frame 900 - before the title exists. `d017785d` measured 203-242
-on the title; GPGX measures 203 on the same screen. So under the reviewer's own
+on the title; GPGX measures 203 on the same screen. So under the review's own
 branch ("cursor <= 80 with broken title -> walk/placement not the fault", and
 its converse): **the stream's placement on the title matched the reference.**
 No early return fires on the title (no-frame 0, empty-list 0, cap-94 0).
@@ -10186,7 +10186,7 @@ mode is the next scene to watch for cursor/budget.
 
 Retest (user): d017785d title = chaos, not an ordered train menu. Card reverted
 `d017785d -> d6182af4` (md5 confirmed). No capture in the save (0xFF from 0x900,
-no PBOT/PSAT/ring tags) - nothing to decode. Reviewer: park stream fits until a
+no PBOT/PSAT/ring tags) - nothing to decode. The review: park stream fits until a
 design explains title chaos with an aligned cursor; no GO on 4b2ad450.
 
 **The explanation, offline, measured.** `ppm_stream_dma` built its VDP control
@@ -10300,7 +10300,7 @@ An earlier "zero reads" figure was withdrawn: the applier's anchors were
 single-quoted against double-quoted source, nothing was inserted, and the
 build guard did not cover the new token (it does now).
 
-**The DMA list is shared.** Disassembly at 0x09D430-0x09D476: the 68000 appends
+**The DMA list is shared.** At 0x09D430-0x09D476 the 68000 appends
 its OWN descriptors to the same list - writes the command longword at $c(a2),
 `lea $10(a2),a2`, `dma_total += 0x10 + words`, `dma_cmd_count += 1`, up to
 four per call. mega-ppm's array is `dma_cmd[121]`; GPGX's own annotation puts
@@ -10324,7 +10324,7 @@ block, static-asserted), rewritten at command entry/exit, per object (slot,
 count, spr_info), per walked sprite, per stream DMA (cursor, stage,
 dma_cmd_count, dma_remaining), at BGM unpack (address, length) and at frame
 end (frame counter, sat_count), plus the MCU stack pointer. No behaviour
-change. On a hang the user exits the core from the Pocket menu; the OS dumps
+change. On a hang the user exits the core from the Pocket menu; the OS writes
 bram to the .sav (the PBOT boot marker already proved that path) and
 `decode_heartbeat.py` prints where the firmware stopped and flags the three
 hazards (count > 64, dma_cmd_count > 120, BGM over the cache). Fixture-tested.
@@ -10340,8 +10340,8 @@ title is expected until main Paprium has finished reading. Do not score
 load completes, then judge ordered train menu vs chaos / wrong layout. On
 3f0ee17d the title is therefore **pending a full wait-through**, not a soft
 pass with a flicker defect. Still standing: in-game sprite flicker after that
-point, and the hang after the prison-cell screen goes dark. Card remains
-d6182af4. **Heartbeat card 70c5265c: HOLD - no GO, questions open, no fit.**
+point, and the hang after the prison-cell screen goes dark. The SD card stays on
+d6182af4. **Heartbeat test build 70c5265c: HOLD - no GO, questions open, no fit.**
 
 Measured for the corrected title gate (GPGX `winlog-boot-stream3.bin`): after
 the title appears (frame 1338) there are NO window reads, page turns, 0xDA or
@@ -10354,7 +10354,7 @@ use a generous fixed wait (30 s+) before judging the title.
 Heartbeat cost (for the neutrality question): byte stores to on-chip bram only;
 at 54 sprites / 12 objects / 3 commands per frame about 650 stores, i.e. under
 15 us of a 16.7 ms frame even at one store per cycle. The one assumption to
-state: the Pocket OS dumping bram after an MCU hang is inferred from the boot
+state: the Pocket OS writing bram to the save after an MCU hang is inferred from the boot
 marker's normal-path evidence, not yet observed on a hang.
 
 **Boot timeline, GPGX 77 s (`winlog-boot-90s.bin`), matched to the user's
@@ -10381,7 +10381,7 @@ dec2f09f's placement. Fit `quartus_sh -t generate.tcl paprium 5`, log
 `build-heartbeat.log`, started 09:53. Title gate (corrected): wait through the
 intro to the ~45 s start screen (19 sprites, cursor 203); judge ordered train vs
 chaos only then; early flicker expected. Pre-reg: reproduce the cell hang ->
-exit the core from the Pocket menu -> `decode_heartbeat.py`; the bram-dump-
+exit the core from the Pocket menu -> `decode_heartbeat.py`; the bram-written-
 after-hang assumption stays open; hardening held until the record speaks.
 Card stays d6182af4 until the flash is ready.
 
@@ -10392,29 +10392,29 @@ Card stays d6182af4 until the flash is ready.
 Gate PASS -> deployed: card `d6182af4 -> 2dbae90a`, md5 confirmed; save's
 snapshot region blank (0xFF from 0x900). Test: wait through to the ~45 s start
 screen and judge; play to the prison cell; on the hang, exit the core from the
-Pocket menu (not power-off) so bram is dumped; then `decode_heartbeat.py` on
+Pocket menu (not power-off) so bram is written to the save; then `decode_heartbeat.py` on
 the save before anything is wiped.
 
-### 2026-09-05: heartbeat card 2dbae90a - cell hang reproduced, exit via menu, NOTHING dumped
+### 2026-09-05: heartbeat test build 2dbae90a - cell hang reproduced, exit via menu, NOTHING written
 
 User: cell hang reproduced on 2dbae90a, exited the core from the Pocket menu.
 Save on the card: 0xFF from 0x900 to the end - no `PBOT` boot marker, no
-`PHBT` heartbeat, file mtime 2021 (untouched). Copy kept at
-`vdp-capture/saves/paprium-cellhang-2dbae90a.sav`. Since `PBOT` is written
+`PHBT` heartbeat, file mtime 2021 (untouched). Copy kept locally
+(`paprium-cellhang-2dbae90a.sav`). Since `PBOT` is written
 unconditionally at setup, this is not the heartbeat failing: the Pocket did
 not write the save at all on this exit. Two explanations, not yet separated:
 (a) the hang wedges whatever the APF bridge needs to read battery RAM (a
 stalled MCU<->SDRAM/Wishbone transaction holding a shared path), so the OS's
-dump fails or is skipped; (b) the menu exit on OS 2.7 does not write the save
+save write fails or is skipped; (b) the menu exit on OS 2.7 does not write the save
 in this flow regardless of the hang. Control requested: same card, boot to the
 start screen, exit via the menu with NO hang, decode - `PBOT`+`PHBT` present
 proves (a), absent proves (b).
 
-**CORRECTION - the dump DID land.** The core's platform id is `paprium`, so its
+**Correction - the save write DID land.** The core's platform id is `paprium`, so its
 nonvolatile slot resolves to `/Saves/paprium/common/Paprium.sav`; the file read
 first was a stale browser-instance copy under `/Saves/genesis/...`. The real
 save carries `PBOT` (boot counter 4), `PSAT`, and a full heartbeat. Copy:
-`vdp-capture/saves/paprium-cellhang-2dbae90a.sav` (630f1313). Note the region
+`paprium-cellhang-2dbae90a.sav` (630f1313, kept locally). Note the region
 is 16-bit byte-swapped in the file - raw `grep PBOT` finds nothing.
 
 **The record (cell hang, 2dbae90a):**
@@ -10489,7 +10489,7 @@ User: "cell hang reproduced, exited via menu" - then clarified: **the game does
 not crash. The screen goes dark / greyscale and it becomes unplayable, sprites
 everywhere.** Also: the start screen still shows lots of sprite flicker after
 the wait-through on this card. Save archived as
-`vdp-capture/saves/paprium-cellhang-6bcc8524.sav` (e933fec1), boot counter 6.
+`paprium-cellhang-6bcc8524.sav` (e933fec1, kept locally), boot counter 6.
 
     frame 5035 (83.9 s)   last cmd 0xAE (frame start)   phase 10 = handler tail, response about to be written
     object slot 11, sprite 0 of 1 (previous frame's walk)   cursor 300   dma_cmd_count 34   dma_remaining wrapped
@@ -10551,7 +10551,7 @@ cleared at boot; no save wipe needed.
 
 ### 2026-09-05: heartbeat-3 record (70c9a726) - the 68000 froze INSIDE the vblank DMA list
 
-Save `vdp-capture/saves/paprium-cellhang-70c9a726.sav` (f88056d4), boot 7:
+Save `paprium-cellhang-70c9a726.sav` (f88056d4, kept locally), boot 7:
 
     frame 5625 (93.8 s)   last cmd 0xAF (frame end)   phase 10   traps: none
     idle snapshot (3.57 M loop iterations later - the MCU was alive and idle):
@@ -10564,7 +10564,7 @@ the end of its vblank list runner. 25 = the MCU's 24 stream descriptors + the
 game's own SAT descriptor (640 words). They were never zeroed: the 68000
 stopped inside the runner.
 
-**The runner, extracted from `vdp-capture/states/cellroom.state` (RAM code at
+**The runner, extracted from a local savestate, `cellroom.state` (RAM code at
 0xFF5E00, called `jsr $ff5e00` at 0x0328C6 after a vblank-flag wait and the
 MCU-ack wait):**
 
@@ -10645,7 +10645,7 @@ User: lots of SFX crackle (the pause drains the FIFOs); video unchanged -
 intro still glitchy, sprite flicker in gameplay as before; and a correction:
 the game never froze - the screen goes very dark ("turns off the backlight")
 and glitches to the point nothing is legible, sprites still flickering.
-Save `vdp-capture/saves/paprium-cellhang-a9bdd55a.sav` (a31e4d2f), boot 8:
+Save `paprium-cellhang-a9bdd55a.sav` (a31e4d2f, kept locally), boot 8:
 
     frame 4178 (69.6 s)   last cmd 0xAD (object 13, sprite 0 of 1, cursor 16 - the frame's first sprite)
     phase 10   traps none   idle 4.0 M iterations   reg_cmd acked   dma_cmd_count 4   dma_total 624   tape 0x9000
@@ -10663,15 +10663,15 @@ Why it dies: the ROM header sends EVERY exception - bus error, address error,
 illegal instruction - to a bare `rte` at 0x206. On a 68000 an `rte` from a
 group-0 fault mis-pops the 14-byte frame and jumps to the faulting address as
 code: one address error is an endless fault loop. The cart overlays the vector
-table with the mailbox RAM (`ramdp->vectors[0x80]`, copied from flash at reset
+table with the mailbox RAM (`ramdp->vectors[0x80]`, filled from flash at reset
 and patched), so the EFFECTIVE handlers are whatever the game installs there -
 readable by the MCU. Under the stream, a desynced tape corrupts not only tile
 data (flicker) but the 0xDB payloads the game reads through the same window at
 scene transitions - a bad pointer there is the address error. Consistent with
 every record: the dark screen is the transition's fade, mid-way.
 
-**Heartbeat 4 (`ac1965b`):** the effective vectors 2/3/4/28 are copied from
-the mailbox to bram 0xFB0 at loop idle. Firmware: stream on + heartbeat 4,
+**Heartbeat 4 (`ac1965b`):** at loop idle the firmware copies the effective
+vectors 2/3/4/28 out of the mailbox into bram 0xFB0. Firmware: stream on + heartbeat 4,
 option B off `20d392de`; with option B `9f0602a4`; heartbeat off `c642dfe3`.
 Option B parked (crackle, no visual change). Card reverted to d6182af4.
 GPGX experiment in flight: inject a stale window word every N reads
@@ -10727,7 +10727,7 @@ timing; unchanged => the stream's data path is back in play. Option B parked.
 Deployed per the standing order: card `d6182af4 -> 64f1a57f`, md5 confirmed.
 LRU baseline rendering + heartbeat 4 + a 4 KB scratch memcpy per 0xAD.
 
-### 2026-09-05: port2-load card 64f1a57f - (i) REFUTED; the 0x9000 collision
+### 2026-09-05: port2-load test build 64f1a57f - (i) refuted; the 0x9000 collision
 
 User: no dark/glitch, no intro glitch, cell OK - plays like the baseline; mild
 lag / missing frames between screens (the 4 KB memcpy per object). So the walk's
@@ -10762,13 +10762,13 @@ bug, intermittent because it needs a block load in the gap); per-frame
 staging -> every page after any DA corrupt = the stream's glitching; a 16 KB
 mode-2 payload at 0x9000 under the staging -> corrupted data the game follows
 -> the 68000 fault into the header's `rte` stubs -> the dark, glitching
-screen. One root cause for #8, the flicker and the death. Adversarial review
+screen. One root cause for #8, the flicker and the death. A structured review
 of the claim and of a firmware-only fix (relocate the MCU scratch out of the
 payload space; keep the tape contiguous with the list order by copying the
 pending payload next to the staged tiles at 0xAF when the game's window
-descriptor is present) launched as a workflow before any fit is proposed.
+descriptor is present) was started before any fit is proposed.
 
-**Review workflow, first four verdicts (2026-09-05, six skeptics; E tape
+**The structured review, first four verdicts (2026-09-05, six independent critics; E tape
 semantics and F fault path still running):**
 - WITHDRAWN: "all 0xDB/0xDA in the 0xAF->0xAE window (train 76/76, elevator
   1,167/1,169)". Those two logs carry no 0xAE records (older hook; elevator's
@@ -10778,7 +10778,7 @@ semantics and F fault path still running):**
   onward, each alone in its vblank at vc 225; 16/16 chains contain no
   0xAD/0xAE/0xAF/0xDB - the game issues no sprite frame during the load.
   Mode-2 DAs are followed by CPU word reads, never window DMAs.
-- B REFUTED: no MCU writer runs between a mode-7 0xDA and its transfer; my
+- B refuted: no MCU writer runs between a mode-7 0xDA and its transfer; my
   "3 of 8 gaps with staging" was a same-frame miscount (the DMAs preceded the
   DA). The big mode-2 backgrounds go to dst 0 and are read at 0x80..0x7F80,
   below the scratch. The d1==2 0xDA02 path copies its payload synchronously.
@@ -10847,7 +10847,7 @@ synchronizer (re-fit risk) - measurable first by a stream card with
 PPM_EPOCH_RING-style ack-vs-OE counters, or simply by whether the flicker
 persists after the relocation.
 
-**Review synthesis (9 agents, 226 tool uses): root cause LIKELY - storage
+**Review summary (nine independent analyses): root cause likely - storage
 aliasing over long-lived payloads, not the timing story.** Refuted legs: no
 MCU writer runs inside any DA epoch (mode-7 chains 16/16, CPU-read epochs
 1,127/1,127); the game's window DMAs are alone in their vblank 147/147; no
@@ -10862,7 +10862,7 @@ the in-gameplay sprite flicker and the cell-transition dark screen (separate
 mechanisms; the tape's single-flop clk_ram->clk ack toggle and the dropped
 same-cycle ack are the flicker family, RTL).
 
-**Fix applied (design 1 / synthesis steps 1-6, 9-10; `543bdb6`, `640efac`,
+**Fix applied (design 1 / the review summary's steps 1-6, 9-10; `543bdb6`, `640efac`,
 decoder `3bcdbd9`):** `ppm_block_unpack_addr` widened to 32 bits (0x1E0000
 truncated to 0 in u16 - the loader would have unpacked over the dst-0
 backgrounds); preprocessor bounds (scratch >= 0x10000, scratch end <=
@@ -10875,17 +10875,17 @@ the 0xAF list is still unconsumed; trap record bytes 22-23; GPGX predicts
 ~1 per 400 packets in the elevator, 0 on the train). Step 7 (LRU descriptor
 cap) not taken. Firmware:
 
-    CARD 1  LRU + heartbeat 4 + PPM_SCRATCH_HIGH   801da897
-    CARD 2  stream + heartbeat 4 + PPM_SCRATCH_HIGH f12887c9
+    test build 1  LRU + heartbeat 4 + PPM_SCRATCH_HIGH   801da897
+    test build 2  stream + heartbeat 4 + PPM_SCRATCH_HIGH f12887c9
     (switch off: LRU c5b49237, stream 541cdb28 - changed by the new counters,
-     the widened cursor and the both-build guard; the A/B reference for card 1
-     stays the card d6182af4)
+     the widened cursor and the both-build guard; the A/B reference for test
+     build 1 stays the SD card's d6182af4)
 
-**Pre-registration (from the synthesis):** fit gate = dec2f09f's placement
+**Pre-registration (from the review summary):** fit gate = dec2f09f's placement
 exactly (ALM 18,194 / setup -2.549 / hold +0.264), anything else = accidental
-RTL change, do not flash. Title after wait-through unchanged. CARD 1 vs
+RTL change, do not flash. Title after wait-through unchanged. Test build 1 vs
 d6182af4 on the shaft: #8's slot-wide bands -> 0 over two full rides;
-snap_db_stale == 0 (was 42-61). CARD 2 vs 70c9a726/a9bdd55a: per-DA
+snap_db_stale == 0 (was 42-61). Test build 2 vs 70c9a726/a9bdd55a: per-DA
 background/row garbage GONE; sprite flicker UNCHANGED; dark screen at the
 cell UNCHANGED (if either disappears, log it as a surprise against F / the
 port2-load refutation, not as confirmation). SFX/BGM unchanged, BGM-over
@@ -10897,7 +10897,7 @@ Still unmeasured: the actual 0xDA destination per mode on hardware, the late
 DBs' addresses (logger defect), the Pocket's command order vs GPGX, the
 flicker and dark-screen mechanisms, register-indirect vector writes.
 
-**GO received (2026-09-05, 16:18): card 1 first** - firmware `801da897` (LRU +
+**GO received (2026-09-05, 16:18): test build 1 first** - firmware `801da897` (LRU +
 heartbeat 4 + PPM_SCRATCH_HIGH; stream, option B and the load off), ring RTL
 `8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 `build-scratch1.log`. Deploys on gate per the standing order. Pre-reg as
@@ -10913,7 +10913,7 @@ Records clear at boot; no save wipe needed. Decode after the shaft rides with
 decode_heartbeat.py (residual + BGM-over counters) and decode_sat_snapshot.py
 if a capture is taken (snap_db_stale, re-keyed to the scratch base).
 
-### 2026-09-05: card 1 cc639d69 - #8 SHAFT CLEAN (prediction held)
+### 2026-09-05: test build 1 cc639d69 - #8 SHAFT CLEAN (prediction held)
 
 User: title OK after wait-through; cell room fine; **#8 shaft clean**; mild
 lag / dropped frames (may be the shipping baseline's); ~1 s extra pause after
@@ -10924,7 +10924,7 @@ no dark/glitch on this run. The storage-aliasing root cause is confirmed for
 (candidates: cmd_F2's unpack now at 0x1E0000, the BGM guard, heartbeat 4's
 bram writes at boot - decode the counters when the card comes back).
 
-**GO card 2 (2026-09-05):** `f12887c9` = stream + heartbeat 4 + PPM_SCRATCH_HIGH,
+**GO test build 2 (2026-09-05):** `f12887c9` = stream + heartbeat 4 + PPM_SCRATCH_HIGH,
 ring RTL `8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement; deploys
 on gate. Pre-reg: title after wait-through; stream background garbage / flicker
 vs the prior stream cards (70c9a726 / a9bdd55a); shaft still clean; cell dark
@@ -10937,11 +10937,11 @@ yes/no; note lag. Dark -> menu exit -> sd in.
 Deployed per the standing order: card `cc639d69 -> 37245cf2`, md5 confirmed.
 Records clear at boot. On a dark screen: menu exit, sd in, decode_heartbeat.py.
 
-### 2026-09-05: card 2 37245cf2 (stream + scratch-high) - stream still glitches; card 1 is the best card
+### 2026-09-05: test build 2 37245cf2 (stream + scratch-high) - stream still glitches; test build 1 is the best build
 
-User: start menu glitching, cell glitching, stopped at the cell. And on card 1:
+User: start menu glitching, cell glitching, stopped at the cell. And on test build 1:
 "fixed nearly everything, only issue was lag and slow startup". Save
-`vdp-capture/saves/paprium-cell-37245cf2.sav` (56177d55), boot 13:
+`paprium-cell-37245cf2.sav` (56177d55, kept locally), boot 13:
 
     frame 3737 (62.3 s)   last cmd 0xAF   phase 10   traps none
     residual: 62 pointer writes (0xDA/0xDB) while dma_cmd_count != 0
@@ -10953,7 +10953,7 @@ Readings:
   invisible to F's absolute-write search) but still a bare `rte` for group-0
   faults -> a fault would HALT; the changing picture says no fault. F stands.
 - The stream's corruption is its own: with the scratch moved, the LRU build
-  (card 1) is clean where the stream build (card 2) still glitches. The
+  (test build 1) is clean where the stream build (test build 2) still glitches. The
   residual counter says the game moves the tape pointer (0xDA/0xDB) 62 times
   a minute while the MCU's list is pending - far above GPGX's order. On the
   LRU that is harmless (the runner reads almost nothing from the tape); under
@@ -10964,7 +10964,7 @@ Readings:
   13 selects the MCU's own tape; placement re-roll), or re-arm discipline in
   firmware. The stream was built to cure #8, which the scratch move cured on
   the LRU - so the stream is PARKED.
-- Card 1 (cc639d69 = LRU + heartbeat 4 + PPM_SCRATCH_HIGH) is the new
+- Test build 1 (cc639d69 = LRU + heartbeat 4 + PPM_SCRATCH_HIGH) is the new
   playable baseline. Open on it: mild lag / dropped frames (present on the
   shipping-era baseline too) and a ~1 s extra pause after "presented by"
   before the WM logo. Candidates for the pause: cmd_F2 (moved with the
@@ -10972,9 +10972,9 @@ Readings:
   0xF2, so that was vacuous), the both-build BGM guard, heartbeat/RTE setup.
   Measuring F2's presence at boot in GPGX first.
 
-**Chasing card 1's lag / ~1 s boot pause (reviewer: keep cc639d69, stream
+**Chasing test build 1's lag / ~1 s boot pause (the review: keep cc639d69, stream
 parked, fix the lag before more stream work):**
-- Diff card 1 (801da897) vs the baseline's firmware (2c522e9f): heartbeat 4
+- Diff test build 1 (801da897) vs the baseline's firmware (2c522e9f): heartbeat 4
   (bram stores on every command / object / sprite / DMA / frame end; idle
   mailbox snapshot every 64 loop iterations; RTE install), PPM_SCRATCH_HIGH
   (loader unpack base, 0xAF re-arm and cmd_F2 at 0x1E0000), the both-build
@@ -10991,12 +10991,12 @@ parked, fix the lag before more stream work):**
   the logger never hooked 0xF2, so that was vacuous. A GPGX boot run with
   every command byte hooked (kind 17) is in flight to see whether F2 is
   issued at boot (between "presented by" and the WM logo) and what follows.
-- Smallest experiment, compiled: CARD 3 = card 1 with the heartbeat OFF
+- Smallest experiment, compiled: test build 3 = test build 1 with the heartbeat OFF
   (LRU + PPM_SCRATCH_HIGH, PPM_HEARTBEAT 0) = `059e7d13`. Same placement
   expected. A/B by stopwatch: disclaimer -> WM logo on d6182af4 vs cc639d69 vs
-  card 3, and the between-screens drops. #8 must stay clean (the scratch move
-  is unchanged). If card 3 still pauses, the relocation itself (F2 / loader
-  base) is next: card 4 = card 3 with F2's addresses left at 0x9000.
+  test build 3, and the between-screens drops. #8 must stay clean (the scratch move
+  is unchanged). If test build 3 still pauses, the relocation itself (F2 / loader
+  base) is next: test build 4 = test build 3 with F2's addresses left at 0x9000.
 
 **F2 check (GPGX, every command byte hooked, `winlog-boot-allcmds.bin`, 2,400
 frames):** 0xF2 is never issued - not at boot, not on the title, not in
@@ -11008,46 +11008,46 @@ A4 B0 EC CA C9 D2 B6 8D B1 (f240-247), first 0xAF/0xAE at f280, sprites (0xAD)
 from f725, and the WM-logo -> start-menu transition is the 38 s load burst (4
 DA, 12 page turns, 14,448 window words of mode-2 CPU copies). Nothing in the
 boot path touches the relocated scratch except the loader once sprites start.
-Card 3 (heartbeat off, `059e7d13`) remains the bisection; if the pause
+Test build 3 (heartbeat off, `059e7d13`) remains the bisection; if the pause
 survives it, the next split is the relocation itself.
 
-**GO received (2026-09-05, 19:13): card 3** - firmware `059e7d13` (= card 1
+**GO received (2026-09-05, 19:13): test build 3** - firmware `059e7d13` (= test build 1
 without the heartbeat: LRU + PPM_SCRATCH_HIGH, PPM_HEARTBEAT 0), ring RTL
 `8c5b241` @ seed 5, ROM-only -> expect dec2f09f's placement. Log
 `build-scratch3.log`. Deploys on gate per the standing order. Pre-reg: by
-stopwatch, "presented by" -> WM logo on d6182af4 vs cc639d69 vs card 3, and
+stopwatch, "presented by" -> WM logo on d6182af4 vs cc639d69 vs test build 3, and
 the between-screens drops; #8 must stay clean. Pause/drops gone => the
-heartbeat (ship without it); unchanged => the relocation, card 4 splits it.
+heartbeat (ship without it); unchanged => the relocation, test build 4 splits it.
 
-### 2026-09-05 19:40 - card 3 on the SD: 51b67a50 (firmware 059e7d13, heartbeat off)
+### 2026-09-05 19:40 - test build 3 on the SD: 51b67a50 (firmware 059e7d13, heartbeat off)
 
 Fit at seed 5 on ring RTL 8c5b241, launched 19:13, fitter done 19:37, flow exit 0 at 19:40.
 
     ALM 18,194 / 18,480 (98%)   M10K 72%
     setup -2.549   hold +0.264       (worst corner -2.596 / +0.004)
-    = dec2f09f's placement, byte-for-byte the same corner set as card 1's fit (build-scratch1.log)
+    = dec2f09f's placement, byte-for-byte the same corner set as test build 1's fit (build-scratch1.log)
 
-Gate PASS. Deployed per the standing order: card md5 cc639d69 -> 51b67a50; built ==
-archive (scratch3-lru-nohb.CANDIDATE.rbf_r) == card. Card 1 (cc639d69) stays in the
+Gate PASS. Deployed per the standing order: SD card md5 cc639d69 -> 51b67a50; built ==
+archive (scratch3-lru-nohb.CANDIDATE.rbf_r) == the SD card's copy. Test build 1 (cc639d69) stays in the
 gate archive as scratch1-lru.CANDIDATE.
 
-Only difference from card 1: PPM_HEARTBEAT 0 (no bram writes from the MCU loop, no
+Only difference from test build 1: PPM_HEARTBEAT 0 (no bram writes from the MCU loop, no
 trap recorder, no idle snapshot). Everything else identical: LRU loader, PPM_SCRATCH_HIGH
 (scratch at 0x1E0000, 32-bit loader cursor), stream off.
 
 Read protocol (user, stopwatch): "presented by" -> WaterMelon logo on d6182af4 vs
 cc639d69 vs 51b67a50; dropped frames between screens; #8 shaft must stay clean.
-- pause and drops gone on card 3  => the heartbeat was the cost; v0.2.0 ships card 3
-- unchanged                       => the cost is in the relocation itself; card 4 splits it
+- pause and drops gone on test build 3  => the heartbeat was the cost; v0.2.0 ships test build 3
+- unchanged                             => the cost is in the relocation itself; test build 4 splits it
 
-### 2026-09-05 20:20 - card 3 tested: pause still there. The pause is PPM_BUSY_REST.
+### 2026-09-05 20:20 - test build 3 tested: pause still there. The pause is PPM_BUSY_REST.
 
-Tester (card 3, 51b67a50, heartbeat off): the boot pause is unchanged. Heartbeat
+Tester (test build 3, 51b67a50, heartbeat off): the boot pause is unchanged. Heartbeat
 refuted as the cost. The user's framing: 0.1.0 (shipping) has no pause and a broken
-elevator; card 1 has a clean elevator and the pause - compare the two.
+elevator; test build 1 has a clean elevator and the pause - compare the two.
 
-**What changed between 0.1.0 and card 1 (firmware only, same ring RTL 8c5b241):**
-switches added and ON in card 1: PPM_ONSET_RING, PPM_DA_PAD, PPM_BUSY_REST (+pulse 600),
+**What changed between 0.1.0 and test build 1 (firmware only, same ring RTL 8c5b241):**
+switches added and ON in test build 1: PPM_ONSET_RING, PPM_DA_PAD, PPM_BUSY_REST (+pulse 600),
 PPM_HEARTBEAT, PPM_SCRATCH_HIGH. Unconditional code since 0.1.0 (source diff of the two
 patches, outside any `#if PPM_` span): the 32-bit loader cursor, `ppm_sptr_shadow`, the
 `snap_*` counters and note functions (a few compares per command), the BGM-over guard,
@@ -11080,26 +11080,26 @@ card read was "boots, shaft banded, lag" - no benefit, two costs. If the race ev
 the faithful fix is RTL (bit 2 raised on the 68000's write to 0x1FEA, cleared on the MCU's
 write to 0x1FE4, ~15 ALMs, placement re-roll).
 
-**Card 4 = shipping firmware + the #8 fix, nothing else:** HEAD source with the 0.1.0
+**Test build 4 = shipping firmware + the #8 fix, nothing else:** HEAD source with the 0.1.0
 switch set (ONSET_RING 0, DA_PAD 0, BUSY_REST 0, HEARTBEAT 0) + PPM_SCRATCH_HIGH 1.
 mcu.txt `fce5dc45` (-O2, 19,084 bytes; -Os variant fe5fd800 not used). Reproducible
 (three builds). Same ring RTL 8c5b241, seed 5 -> dec2f09f's placement expected.
 Pre-registered: boot pause gone AND #8 shaft clean => this is v0.2.0. Pause gone, shaft
 banded => scratch-high needs one of the dropped switches (DA_PAD next). Pause present =>
-the relocation itself, card 5 = card 4 minus SCRATCH_HIGH as the control.
+the relocation itself, test build 5 = test build 4 minus SCRATCH_HIGH as the control.
 
 Side finding: the 0.1.0 tag's rtl/PAPRIUM/mcu.txt (c645d08c, committed 09-02 20:07) is
 not reproduced by the tag's own patch (-O2 69585468, -Os 90d5f61a): the patch kept
 moving for ~4 h after that firmware was built. Not a blocker; noted for the 0.2.0 release
 (commit the mcu.txt and the patch together).
 
-**GO received (2026-09-05, 20:05): card 4 - firmware `fce5dc45`, ring RTL 8c5b241, seed 5,
+**GO received (2026-09-05, 20:05): test build 4 - firmware `fce5dc45`, ring RTL 8c5b241, seed 5,
 auto-deploy on gate.** rtl/PAPRIUM/mcu.txt = fce5dc45 verified; rtl/ differs from 8c5b241 by
-mcu.txt only. Fit launched 20:06 (`build-scratch4.log`). Card holds card 3 (51b67a50) until
+mcu.txt only. Fit launched 20:06 (`build-scratch4.log`). The SD card holds test build 3 (51b67a50) until
 the gate passes; then archive as `scratch4-shipping-plus-fix.CANDIDATE`, copy to the SD, md5
 before/after, ping.
 
-### 2026-09-05 20:33 - card 4 on the SD: 0945652f (firmware fce5dc45, shipping switches + PPM_SCRATCH_HIGH)
+### 2026-09-05 20:33 - test build 4 on the SD: 0945652f (firmware fce5dc45, shipping switches + PPM_SCRATCH_HIGH)
 
 Fit at seed 5 on ring RTL 8c5b241, launched 20:05, fitter done 20:30, flow exit 0 at 20:32.
 
@@ -11116,17 +11116,17 @@ decoders: no onset ring and no heartbeat in this card's save, so `decode_onset_r
 and `decode_heartbeat.py` have nothing to read from it; the SAT snapshot is still written.
 
 Pre-registered (from the 20:20 entry): pause gone + shaft clean => v0.2.0 candidate;
-pause gone + shaft banded => DA_PAD back next; pause present => card 5 = card 4 minus
+pause gone + shaft banded => DA_PAD back next; pause present => test build 5 = test build 4 minus
 SCRATCH_HIGH as the control.
 
-### 2026-09-05 21:05 - card 4 tested: pause gone; shaft "occasional bg blank or shifted". Card 5 = busy-rest v2.
+### 2026-09-05 21:05 - test build 4 tested: pause gone; shaft "occasional bg blank or shifted". Test build 5 = busy-rest v2.
 
-Tester (card 4, 0945652f): no pause at the intro; the shaft no longer has the banding
+Tester (test build 4, 0945652f): no pause at the intro; the shaft no longer has the banding
 mess; occasional background row blank or shifted. "Good enough for 0.2.0", and asked for
 the next fit in case it clears the residue.
 
 **Reading.** Pause gone => PPM_BUSY_REST v1 was the pause (predicted). The residue is new
-relative to card 1 (busy-rest ON, shaft called clean) and card 4 differs from it by
+relative to test build 1 (busy-rest ON, shaft called clean) and test build 4 differs from it by
 busy-rest, DA_PAD, ONSET_RING and HEARTBEAT. The blank/shifted row matches the race
 busy-rest was written for, now visible because the banding no longer masks it: 0xAF
 rewinds the tape to PPM_SCRATCH_BASE every frame end, the shaft's per-frame 0xDB re-points
@@ -11154,17 +11154,17 @@ Per reader:
   (a 0xDB that is the last command of its frame). The SFX FIFO is 256 deep (audio_sfx.sv
   FIFO_SIZE 8), ~20 ms at 13 kHz, so the wait cannot underrun it.
 
-Card 5 firmware `73075a01` (-O2, 19,216 bytes): card 4 + PPM_BUSY_REST 1 +
+Test build 5 firmware `73075a01` (-O2, 19,216 bytes): test build 4 + PPM_BUSY_REST 1 +
 PPM_BUSY_CLEAR_THROUGH_RESP 1. DA_PAD still 0 (single variable). The two `#error`
 apostrophes in mame.h are reworded (preprocessor warnings only; no code change).
 Launched at seed 5 on ring RTL 8c5b241 (`build-scratch5.log`), auto-deploy on gate per
 the standing order; if the SD is not in the PC at flow exit the copy waits for "sd in".
 
-Pre-registered: shaft rows clean (no blank/shifted) AND no pause => card 5 ships as
-0.2.0. Rows still blank/shifted, no pause => not the race; DA_PAD back next (card 6).
-Pause returns => the wait design is wrong somewhere; ship card 4 as 0.2.0 and revisit.
+Pre-registered: shaft rows clean (no blank/shifted) AND no pause => test build 5 ships as
+0.2.0. Rows still blank/shifted, no pause => not the race; DA_PAD back next (test build 6).
+Pause returns => the wait design is wrong somewhere; ship test build 4 as 0.2.0 and revisit.
 
-### 2026-09-05 21:17 - card 5 on the SD: 3e491f73 (firmware 73075a01, busy-rest v2)
+### 2026-09-05 21:17 - test build 5 on the SD: 3e491f73 (firmware 73075a01, busy-rest v2)
 
 Fit at seed 5 on ring RTL 8c5b241, launched 20:51, fitter done 21:15, flow exit 0 at 21:17.
 
@@ -11175,12 +11175,12 @@ Fit at seed 5 on ring RTL 8c5b241, launched 20:51, fitter done 21:15, flow exit 
 Gate PASS. Deployed per the standing order (SD was in): card md5 0945652f -> 3e491f73;
 built == archive (scratch5-busyrest-v2.CANDIDATE.rbf_r) == card.
 
-Single variable against card 4: PPM_BUSY_REST 1 + PPM_BUSY_CLEAR_THROUGH_RESP 1
+Single variable against test build 4: PPM_BUSY_REST 1 + PPM_BUSY_CLEAR_THROUGH_RESP 1
 (PPM_BUSY_WAIT_LOOPS 4000). Reads as pre-registered in the 21:05 entry.
 
-## 2026-09-05 21:40 - 0.2.0 SHIPS: card 5. #8 CLOSED.
+## 2026-09-05 21:40 - 0.2.0 SHIPS: test build 5. #8 CLOSED.
 
-Tester (card 5, 3e491f73): shaft rows clean, no pause. GO: "ship card 5 as 0.2.0".
+Tester (test build 5, 3e491f73): shaft rows clean, no pause. GO: "ship card 5 as 0.2.0".
 
     bitstream   3e491f73   build_output/gate-archive/scratch5-busyrest-v2.CANDIDATE.rbf_r, on the card
     firmware    73075a01   rtl/PAPRIUM/mcu.txt, committed in the release commit WITH the patch that builds it
@@ -11297,7 +11297,7 @@ area; (3) the Z80 swap held in reserve for when the synth needs more than FX68K 
 
 **2026-09-05 23:30 - FX68K: already in progress, and the numbers are measured.** The
 user confirms the 89% ALM / 93% M10K / WNS -1.179 / TNS -51.4 figures come from a
-**real fit of FX68K test builds**, worked in parallel (another session) while this one
+**real fit of FX68K test builds**, worked in parallel (a second line of work) while this one
 was on the elevator. Two consequences. (1) The prediction in "Experiment: swap
 nuked-md's 68000 for FX68K" above - that area would not move timing because the worst
 paths are VDP -> Z80 latches - is **overturned by measurement**: the swap moves setup
@@ -11448,7 +11448,7 @@ Counters (PPM_SAT_SNAPSHOT, shipping config): `snap_switch_refused` and
 the stream-pointer audit that nothing ever wrote. `scripts/decode_sat_snapshot.py`
 prints them in place of that dead section.
 
-    firmware mcu.txt   73075a01 (card 5) -> f044d85e   19,732 B of 32 KB IMEM
+    firmware mcu.txt   73075a01 (test build 5) -> f044d85e   19,732 B of 32 KB IMEM
     fit                build-logs/build-stickyswitch.log, seed 5, started 09:28
                        ROM-only change -> expect dec2f09f's placement
     canonical patch    patches/mega-ppm-pocket.patch regenerated (+130 lines)
@@ -11465,8 +11465,8 @@ first-frame hiccup of one frame stays possible; if that is still visible, the
 next lever is the budget (`PPM_DMA_OVERBUDGET`, already in the tree, never
 tried) or prefetching the next animation frame's blocks during hold frames.
 
-Committee (Workflow `paprium-animation-committee`, six readers, four
-diagnosticians, three refuters per hypothesis, one synthesis) was run in
+A structured review (six readers, four diagnosticians, three independent attempts
+to refute each hypothesis, one summary) was run in
 parallel with this read; its verdicts are appended below when it returns.
 
 ### Fit and deploy (09:55)
@@ -11474,8 +11474,8 @@ parallel with this read; its verdicts are appended below when it returns.
     build-stickyswitch.log   seed 5   first pair setup -2.549 / hold +0.264   PASS
     ALM 18,194 / 18,480 (98%)   M10K 294 / 308 (95%)   block bits 72%
     rbf 495e7e19 -> paprium.rbf_r 9416df87   firmware f044d85e
-    card D: 3e491f73 (card 5, 0.2.0) -> 9416df87   md5 confirmed, pkg matches card
-    archive: build_output/gate-archive/stickyswitch.txt (same numbers as card 5's
+    SD card: 3e491f73 (test build 5, 0.2.0) -> 9416df87   md5 confirmed, pkg matches the SD card
+    archive: build_output/gate-archive/stickyswitch.txt (same numbers as test build 5's
     scratch5-busyrest-v2.txt - the ROM-only change kept dec2f09f's placement)
 
 Deployed per the standing order (GO'd work, gate passed). Rollback is the
@@ -11524,7 +11524,7 @@ transitions, plus the usual list.
 
 #### Correction before the floor reached the card (10:30): the game owns 0x1F14
 
-The committee's code refuter (H2, ROM bytes verified) settles who writes
+The review's code check of H2 (ROM bytes verified) settles who writes
 `dma_remaining`, and it is not us: the game's 0xAE sender at ROM 0x030F68
 stores `dma_total = 0x0240` (0x030F8C: `317C 0240 1F10`, the full 144-entry
 SAT upload) and `dma_cmd_count = 0` BEFORE posting 0xAE, and its gameplay
@@ -11544,7 +11544,7 @@ Two consequences:
 So the floor moved to the gate as an MCU-private per-frame credit
 (`ppm_floor_used`, reset at 0xAE): in `ppm_vram_load_block`, when the shared
 word is below one block, up to `PPM_DMA_FLOOR_BLOCKS` loads are still granted
-and NOT charged to `dma_remaining`. Two blocks, not three: the refuter's
+and NOT charged to `dma_remaining`. Two blocks, not three: the review's
 physical estimate is ~11 blocks in the usable blank against 8 charged, and a
 transition frame's 34 descriptors carry runner overhead beyond the 0x10 each is
 booked at, so two (544 words) keeps a margin where three would be on the line.
@@ -11552,8 +11552,8 @@ Counters unchanged in meaning: frames that used the floor, longest run.
 The 0x1F14 ownership also explains why the OVERBUDGET probe was never worth
 flashing and is the reason a "bigger budget" was never a lever here.
 
-Committee summary (33 agents, 4.99 M tokens, 75 min): H1 (the lost switch)
-survived 3/3 refuters unrefuted; H2 (budget arithmetic) refuted 3/3 as stated
+Summary of the review (33 separate analyses, 75 min): H1 (the lost switch)
+survived all three attempts to refute it; H2 (budget arithmetic) refuted 3/3 as stated
 but its corrected form is the paragraph above; H3 (budget waste/order), H5
 (cyclic LRU), H6 (MCU latency), H7 (unpinned fallback - now shipped as
 PPM_PIN_FALLBACK) refuted 3/3; H4 (prefetch) 2/3 - the premise (on-demand
@@ -11564,7 +11564,7 @@ stays the next lever if the floor is not enough.
 
     firmware  5dd9c0c7 (floor at the gate, 2 blocks)   fit build-logs/build-dmafloor2.log, seed 5, started 10:30
 
-### 0.2.1 hardware run decoded (card 9416df87, save paprium-sticky-9416df87.sav, ~10:40)
+### 0.2.1 hardware run decoded (test build 9416df87, save paprium-sticky-9416df87.sav, ~10:40)
 
 User's route: stage 1 walking/fighting, subway, elevator. Verdict: "fight
 animations better, no more missing fighting frames"; subway still relinks,
@@ -11586,7 +11586,7 @@ producing - every one of them a character finishing its old cycle instead of
 starting the new one - and 92% of them now complete on the next draw or two.
 The refusal rate is up from 0.025 to 0.039/frame because a pending switch
 re-requests its blocks every frame until it lands; harmless. The thrash figure
-is the LRU's cyclic-eviction pattern the committee's H5 described (refuted as
+is the LRU's cyclic-eviction pattern the review's H5 described (refuted as
 the cause of the stall, but real in magnitude): a quarter of all loads are
 re-fetches. That is the prefetch/eviction-policy lever, for after the floor.
 
@@ -11595,7 +11595,7 @@ re-fetches. That is the prefetch/eviction-policy lever, for after the floor.
     build-dmafloor2.log   seed 5   first pair setup -2.549 / hold +0.264   PASS
     ALM 18,194 / 18,480 (98%)   M10K 294 / 308   archive dmafloor2.txt == stickyswitch.txt
     rbf bee837ff -> paprium.rbf_r 888ad681   firmware 5dd9c0c7 (PPM_DMA_FLOOR_BLOCKS 2 at the gate)
-    card D: 9416df87 (0.2.1 content) -> 888ad681   md5 confirmed, pkg matches card
+    SD card: 9416df87 (0.2.1 content) -> 888ad681   md5 confirmed, pkg matches the SD card
 
 Pre-registered read for the user's next run: walking in from another screen
 animates within a few frames; the save's "frames that used the floor" is in
@@ -11607,7 +11607,7 @@ then the usual subway / pillars / elevator / rooftop / boss list. Rollback to
 
 ### Floor result (user, ~11:05): walk-in UNCHANGED - it is not a refusal at all
 
-Card 888ad681, save paprium-floor-888ad681.sav, 7,808 frames (~2.2 min):
+Test build 888ad681, save paprium-floor-888ad681.sav, 7,808 frames (~2.2 min):
 
     frames that used the floor                44   (0.6% - a transition would be tens in a row)
     block loads refused, budget               53 of 5,956 (0.9%, 0.007/frame)
@@ -11616,13 +11616,13 @@ Card 888ad681, save paprium-floor-888ad681.sav, 7,808 frames (~2.2 min):
 
 The loader was barely refusing anything, the floor barely fired, and the
 walk-in from the previous screen still plays the standing pose. Budget
-starvation through the transition is REFUTED as the walk-in mechanism (it was
-the committee's corrected H2 and my own reading this morning). The floor is
+starvation through the transition is refuted as the walk-in mechanism (it was
+the review's corrected H2 and my own reading this morning). The floor is
 harmless and stays as a knob, but it is not the fix; whether it ships in 0.2.1
 is decided by the counters (it fired 44 times without visible tearing - keep
 for now, revisit).
 
-New lead, from the committee's dropped list and the ROM scan: the game writes
+New lead, from the review's dropped list and the ROM scan: the game writes
 the record's +0xA word with values OTHER than 1 -
 
     031058   move.w #1,$A(a0)        the set-anim routine (once per change)
@@ -11654,7 +11654,7 @@ hardware". So a fidelity gap shared by both cart implementations. The GPGX
 window logger got a per-0xAD record of the object record as the game left it
 (scripts/apply_gpgx_winlog.py kinds 18/19/20: anim, +0xA, raw objID,
 nextAnim; scripts/analyze_objrec.py reads them). User's capture from boot
-through a transition: vdp-capture/winlog-walkin-20260906.bin, 6,940 frames,
+through a transition: winlog-walkin-20260906.bin (kept locally), 6,940 frames,
 33,844 draws.
 
 What the game writes:
@@ -11704,7 +11704,7 @@ set - the capture says that is at most a few frames) and the usual list.
     build-chainend.log   seed 5   first pair setup -2.549 / hold +0.264   PASS
     ALM 18,194 / 18,480 (98%)   archive chainend.txt == stickyswitch.txt (same placement)
     rbf 242a5962 -> paprium.rbf_r c2bf6e66   firmware fd872d74 (sticky + floor 2 + chain-only-at-end)
-    card D: 888ad681 -> c2bf6e66   md5 confirmed, pkg matches card
+    SD card: 888ad681 -> c2bf6e66   md5 confirmed, pkg matches the SD card
 
 Test: walk in from another screen (the transition), then the enemies'
 approach, then the usual list. Rollback: 0.2.1 content = pkg 9416df87
@@ -11742,7 +11742,7 @@ both faults. Next: cut 0.2.1 per the 0.2.0 recipe (info.txt fix rides along).
 User: "keep the frame fix... fighting frame fix should be noted as 0.2.1",
 then "fixed the walking, and no regression", then "also make this release
 not beta". Content = firmware fd872d74 / bitstream c2bf6e66 exactly as tested
-on card D: (0.2.0 + PPM_STICKY_SWITCH + PPM_PIN_FALLBACK + PPM_DMA_FLOOR_BLOCKS 2
+on the SD card: (0.2.0 + PPM_STICKY_SWITCH + PPM_PIN_FALLBACK + PPM_DMA_FLOOR_BLOCKS 2
 + PPM_CHAIN_ONLY_AT_END; PPM_SAT_SNAPSHOT still 1 as in 0.2.0). core.json
 0.2.1 / 2026-09-06; info.txt fix rides along; README download line and
 versioning paragraph rewritten - releases are full releases from 0.2.1.
@@ -11761,7 +11761,7 @@ User: the occasional single-pixel flicker in the intro is gone on 0.2.1 as well.
 
 ### README "How these were found" (13:05)
 
-Four bullets added for today: the ROM as the arbiter between the two ports (0x031024), before/after counters in the save (and the floor negative result), the adversarial committee catching the 0x1F14 rewrite before a build was flashed, and logging the object record as the game writes it (the walk-in, a bug the reference shares).
+Four bullets added for today: the ROM as the arbiter between the two ports (0x031024), before/after counters in the save (and the floor negative result), the structured review catching the 0x1F14 rewrite before a build was flashed, and logging the object record as the game writes it (the walk-in, a bug the reference shares).
 
 ### README "What this port adds" (13:15)
 
@@ -11812,7 +11812,7 @@ not a bug, and is corrected in the section above.
 
 ### The hardware captures are the only unrecoverable artefacts, and one is already gone
 
-Copied 2026-09-09 to `../hw-captures/` - **outside this repo on purpose**, since `.gitignore`
+Copied 2026-09-09 to a local captures folder - **outside this repo on purpose**, since `.gitignore`
 blocks ROM/PCM/wave-bank data but not `.mp3`, and game-derived data stays local.
 
 - **Intercom (Direct Capture) - Nickology**, 208 s. Album track04 "Asian Chill", chroma 0.936,
@@ -11822,25 +11822,25 @@ blocks ROM/PCM/wave-bank data but not `.mp3`, and game-derived data stays local.
   future `0x8C` command-log run.
 - **Arcade Mode Longplay**, 49 MB, kept for the same labelling purpose.
 
-`hw-test/paprium/03 Bone Crusher.mp3` in this tree is the ALBUM track, not a capture. The original
+The `03 Bone Crusher.mp3` in our local test folder is the ALBUM track, not a capture. The original
 Bone Crusher hardware capture - a 34-second phone recording, the 52/52 refutation - **has already
 been lost**: it lived in a cloud-synced documents folder that is now empty. That is the precedent for
 treating the rest as at-risk, and the reason the survivors were copied somewhere deliberate.
 
 ### The cart's MAX 10 is far too small to hold the synth
 
-The cartridge part is a **10M02SCU169C8G** (verified on disk at `repos/paprium-dump/README.md:156`,
-not merely a transcript claim): 2,000 logic elements, ~108 Kbit of block RAM. The
+The cartridge part is a **10M02SCU169C8G** (checked in a third-party Paprium research repository's README.md, line 156,
+not merely taken from an earlier note): 2,000 logic elements, ~108 Kbit of block RAM. The
 Pocket's Cyclone V is 18,480 ALMs, 20-25x larger, and is already 88-91% full with a Mega Drive, an
 SDRAM controller, a NEORV32 and an 8-channel PCM mixer. 2,000 LEs is bus glue and flash sequencing,
 not a 32-voice synth plus a graphics decompressor plus 16 PCM channels. Two consequences:
 
-- **Dumping the MAX 10 bitstream would not yield the music synth.** The STM32F446 did the
+- **Reading out the MAX 10 bitstream would not yield the music synth.** The STM32F446 did the
   synthesis, which is also why krikzz's reimplementation is C on a soft core.
 - **A software mixer ported into our MCU firmware cannot run in real time.** The NEORV32 is
-  53.7 MHz rv32im with no cache, roughly 10-20x slower than the chip whose software would be copied.
+  53.7 MHz rv32im with no cache, roughly 10-20x slower than the chip that runs that software on the cart.
 
-So if the synth is ever built here, it must be RTL. Caveat as stated at the time: nobody has dumped
+So if the synth is ever built here, it must be RTL. Caveat as stated at the time: nobody has read out
 that MAX 10; its role is inferred from its size.
 
 ### The four compressed regions before the wave bank are ordinary tile assets
@@ -12118,8 +12118,8 @@ set against the pure 0.2.4 rule:
 
 so nothing an actor does differs from the build hardware passed. The only additions are prop chains.
 
-    python scripts/sim_anim_firmware.py ../vdp-capture/*.bin      # PROP=0 for the 0.2.4 rule
-    python scripts/queue_taxonomy.py   ../vdp-capture/*.bin       # the measurements above
+    python scripts/sim_anim_firmware.py <captures>/*.bin          # PROP=0 for the 0.2.4 rule
+    python scripts/queue_taxonomy.py   <captures>/*.bin           # the measurements above
 
 ### An implementation bug, fixed alongside
 
@@ -12136,16 +12136,17 @@ Theme is exactly ONE pass of module 57 at the studio tick (11 positions x 128 ro
 100.00 Hz = 112.640 s) and aligns to a 100 Hz-tick render at -0.002 s; the unreleased slow version
 is the same module at exactly HALF tempo (t -> 2t + 0.046 s), so every note is twice as long
 there. The cartridge capture sits at lag 1.2477 s and loops from position 3 with period 82.023 s.
-Eight strands (three voice-group censuses, 0x01, the 0x15+0x16 pair, 0xE0, the sparse commands,
-the two references), each with an adversarial verifier, then a synthesis and a critic; 18 agents.
+Eight lines of analysis (three voice-group censuses, 0x01, the 0x15+0x16 pair, 0xE0, the sparse commands,
+the two references), each with an independent check that tried to refute it, then a summary and a critique; 18 separate
+analyses in all.
 Every claim below rests on isolated onsets with a sensitivity control and a null; the one-pager
-with file names is outside the repo (listen/2026-09-17/theme_undet/THEME_GAP_CENSUS.md).
+with file names is outside the repo (in our local listening notes of 2026-09-17).
 
 **The FM bass sounds one octave BELOW the written note - on the composer mix, on the cart and
 on the slow version - and the renderer plays it at the written note.** Voices 0 and 1 (patches
 0x01 / 0x02, 921 notes each, written 33-57). On 508 unison onsets, 306 isolated: the f/2 rung is
 +35 dB over its background in all three references against +2..+6 in the shifted-time null and
-in the written-pitch render. Two verifiers with independent methods agree; the second
+in the written-pitch render. Two independent checks with different methods agree; the second
 classifies the strongest added partial in [0.4, 1.3] f0 on 328 pitch-change onsets with no
 kit onset: composer 91 % at f/2, cart 96 %, the as-is render 89 % at the written note (so the
 method sees the octave), the shifted-time null 13 %. The ROM explains it: patch 0x01 is
@@ -12169,17 +12170,17 @@ those carriers at 4f/8f/12f, which the references lack too (the 4 f0 rung is -38
 octave is established and the MUL-0 rule is established for 0x01; how the cart plays high-MUL
 carriers (0x02, and the leads) is NOT: the alternative "every FM carrier an octave below the
 current anchor, MUL ignored" also explains the bass and the composer's fundamental-heavier 0x02
-window, and predicts the leads an octave low - the lead strand found v2/v4/v3 at the written
-pitch (LIKELY 0.7) but its verifier could not re-measure them. Nothing changed in the renderer:
+window, and predicts the leads an octave low - the lead-voice analysis found v2/v4/v3 at the written
+pitch (likely, 0.7) but its independent check could not re-measure them. Nothing changed in the renderer:
 the A/B cuts (composer / cart / as-is / octave-down profile / chip model) await the ear. The
 principled fix if the ear agrees is to re-measure the profiles with the fundamental at f/2 for
 MUL-0-carrier patches (fm_timbre.py), not to shift the existing ones.
 
-Other Theme findings, ranked by the synthesis (studio = composer mix, cart = hardware):
+Other Theme findings, ranked by the summary (studio = composer mix, cart = hardware):
 * v22 program 0x32 written at MIDI 38 (24 notes/pass): a 0.3 s pitch dive from > 450 Hz to
   ~70 Hz in studio and cart where we play a 64 ms click at nominal rate (0x32 is written only at
-  38/50/62, two octaves apart - a per-zone sample is the candidate). LIKELY: the strand had
-  attributed it to command 0x07 and its verifier refuted that (the dive appears at 20 rows without
+  38/50/62, two octaves apart - a per-zone sample is the candidate). Likely: the analysis had
+  attributed it to command 0x07 and its independent check refuted that (the dive appears at 20 rows without
   0x07, four with the bass silent); no sensitivity control for the dive itself yet.
 * v6/v7 program 0x01 plucks (2,099 notes): pitch RIGHT in the repo (raw root, sounding = written).
   Timbre: the studio and slow mixes carry an odd-harmonic square-like tone (h3 -10, h5 -14, h7
@@ -12200,7 +12201,7 @@ Other Theme findings, ranked by the synthesis (studio = composer mix, cart = har
   file (0.055) and the cart (0.038) against 0.004 in the additive render - patch 0x12 carries DT
   = 1 on two heavy modulators (algorithm 2, feedback 7), a chip property the measured-profile
   path cannot produce. A renderer gap against all three references, not a cart property.
-* The brief items: **0x01** is CONFIRMED as a level at one site - the written-in echo on
+* The brief items: **0x01** is confirmed as a level at one site - the written-in echo on
   v21/22/23 (program 0x23, operands 06/08 -> 11 -> 18 -> 22) decays on the cart at about -1.3 dB
   per repeat, matching the provisional meter law (V0 = 202; V0 = 255 excluded by two of three
   loop passes), while the composer mix decays the same echo 2.7x steeper (-4 dB per repeat) -
@@ -12223,10 +12224,10 @@ Other Theme findings, ranked by the synthesis (studio = composer mix, cart = har
   module never stops; largest gap 0.16 s) - the reverb capture session stands.
 
 **A tooling defect, confined to the census.** The census render helper called
-`render_wave.program_table(bank, moddir=...)`, which applies the RETRACTED `wave_roots.octave_fix`
+`render_wave.program_table(bank, moddir=...)`, which applies the retracted `wave_roots.octave_fix`
 whenever `moddir` is given: 2,873 of the 3,569 wave notes of Theme played in the wrong octave in
-every strand render (0x01 plucks two octaves down, 0x23 an octave up, 0x11 three octaves down,
-0x07 three octaves up). Three verifiers found it independently; the synthesis re-cut its A/Bs on
+every analysis render (0x01 plucks two octaves down, 0x23 an octave up, 0x11 three octaves down,
+0x07 three octaves up). Three independent checks found it; the summary re-cut its A/Bs on
 raw roots and the three level findings above are downgraded until re-run. Checked afterwards: the
 repo renderer, the level A/B renderer, the root-sweep tool and every listening set before
 2026-09-17 use raw roots (`main()` passes `moddir` only under `--octave-fix`), so no earlier ear
@@ -12295,14 +12296,14 @@ falsifier pair.
 
 #### 2026-09-17 (night): Spiral sample-bed census - a second C3 root, and where the methods go blind
 
-Eight agents: three strands (tonal programs with the partial reader, noise programs with the
+Eight analyses: three lines of work (tonal programs with the partial reader, noise programs with the
 onset-signature method, presence/level by a pattern regression of the reference's band power on our
-program-level solos), three adversarial verifiers, a synthesis that built one pair, a critic that
-audited it. One-pager with numbers outside the repo (listen/2026-09-17/spiral_bed/).
+program-level solos), three independent checks that tried to refute them, a summary that built one pair, a
+critique that audited it. One-pager with numbers outside the repo (in our local listening notes of 2026-09-17).
 
 **Ear-confirmed: program 0x1D, the three-voice pad (279 notes on Spiral), plays one octave too low
 in our render.** Table root 59.8; both the composer's mix and the cart carry it from root 48. The
-verifier's independent even-minus-odd-harmonic statistic on the cart's side channel: +14.3 dB at 51
+independent check's even-minus-odd-harmonic statistic on the cart's side channel: +14.3 dB at 51
 of 54 voice-23 onsets (a root-48 render with the cart's own leak added: +16.9 at 53/54; a root-60
 render: -1.5, 29/54 negative; time-shifted null +2.8; +-5 semitone shams +4.4/+4.2); the composer's
 mix +13.3 at 50/54; the voice-24 rows have weak controls, so the verdict rests on voice 23 and on
@@ -12311,7 +12312,7 @@ alone against the cart's side channel: "same register". So two bogus-class progr
 ear-confirmed cart root and both are 48 (C3): 0x21 from a measured C6, 0x1D from a measured C4.
 Held as render parameters on Spiral; not in the renderer.
 
-**Likely, not verified as a strand (the presence strand's verifier did not sign it off):** the
+**Likely, not verified as an analysis (the presence analysis's independent check did not sign it off):** the
 busiest bed voices are wrong in rate rather than level. Voice 15's program 0x29 (594 notes, table
 root 36.5, transposed up 15-37 semitones) is a +9/+15/+15 dB burst at 4.8-16 kHz on every off-beat
 sixteenth, 33 % of the render's power above 6 kHz, that neither reference contains - the likeliest
@@ -12360,8 +12361,8 @@ at f/2 the new tone was closer to the cart than the old profile shifted down, al
 mix. Two things went into the renderer with that, and one deliberately did not.
 
 What shipped (scripts/render_wave.py, scripts/data/): a second table, harmonics 1..48 measured at
-half the written note on the composer mixes and on the cart captures (two strands, two independent
-verifiers, controls passing), with an explicit per-patch octave; the renderer synthesises a patch
+half the written note on the composer mixes and on the cart captures (two independent analyses, each
+checked again by an independent run, controls passing), with an explicit per-patch octave; the renderer synthesises a patch
 marked half from f/2 with that profile, keeping the h24 entry's level, decay and normalisation -
 exactly the render the ear confirmed (the shipped bass reproduces that file to the sample). Nine
 patches take the path after the audit: 0x01 0x02 0x1E 0x3D 0x4B 0x54 0x5C 0x79 from the cart, 0x72
@@ -12378,9 +12379,9 @@ The audit that gated the table (three passes): no cross-source scaling or fillin
 merge invented a ladder on 0x01 that no reference measured); a per-track leak gate (Indian
 Shuffle holds a wave voice at MIDI 36 for 9 s at a time and puts an f/2 line under nearly every
 patch measured on it - a general test, not a blacklist, trips only that track); thin octave calls
-(under 12 clean fundamental reads, one track without a verifier, written calls on uninformative
+(under 12 clean fundamental reads, one track without an independent check, written calls on uninformative
 bounds) set to unknown; grades from the evidence actually used (0x01 is B: 100 notes on one track);
-two rows the verifier flagged set to use 0 by hand for the ship (0x10: its cells are a three-patch
+two rows the independent check flagged set to use 0 by hand for the ship (0x10: its cells are a three-patch
 unison sum; 0x18: rests on a leak-suspect track). 34 candidate rows became 16 in use, 9 of them half.
 
 Open, parked by the player: the bass balance (the cart's 0x02 sine sits 2.4x the 0x01 fundamental,
@@ -12484,7 +12485,7 @@ In short: our own float fix (an off-screen dummy entry), a cache flush at the cr
 without the per-piece drop, the two-load DMA floor, the four animation heuristics, the first pose-hold
 code (600 cycles of spills a draw), an uncompacted animation queue (256 bytes over), the stock
 anim-over debug line (3.8% of a frame a hit), seed 5 (−0.003 ns hold on the MCU's 68000 reset line);
-for CPU MATE, five versions of a 68000 routine and a hooked translation before the hook-free link on
+for CPU MATE, five versions of a 68000 routine and a hooked hand-written version before the hook-free link on
 the MCU; and, for the cartridge-memory fix below, storing a byte write as the whole word, and its
 first fit (seed 2, gate-passed, black screen at every boot).
 
@@ -12586,7 +12587,7 @@ worst setup at Fast 85C, and bits below zero at Fast 85C:
 |---|---|---|---|---|
 | seed 3 of the fix (release, `de85f7d5`) | 8.908 | +0.237 | 0 | passed |
 | 0.2.6 test 3 | 9.077 | +0.210 | 0 | good |
-| an unreleased trial build, seed 3 | 9.710 | −0.371 | 3 | good (soaked) |
+| an unreleased trial build, seed 3 | 9.710 | −0.371 | 3 | good (passed a long warm play test) |
 | `44c9fa69` (first 0.2.6 release build) | 9.737 | −0.056 | 1 | good; rare black screen after a warm Soft Reset |
 | the same trial build, seed 4 | 10.335 | −0.514 | 4 | froze twice in play |
 | seed 2 of the fix (`f0ec00cc`) | 12.836 | −1.880 | 8 | black screen at every boot |

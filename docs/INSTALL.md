@@ -1,176 +1,225 @@
-# Paprium for Analogue Pocket — Installation
+# Paprium for Analogue Pocket: installation (0.3.0)
 
-A standalone openFPGA core for **Paprium** (WaterMelon, 2020).
+This is a standalone openFPGA core for **Paprium** (WaterMelon, 2020). It plays this one game and isn't a Mega Drive
+emulator, so please don't load other ROMs into it. Use a Mega Drive core for those.
 
-This is a single-game core, not a Mega Drive emulator — the general cartridge
-hardware is stripped out to make room for Paprium's own. Don't load other ROMs
-into it; use a Mega Drive core for those.
-
-**You must supply your own cartridge dump.** None is included, and none will be
-linked. WaterMelon have ceased trading and the game is no longer sold, but that
-does not put it in the public domain - it is still their work.
+**You need your own copy of the game.** I don't include one and I won't link one. WaterMelon have stopped trading and
+the game isn't sold anymore, but that doesn't make it public domain. It's still their work.
 
 ---
 
 ## What you need
 
-- An Analogue Pocket on **firmware 2.3 or later** — the core declares APF 2.3 because the music streamer uses a data-slot command older firmware does not offer
-- A microSD card, formatted as the Pocket expects
-- Your own dump of the Paprium cartridge — 8 MiB, serial `GM T-574120-00`
-- Optionally, the music blob (see [Music](#music))
+- An Analogue Pocket on **firmware 2.3 or later**.
+- A microSD card, formatted the way the Pocket wants it.
+- Your own copy of the game's ROM (8 MiB), made from your own cartridge.
+- Two downloads from the [release page](https://github.com/thekoalakoa/paprium-pocket/releases/latest):
+  - the core, **`openfpga-Paprium_0.3.0.zip`**;
+  - the cart firmware, **`Little-Man_Firmware_1.0.zip`**, which has `little_man_firmware.bin` inside.
+  The core zip already holds the firmware file, so step 3 below is already done by step 2, and the firmware's own
+  download is only for firmware-only updates.
+
+You can forget the soundtrack file `paprium.pcm`. 0.3.0 doesn't read it.
+
+**The core itself isn't in the git repo.** `paprium.rbf_r` is the compiled bitstream, which is a build output, so I
+don't commit it. If you clone the repo and copy `pkg/pocket/` to your card, you get the core's settings files **but no
+core**. Grab the release zip, or build the bitstream yourself (the README's Building section shows how).
 
 ---
 
-## Get the core
+## Before you install: keep a copy of your save
 
-Download **`openfpga-Paprium_<version>.zip`** from the
-[latest release](https://github.com/thekoalakoa/paprium-pocket/releases)
-and unzip it onto the root of your SD card, merging with the folders already
-there.
+First, copy your save to your PC:
 
-**The core is not in the git repository.** `paprium.rbf_r` is the compiled
-bitstream — a build artefact, deliberately not committed. If you cloned the repo
-and copied `pkg/pocket/` across, you have the metadata without the core and the
-Pocket will not run it. Use the release zip, or build the bitstream yourself
-(see the Building section of the README).
+```
+/Saves/paprium/common/Paprium.sav
+```
+
+That's your game progress. The first time 0.3.0 starts, it converts a 0.2.x save once into the cart's own format (see
+[First start](#first-start)). I haven't tested going back to 0.2.x with a converted save, so hang on to that copy until
+you're sure you're staying on 0.3.0.
 
 ---
 
 ## Install
 
-The easiest way, which force-copies everything and then prints the menu the card
-will actually show:
+1. **Copy your save** like above.
+2. **Unzip `openfpga-Paprium_0.3.0.zip` onto the root of your SD card** and merge with the folders already there. Copy
+   the whole `Cores/Koala_Koa.Paprium/` folder, not just the bitstream. The menu lives in `interact.json` and the data
+   slots live in `data.json`. If you only drop in a new `paprium.rbf_r`, you'll be stuck with the old menu and the wrong
+   slots.
+3. **Put the firmware file in the core's own Assets folder.** Take `little_man_firmware.bin` out of
+   `Little-Man_Firmware_1.0.zip` and copy it here:
 
-```bash
-./scripts/deploy_to_sd.sh /d          # your card's drive letter
+   ```
+   /Assets/paprium/Koala_Koa.Paprium/little_man_firmware.bin
+   ```
+
+   If there's no `Koala_Koa.Paprium` folder yet, make one. The name has to be exactly `little_man_firmware.bin`.
+4. **Put your copy of the game in place**, named exactly this:
+
+   ```
+   /Assets/paprium/common/Paprium.md
+   ```
+
+   The core boots straight into the game with no file browser, so it only ever loads `Paprium.md` from that folder.
+   Any other name won't be found.
+5. **Optional: delete the old soundtrack file**, `/Assets/paprium/common/paprium.pcm`. 0.3.0 never touches it. If you
+   think you might go back to 0.2.6, keep it, since 0.2.6 needs it for music.
+
+Once you're done, the card should have:
+
+```
+/Cores/Koala_Koa.Paprium/                                  the core
+/Platforms/paprium.json                                    the platform entry
+/Platforms/_images/paprium.bin                             the platform artwork
+/Assets/paprium/common/Paprium.md                          your own copy of the game
+/Assets/paprium/Koala_Koa.Paprium/little_man_firmware.bin  the cartridge firmware
+/Saves/paprium/common/Paprium.sav                          your save (the Pocket keeps it here)
+/Saves/paprium/Koala_Koa.Paprium/paprium_sound_cache.bin   the sound cache (the Pocket writes it after the first start)
 ```
 
-Doing it by hand instead, copy these onto the root of the SD card, merging with
-the folders already there:
-
-```
-/Cores/Koala_Koa.Paprium/     the core itself
-/Platforms/paprium.json       the platform entry
-/Assets/paprium/common/       where your ROM and music go
-```
-
-Then put your cartridge dump in:
-
-```
-/Assets/paprium/common/Paprium.md
-```
-
-**The name matters now.** The core boots straight into the game instead of opening
-a file browser, so it loads exactly `Paprium.md` from that directory. A dump under
-any other name will not be found, and the core will sit waiting for a file it
-cannot see.
-
-Your save lives at `/Saves/paprium/common/Paprium.sav` and is also a fixed name.
-If you are moving a save over from a build that used the file browser, that is
-where it goes.
-
-There is no separate region option: from 0.2.6 the region follows the **Console**
-entry in the core menu. The default, Mega Drive, is Japan, the region every earlier
-release used.
-
-Eject the card, put it in the Pocket, and the core appears under
-**Openfpga → Others → Paprium**.
-
-> Platform artwork ships with the core and installs to `/Platforms/_images/`.
-> Purely cosmetic - the core runs identically without it.
-
-> **Copy the whole `Cores/Koala_Koa.Paprium/` directory, not just the bitstream.**
-> The menu lives in `interact.json` and the display modes in `video.json`. Copying
-> only `paprium.rbf_r` leaves a stale menu that looks exactly like the update
-> failed to take - removed options still listed, new ones missing.
+Pop the card in the Pocket. You'll find the core under **Openfpga → Others → Paprium**.
 
 ---
 
-## First boot
+## First start
 
-Paprium starts on a **mini-game**, not the main game. This is the cartridge's own
-behaviour, not a fault in the core.
+**Give it about 30 seconds.** After the Pocket's loading bar, the screen stays black for about 20 seconds while a bar
+fills along the bottom. That's the core unpacking the game's sounds from your copy of the game into the sound cache.
+Don't press anything. Then the game starts.
 
-To reach the game: play or skip through the mini-game, then use
-**Soft Reset (mini game)** from the core's settings menu. The game boots properly
-on the second start.
+That same first start also **converts a 0.2.x save**, just once. Every save slot that has a game in it gets rewritten in
+the cart's own format, in the same spot. It only happens once: if a save is already in the cart's format, it's left
+alone. From 0.3.0 on the save file is 8 KB, the same size as the cart's own save chip (0.2.x saves are 4 KB).
 
-### Getting the mini-game back
-
-You only see it once. The cartridge records first-boot state in its save, so
-after that you go straight to the game - and no amount of resetting or power
-cycling brings it back, because the save is on the SD card.
-
-To see it again (and the language-selection screen), move your save aside:
+**Then quit the core once.** The Pocket only writes the sound cache to the card when you leave the core, either with
+Quit in the Pocket's menu or with the power button:
 
 ```
-/Saves/paprium/common/<your-rom-name>.sav
+/Saves/paprium/Koala_Koa.Paprium/paprium_sound_cache.bin   (1,384,704 bytes)
 ```
 
-**Rename it, don't delete it** - that file is your game progress. Rename it back
-afterwards to carry on where you left off.
+After that, every start loads the cache and takes about **12 to 14 seconds** from the Pocket's library to the first
+picture, including about 2 seconds of black while the core checks the cache.
+
+A few things about the sound cache:
+- Your Pocket makes it from your own copy of the game. Keep it on your own card and please don't share it, because it
+  holds the game's sounds.
+- If it's missing or doesn't check out, the core just builds it again, and that start takes as long as the first one.
+- It's safe to delete. All it costs you is one slow start.
+
+**If you have no save at all**, the game starts on its first-boot **mini-game**, the same as a brand-new cart does.
+That's the cart's own behaviour, not a bug in the core. With **3-Player Mode** on (or Arcade Mode on Multiplayer) the
+mini-game only listens to Dock controller 3, just like on a real console with the adapter plugged in, so leave those off
+for the first boot. Play or skip the mini-game, then hit **Soft Reset (mini game)** in the core's menu and the game boots
+properly.
+
+You only get the mini-game once. The cart records it in its save, and the save lives on the SD card, so no reset or power
+cycle brings it back. If you want to see it again (with the language-selection screen), rename your save file. Don't
+delete it, it's your progress. Rename it back afterwards and you'll carry on where you left off.
+
+---
+
+## A plain red screen
+
+If the screen goes **plain red**, with no text and no sound, and the game never starts, the core has turned down the
+firmware file. Either the file is damaged or it was made for a different core version.
+
+Here's the fix:
+1. Copy `little_man_firmware.bin` from the firmware release that goes with your core (for 0.3.0 that's Little-Man
+   Firmware 1.0) into `/Assets/paprium/Koala_Koa.Paprium/`, replacing the one that's there.
+2. Quit the core from the Pocket's menu and start it again.
+
+If the file is missing or the wrong size, the Pocket itself tells you before the core starts.
+
+The firmware's red screen has no text at all. Don't mix it up with the game's own red "0012" screen. That one shows up on
+purpose when you set Arcade Coins to "Inf. Credits (0012)".
+
+---
+
+## The core and the firmware file belong together
+
+I release the core and the firmware file together, and they have to match:
+
+- **0.3.0 takes Little-Man Firmware 1.0.** Every core release says which firmware version it takes.
+- **A firmware-only update is just a file swap.** Replace `little_man_firmware.bin` and start the core. Each firmware
+  release says which core versions it runs on.
+- **A firmware file made for a different core version gets turned down** with the red screen above. Put the matching
+  file back and start the core again.
+- The file name on the card never changes. You'll find the version in the download's name, inside the file and in the
+  release notes.
+
+---
+
+## Going back to 0.2.6
+
+1. Put the 0.2.6 core back (the whole `Cores/Koala_Koa.Paprium/` folder from the 0.2.6 zip).
+2. Put back the copy of `Paprium.sav` you made before you installed 0.3.0.
+3. 0.2.6 still needs `paprium.pcm` for its music, same as before.
+
+0.2.6 doesn't use `little_man_firmware.bin` or `paprium_sound_cache.bin`. You can leave them on the card.
 
 ---
 
 ## Core settings
 
-Reached through the Pocket's own menu while the core is running.
+You get to these from the Pocket's own menu while the core is running. Anything marked "Soft Reset" is read when the game
+boots, so change it first and then hit **Soft Reset (mini game)**.
 
 | Setting | Notes |
 |---|---|
-| **Soft Reset (mini game)** | Restarts the console. This is how you get past the mini-game on first boot |
+| **Soft Reset (mini game)** | Restarts the console. This is how you get past the mini-game on the first boot |
+| **Console Reset** | Resets the console like its own Reset button. During play the game starts over from its NX TERMINAL screen, the status page at the start of the intro |
 | **Aspect Ratio** | Original or corrected |
-| **Little-Man** | The cheats: Health, Pills, Lives, or any combination. Off by default; applies at once |
-| **Arcade Stage Select**, **Arcade Stage Select 2** | Start the hidden Arcade Mode on a chosen stage; Select inserts a coin. Needs a Soft Reset |
-| **6-Button** | X, Y, Z and Mode reach the game, on L, X, R and Select. Applies at once |
-| **Console** | Mega Drive (default), Genesis, Mega Drive 2, Genesis Model 2, Genesis 3, Nomad, Mega Jet or Unknown. Sets the region. Needs a Soft Reset |
-| **Mega CD** | None (default) or one of eight units. With any unit except Unknown CD, the game's CPU MATE partner works. Needs a Soft Reset |
-| **32X Mode** | The game believes a 32X is attached. Needs a Soft Reset |
-| **MegaWire** | Off by default, as a real cartridge with nothing plugged in. Needs a Soft Reset |
+| **Little-Man** | The cheats: Health, Pills, Lives, or any mix. Off by default, takes effect right away. (This isn't the firmware file) |
+| **Arcade Mode** | Off (default), On, Multiplayer or Stick Only. Anything but Off plugs a virtual Grand Stick III into controller port 1. On flips the stick's ARCADE switch, so the game turns on its own arcade mode, and Select drops a coin. Multiplayer is On plus the stick's 3 PLAYERS switch, with the third player on Dock controller 3. Stick Only is the stick with every switch off: the normal game, with Select as the stick's Mode button. Soft Reset |
+| **Arcade Coins** | 1 Coin 1 Credit, 2 Coins 1 Credit, or Inf. Credits (0012), which stops on the game's red 0012 screen just like the real stick. Only with Arcade Mode On or Multiplayer. Soft Reset |
+| **Attract Only** | The Grand Stick III's Attract Only switch. Only with Arcade Mode On or Multiplayer. Soft Reset |
+| **Arcade Stage Select**, **Arcade Stage Select 2** | Which stage Arcade Mode starts on, with Arcade Mode On or Multiplayer. Soft Reset |
+| **6-Button** | Controllers 1 and 2 turn into six-button pads, and the game reads X, Y, Z and Mode itself (on L, X, R and Select). With Arcade Mode on, port 1 is the stick, which has all its buttons either way. Takes effect right away |
+| **3-Player Mode** | Plugs in an EA 4-Way Play so the game's three-player modes work with three Dock controllers. With Arcade Mode on, Dock controller 3 goes into the stick's EXT socket instead. Off by default. Soft Reset |
+| **Console** | Mega Drive (default), Genesis, Mega Drive 2, Genesis Model 2, Genesis 3, Nomad, Mega Jet, TeraDrive or Unknown. Sets the region. Soft Reset |
+| **Mega CD** | None (default) or one of eight units. With any unit except Unknown CD, the game's CPU MATE partner works. Soft Reset |
+| **32X Mode** | Makes the game think a 32X is attached. Soft Reset |
 
-What each one does, and CPU MATE: [Scum! and the console options](../README.md#scum-and-the-console-options)
-in the README, and [docs/SCUM.md](SCUM.md) for the details.
+
+For what each one does, plus CPU MATE, see [Scum! and the console options](../README.md#scum-and-the-console-options)
+in the README, and [docs/SCUM.md](SCUM.md) for the deep version.
 
 ### Console and Mega CD: change first, then Soft Reset
 
-The game reads the console, the Mega CD unit, 32X Mode and MegaWire **once, at
-boot**. Change the setting first, then use **Soft Reset (mini game)**. Rarely, the
-Boom Box shows the wrong console afterwards, or the screen stays black: Soft Reset once
-more. That is a known issue in 0.2.6.
+The game only reads the console, the Mega CD unit and 32X Mode **once, at boot**. So change the setting first,
+then hit **Soft Reset (mini game)**. In 0.2.6 the Boom Box once in a while showed the wrong console afterwards, or the
+screen stayed black, and a second Soft Reset fixed it. That's tested and fixed in 0.3.0 with Little-Man Firmware 1.0.
 
-**Japan** (Mega Drive, Mega Drive 2, Mega Jet, Unknown) gives you the Japanese
-cartridge's extras — song titles at the start of each level, and other easter eggs.
-**USA** (Genesis, Genesis Model 2, Genesis 3, Nomad) doesn't. Both play the game fine.
-A combined Mega CD unit sets its own region: Wondermega and Aiwa CSD-GM1 are Japan, the
-CDX is USA.
+**Japan** (Mega Drive, Mega Drive 2, Mega Jet, TeraDrive, Unknown) gets you the Japanese cart's extras, like the song
+titles at the start of each level. **USA** (Genesis, Genesis Model 2, Genesis 3, Nomad) doesn't. Both play the game just
+fine. A combined Mega CD unit sets its own region: Wondermega and Aiwa CSD-GM1 are Japan, and the CDX is USA.
 
 ### 6-Button
 
-Off by default, and off the game behaves as it always has on this core: X, Y, Z and
-Mode never reach it. Paprium's own pad code does read a 6-button pad, but on this
-core, as on MiSTer and EverDrive, those buttons do not arrive; the **6-Button**
-switch hands them to the game directly. The game plays fully with three buttons.
+Off by default: the pads are three-button pads, and the game plays fully with three buttons.
+
+From 0.3.0, **6-Button** makes the pads real six-button pads, and X, Y, Z and Mode
+arrive by the game's own read: on the two controller ports, and with **3-Player Mode**
+on (or Arcade Mode set to Multiplayer) behind the EA 4-Way Play, for all three players.
+A port or adapter socket with no Pocket controller behind it reads as nothing plugged in.
 
 ### The in-game "VM DAC" option
 
-Paprium's own options menu has a **VM DAC** checkbox - "use VM2612 DAC instead of
-DT128VALT DAC". It used to produce loud static in this core. **It no longer
-does.**
-
-What it does here: nothing audible. The music and effects sound the same either
-way.
-
-What it does on a real cartridge: routes Paprium's audio through the Mega Drive's
-own 8-bit converter instead of the cartridge's better one, so the game sounds
-thinner and more like stock Genesis hardware. Reproducing that needs hardware
-this core does not have room for, so the option is inert rather than wrong. The
-design is written up in `docs/PORT_PLAN.md` for anyone porting to a larger FPGA.
+Paprium's own options menu has a **VM DAC** checkbox, "use VM2612 DAC instead of
+DT128VALT DAC". It picks between the game's two sound options, YM and
+Datenmeister, and in 0.3.0 both work the way the cart's do. Up to 0.2.6 it made no
+audible difference here. What the cart's own output circuit does in Datenmeister
+mode isn't reproduced: see
+[Known differences](../README.md#known-differences-from-the-original-cartridge).
 
 ### There is no audio filter setting
 
-Deliberately. It's fixed at **No Filter**, because every other mode makes some of
-the cartridge's own sound effects inaudible. It also freed a useful amount of
-logic on a core that was fitting at 98%.
+Deliberately. It's fixed at **No Filter**. That was decided in 0.2.x, when every
+other mode made some of the cart's sound effects inaudible and the core was
+fitting at 98%.
 
 The trade-off: a real Mega Drive has a low-pass filter, so this is a little
 brighter than original hardware.
@@ -187,80 +236,11 @@ firmware, not from the core, so no amount of core work adds more.
 
 ---
 
-## Music
-
-Paprium's music is generated by a chipset on the cartridge that has never been
-dumped, so it cannot be reproduced. Like the EverDrive Pro, this core substitutes
-the released soundtrack, streamed from the SD card.
-
-**The core runs fine without it** — you just get no music.
-
-To enable it, place the music blob at:
-
-```
-/Assets/paprium/common/paprium.pcm
-```
-
-> **The blob format changed.** It is now IMA ADPCM (`PPAD`), about a quarter the
-> size of the old raw-PCM blob - 543 MB instead of 2.09 GB. The core checks for
-> the `PPAD` marker and **plays nothing at all** if it is missing, rather than
-> streaming an old blob as noise. So if music went silent after an update, your
-> `paprium.pcm` is the old format. The game itself is unaffected either way.
->
-> **Already have the old blob? You do not need your soundtrack again.** It is
-> already 48 kHz stereo with a track table, so convert it in place:
->
-> ```bash
-> python scripts/convert_cdda_to_adpcm.py old_paprium.pcm paprium.pcm
-> ```
->
-> About 17 minutes for a full blob. Keep the old file until you have heard the
-> new one - it cannot be reconstructed from the converted one.
-
-Building it from your own copy of the soundtrack:
-
-Needs [ffmpeg](https://ffmpeg.org/) on `PATH` and your own copy of the released
-soundtrack, in any format ffmpeg reads:
-
-```bash
-./scripts/build_cdda.sh  ~/Music/Paprium  docs/paprium.cue  cdda/
-```
-
-```bash
-python scripts/build_cdda_adpcm.py  cdda/  paprium.pcm
-```
-
-The second command is single-threaded and takes ten minutes or more.
-`build_cdda_adpcm_fast.py` is a drop-in for it - same arguments, same file byte
-for byte - that encodes on every core and finishes in under a minute on a
-typical desktop:
-
-```bash
-python scripts/build_cdda_adpcm_fast.py  cdda/  paprium.pcm
-```
-
-`docs/paprium.cue` ships with the core. Source files are matched by their leading
-two-digit number rather than by title, so a rip with slightly different titles
-still works.
-
-Buffering is 0.337 s, four times the old raw path, because a compressed ring
-holds four times as much audio in the same block RAM. If music used to drop out
-occasionally, that is why it no longer does.
-
-Ten of the game's music slots have no audio at all — the cartridge itself has a
-null pointer for each of them, so those scenes are correctly silent. That's not a
-missing file.
-
----
-
 ## Known issues
 
 There is one maintained list and this is not it: see
 [Known issues](../README.md#known-issues) in the README for what is open today, and
-[Fixed here](../README.md#fixed-here) for what has been closed since. As of 0.2.6 the
-open list is four items: two on the audio side, and two that come with the 0.2.6 menu
-options (the Hall of Fame name-entry bar with Arcade Stage Select or 6-Button on, and,
-rarely, a second Soft Reset needed after a Console or Mega CD change). Everything below
+[Fixed here](../README.md#fixed-here) for what has been closed since. Everything below
 is the per-release history this guide was written alongside, and is kept for that.
 
 (This section used to carry its own copy of the open list, which fell five releases
@@ -309,31 +289,9 @@ base core, which runs correctly on hardware regardless.
 
 ---
 
-## What this is not
-
-Not a faithful reproduction of the cartridge. Paprium's DATENMEISTER chipset —
-the part that decompresses graphics and generates the music — has never been
-dumped. This takes the same approach as the EverDrive Pro: it runs krikzz's
-`mega-ppm` replacement MCU firmware and substitutes the soundtrack.
-
-Expect it to play well, not to be cycle-accurate.
-
----
-
 ## Credits
 
-| | |
-|---|---|
-| Nuked-MD-FPGA | nukeykt — the chipset: VDP, arbiter, I/O chip, FM, Z80, board |
-| FX68K (the 68000, from 0.2.2) | Jorge Cwik (ijor) |
-| MegaDrive_MiSTer | MiSTer-devel |
-| openFPGA-MegaDrive (Pocket port) | drizzt |
-| Paprium_MegaDrive_MiSTer | MisterPezz82 |
-| mega-ppm firmware | krikzz |
-| NEORV32 (the cartridge MCU) | Stephan Nolting |
-| Arcade unlock and Mode-button credit | adroxe |
-| Pocket port | [Koala_Koa](https://github.com/thekoalakoa/Paprium_MiSTer) |
-
-Licensed under GPLv3 or later. The NEORV32 processor and the mega-ppm firmware are
-BSD-3-Clause; their notices are in `THIRD_PARTY_NOTICES.md`, in the repository and in
-the release package.
+The credits, with what each project gave this core, are in the README's
+[Lineage](../README.md#lineage) and [History](../README.md#history). Licensed under
+GPLv3 or later; the notices for the parts under other licences are in
+`THIRD_PARTY_NOTICES.md`, in the repository and in the release package.

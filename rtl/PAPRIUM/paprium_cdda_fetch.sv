@@ -6,7 +6,7 @@
 // opens the WAV and fills a DDR3 ring. The Pocket has no such layer, so the core
 // has to find its own audio.
 //
-// It does that by seeking inside ONE data slot. APF caps a core at 32 slots and
+// It does that by seeking inside ONE data slot. APF (Analogue's Pocket framework) caps a core at 32 slots and
 // Paprium has 62 tracks, so slot-per-track is impossible; repointing a slot with
 // the 0x0192 openfile target command was tried at length and always answered
 // "malformed path" (err 4, confirmed on hardware by timing playback against a

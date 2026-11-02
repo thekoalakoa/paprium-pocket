@@ -1,0 +1,160 @@
+# G1 reference: scripts/gate/census.tcl (limit 0.3) on a copy of the shipped 0.2.6 seed-2 fit (release 44c9fa69), 2026-10-13. Sections A-E equal an earlier census of the same fit (v1census, md5 058e867e) line for line.
+vram1 keepers 5688 registers 5688
+K | class fx68k_ccr | kind freeze | from any | to 10
+K | class vd_bus | kind freeze | from any | to 16
+K | class va_ras_vd | kind freeze | from 37 | to 16
+K | class vdp_io_data | kind freeze | from any | to 20
+K | class vdp_io_address | kind freeze | from 26 | to any
+K | class z80_internal | kind freeze | from 1043 | to 1043
+K | class z80_enable | kind enable | from 2 | to 1043
+==== Slow 1100mV 85C Model
+A | Slow 1100mV 85C Model | +0.176 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[2] | lv 4 | dd 7.791 | skew -1.215
+    chain: vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg > ic|md_board|vram1|l2[4].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a64|portadataout[2] > ic|md_board|vram1|Mux13~10 > ic|md_board|vram1|Mux13~14 > ic|md_board|vram1|Mux13~20 > ic|md_board|vram1|Mux13~84 > ic|md_board|vram1|RD_o[2] > vram:vram1|RD_o[2]
+A | Slow 1100mV 85C Model | +0.263 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[0] | lv 4 | dd 7.708 | skew -1.211
+    chain: vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg > ic|md_board|vram1|l2[4].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a96|portadataout[0] > ic|md_board|vram1|Mux15~10 > ic|md_board|vram1|Mux15~14 > ic|md_board|vram1|Mux15~20 > ic|md_board|vram1|Mux15~84 > ic|md_board|vram1|RD_o[0] > vram:vram1|RD_o[0]
+A | Slow 1100mV 85C Model | endpoints in vram1 with setup slack < 0.3 : 2
+B | Slow 1100mV 85C Model | endpoints outside vram1 fed from vram1 with setup slack < 0.3 : 0
+C | Slow 1100mV 85C Model | +0.176 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 85C Model | +0.263 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[0]
+C | Slow 1100mV 85C Model | +0.280 | vram:vram1|vram_ip:l2[6].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a0~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 85C Model | distinct start->end pairs into vram1 < 0.3 : 3
+D | Slow 1100mV 85C Model | worst -0.739 | endpoints 51 | tns -16.508 | vdp|prescaler_dff11 => z80 | e.g. vdp|ym7101_dff:prescaler_dff11|l2[0] -> z80|z80_dlatch:dw293|outp
+D | Slow 1100mV 85C Model | worst -0.724 | endpoints 86 | tns -19.423 | vdp|sl_m5 => vdp | e.g. vdp|ym_slatch:sl_m5|mem[0] -> vdp|linebuffer_out[28]
+D | Slow 1100mV 85C Model | worst -0.512 | endpoints 3 | tns -1.206 | ic|cartridge => ic | e.g. core_top:ic|cartridge:cartridge|rom_addr[18] -> core_top:ic|cartridge:cartridge|paprium_scum:scum_gen.scum|data[10]
+D | Slow 1100mV 85C Model | worst -0.441 | endpoints 5 | tns -1.078 | vdp|sr178 => vdp | e.g. vdp|ym_sr_bit:sr178|v2[0] -> vdp|vram_address[11]~DUPLICATE
+D | Slow 1100mV 85C Model | worst -0.372 | endpoints 13 | tns -2.797 | vdp|sr364 => vdp | e.g. vdp|ym_sr_bit:sr364|v2[0] -> vdp|sat_out_2[1]
+D | Slow 1100mV 85C Model | worst -0.358 | endpoints 1 | tns -0.358 | z80|rs361 => z80 | e.g. z80|z80_rs_trig_nor:rs361|q -> z80|regs[11][1][7]
+D | Slow 1100mV 85C Model | worst -0.329 | endpoints 1 | tns -0.329 | vdp|sl_test_18 => vdp | e.g. vdp|ym_slatch_r:sl_test_18|mem[10] -> vdp|io_data[0]
+D | Slow 1100mV 85C Model | worst -0.324 | endpoints 2 | tns -0.378 | VA => VD | e.g. VA[22] -> VD[0]
+D | Slow 1100mV 85C Model | worst -0.299 | endpoints 3 | tns -0.757 | m68k|cpu => m68k | e.g. fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|Abd[7] -> fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|pswCcr[2]~DUPLICATE
+D | Slow 1100mV 85C Model | worst -0.281 | endpoints 17 | tns -2.691 | z80|w147_prev => z80 | e.g. z80|w147_prev[0] -> z80|w526[3]
+D | Slow 1100mV 85C Model | worst -0.250 | endpoints 1 | tns -0.250 | m68k|cpu => VD | e.g. fx68k_m68kcpu_wrap:m68k|fx68k:cpu|busControl:busControl|rAS~DUPLICATE -> VD[14]
+D | Slow 1100mV 85C Model | worst -0.223 | endpoints 7 | tns -0.799 | vdp|io_address => vdp | e.g. vdp|io_address[22] -> vdp|ym_sr_bit_en:sr409|ym_sr_bit_array:mem|ym_sr_bit:l1[0].sr|v1[0]
+D | Slow 1100mV 85C Model | worst -0.147 | endpoints 1 | tns -0.147 | vdp|prescaler_dff11 => VD | e.g. vdp|ym7101_dff:prescaler_dff11|l2[0] -> VD[5]
+D | Slow 1100mV 85C Model | worst -0.104 | endpoints 1 | tns -0.104 | UDS => vdp | e.g. UDS -> vdp|io_data[8]
+D | Slow 1100mV 85C Model | worst -0.041 | endpoints 1 | tns -0.041 | vdp|dff8 => VD | e.g. vdp|ym7101_dff:dff8|l2[0] -> VD[13]
+D | Slow 1100mV 85C Model | negative clk_md setup endpoints: 193
+E | Slow 1100mV 85C Model | hold to vram1 | +0.542 | vram:vram1|o_valid -> vram:vram1|o_valid~DUPLICATE | lv 1 | dd 0.652 | skew +0.110
+E | Slow 1100mV 85C Model | hold to vram1 | +0.547 | vram:vram1|o_valid -> vram:vram1|o_valid | lv 1 | dd 0.653 | skew +0.106
+E | Slow 1100mV 85C Model | hold to vram1 | +0.619 | vdp|ym_dlatch_2:dl578|mem[0] -> vram:vram1|o_RAS | lv 1 | dd 0.749 | skew +0.130
+E | Slow 1100mV 85C Model | hold from vram1 | +0.482 | vram:vram1|o_valid~DUPLICATE -> AD_mem[0] | lv 1 | dd 0.590 | skew +0.108
+E | Slow 1100mV 85C Model | hold from vram1 | +0.542 | vram:vram1|o_valid -> vram:vram1|o_valid~DUPLICATE | lv 1 | dd 0.652 | skew +0.110
+E | Slow 1100mV 85C Model | hold from vram1 | +0.542 | vram:vram1|vram_ser[4] -> SD_mem[4] | lv 1 | dd 0.671 | skew +0.129
+K | Slow 1100mV 85C Model | fx68k_ccr | -0.299 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|Abd[7] -> fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|pswCcr[2]~DUPLICATE | lv 8 | dd 9.333 | skew -0.148 | negative endpoints 2
+K | Slow 1100mV 85C Model | vd_bus | -0.324 | VA[22] -> VD[0] | lv 7 | dd 9.372 | skew -0.134 | negative endpoints 5
+K | Slow 1100mV 85C Model | va_ras_vd | -0.324 | VA[22] -> VD[0] | lv 7 | dd 9.372 | skew -0.134 | negative endpoints 4
+K | Slow 1100mV 85C Model | vdp_io_data | -0.329 | vdp|ym_slatch_r:sl_test_18|mem[10] -> vdp|io_data[0] | lv 5 | dd 9.330 | skew -0.181 | negative endpoints 2
+K | Slow 1100mV 85C Model | vdp_io_address | -0.223 | vdp|io_address[22] -> vdp|ym_sr_bit_en:sr409|ym_sr_bit_array:mem|ym_sr_bit:l1[0].sr|v1[0] | lv 4 | dd 9.222 | skew -0.183 | negative endpoints 8
+K | Slow 1100mV 85C Model | z80_internal | -0.358 | z80|z80_rs_trig_nor:rs361|q -> z80|regs[11][1][7] | lv 8 | dd 9.352 | skew -0.188 | negative endpoints 31
+K | Slow 1100mV 85C Model | z80_enable | -0.739 | vdp|ym7101_dff:prescaler_dff11|l2[0] -> z80|z80_dlatch:dw293|outp | lv 8 | dd 9.730 | skew -0.191 | negative endpoints 67
+==== Slow 1100mV 0C Model
+A | Slow 1100mV 0C Model | -0.097 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[2] | lv 4 | dd 7.977 | skew -1.302
+    chain: vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg > ic|md_board|vram1|l2[4].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a64|portadataout[2] > ic|md_board|vram1|Mux13~10 > ic|md_board|vram1|Mux13~14 > ic|md_board|vram1|Mux13~20 > ic|md_board|vram1|Mux13~84 > ic|md_board|vram1|RD_o[2] > vram:vram1|RD_o[2]
+A | Slow 1100mV 0C Model | -0.003 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[0] | lv 4 | dd 7.883 | skew -1.302
+    chain: vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg > ic|md_board|vram1|l2[4].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a96|portadataout[0] > ic|md_board|vram1|Mux15~10 > ic|md_board|vram1|Mux15~14 > ic|md_board|vram1|Mux15~20 > ic|md_board|vram1|Mux15~84 > ic|md_board|vram1|RD_o[0] > vram:vram1|RD_o[0]
+A | Slow 1100mV 0C Model | +0.058 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[7] | lv 4 | dd 7.834 | skew -1.290
+    chain: vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg > ic|md_board|vram1|l2[4].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a64|portadataout[7] > ic|md_board|vram1|Mux8~52 > ic|md_board|vram1|Mux8~56 > ic|md_board|vram1|Mux8~62 > ic|md_board|vram1|Mux8~84 > ic|md_board|vram1|RD_o[7] > vram:vram1|RD_o[7]
+A | Slow 1100mV 0C Model | +0.070 | vram:vram1|vram_ip:l2[7].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[6] | lv 4 | dd 7.808 | skew -1.304
+    chain: vram:vram1|vram_ip:l2[7].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg > ic|md_board|vram1|l2[7].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a64|portadataout[6] > ic|md_board|vram1|Mux9~12 > ic|md_board|vram1|Mux9~14 > ic|md_board|vram1|Mux9~20 > ic|md_board|vram1|Mux9~84 > ic|md_board|vram1|RD_o[6] > vram:vram1|RD_o[6]
+A | Slow 1100mV 0C Model | +0.094 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[3] | lv 4 | dd 7.801 | skew -1.287
+    chain: vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg > ic|md_board|vram1|l2[4].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a64|portadataout[3] > ic|md_board|vram1|Mux12~44 > ic|md_board|vram1|Mux12~46 > ic|md_board|vram1|Mux12~62 > ic|md_board|vram1|Mux12~84 > ic|md_board|vram1|RD_o[3] > vram:vram1|RD_o[3]
+A | Slow 1100mV 0C Model | +0.167 | vram:vram1|vram_ip:l2[1].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a120~porta_we_reg -> vram:vram1|RD_o[1] | lv 4 | dd 7.659 | skew -1.356
+    chain: vram:vram1|vram_ip:l2[1].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a120~porta_we_reg > ic|md_board|vram1|l2[1].mem|ram|spram_sz|altsyncram_component|auto_generated|ram_block1a120|portadataout[1] > ic|md_board|vram1|Mux14~66 > ic|md_board|vram1|Mux14~67 > ic|md_board|vram1|Mux14~83 > ic|md_board|vram1|Mux14~84 > ic|md_board|vram1|RD_o[1] > vram:vram1|RD_o[1]
+A | Slow 1100mV 0C Model | endpoints in vram1 with setup slack < 0.3 : 6
+B | Slow 1100mV 0C Model | endpoints outside vram1 fed from vram1 with setup slack < 0.3 : 0
+C | Slow 1100mV 0C Model | -0.097 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 0C Model | -0.066 | vram:vram1|vram_ip:l2[6].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a0~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 0C Model | -0.003 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[0]
+C | Slow 1100mV 0C Model | +0.058 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[7]
+C | Slow 1100mV 0C Model | +0.070 | vram:vram1|vram_ip:l2[7].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.070 | vram:vram1|vram_ip:l2[0].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a0~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 0C Model | +0.094 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | +0.110 | vram:vram1|vram_ip:l2[1].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.123 | vram:vram1|vram_ip:l2[6].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[0]
+C | Slow 1100mV 0C Model | +0.124 | vram:vram1|vram_ip:l2[0].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 0C Model | +0.136 | vram:vram1|vram_ip:l2[1].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.148 | vram:vram1|vram_ip:l2[3].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.151 | vram:vram1|vram_ip:l2[0].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a8~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 0C Model | +0.152 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a0~porta_we_reg -> vram:vram1|RD_o[0]
+C | Slow 1100mV 0C Model | +0.167 | vram:vram1|vram_ip:l2[1].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a120~porta_we_reg -> vram:vram1|RD_o[1]
+C | Slow 1100mV 0C Model | +0.176 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a24~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.184 | vram:vram1|vram_ip:l2[5].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.184 | vram:vram1|vram_ip:l2[6].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[7]
+C | Slow 1100mV 0C Model | +0.193 | vram:vram1|vram_ip:l2[0].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a32~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | +0.208 | vram:vram1|vram_ip:l2[1].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a72~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | +0.219 | vram:vram1|vram_ip:l2[6].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a16~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.224 | vram:vram1|vram_ip:l2[0].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a88~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | +0.245 | vram:vram1|vram_ip:l2[1].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a96~porta_we_reg -> vram:vram1|RD_o[2]
+C | Slow 1100mV 0C Model | +0.249 | vram:vram1|vram_ip:l2[3].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a40~porta_we_reg -> vram:vram1|RD_o[0]
+C | Slow 1100mV 0C Model | +0.249 | vram:vram1|vram_ip:l2[2].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a72~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | +0.256 | vram:vram1|vram_ip:l2[3].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a80~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | +0.285 | vram:vram1|vram_ip:l2[6].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a0~porta_we_reg -> vram:vram1|RD_o[0]
+C | Slow 1100mV 0C Model | +0.286 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a56~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | +0.293 | vram:vram1|vram_ip:l2[3].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[6]
+C | Slow 1100mV 0C Model | +0.297 | vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a32~porta_we_reg -> vram:vram1|RD_o[3]
+C | Slow 1100mV 0C Model | distinct start->end pairs into vram1 < 0.3 : 30
+D | Slow 1100mV 0C Model | worst -0.647 | endpoints 5 | tns -1.986 | vdp|sr178 => vdp | e.g. vdp|ym_sr_bit:sr178|v2[0] -> vdp|vram_address[11]~DUPLICATE
+D | Slow 1100mV 0C Model | worst -0.572 | endpoints 33 | tns -5.975 | vdp|sl_m5 => vdp | e.g. vdp|ym_slatch:sl_m5|mem[0] -> vdp|linebuffer_out[28]
+D | Slow 1100mV 0C Model | worst -0.535 | endpoints 27 | tns -4.908 | vdp|prescaler_dff11 => z80 | e.g. vdp|ym7101_dff:prescaler_dff11|l2[0] -> z80|z80_dlatch:dw293|outp
+D | Slow 1100mV 0C Model | worst -0.535 | endpoints 20 | tns -4.259 | vdp|sr364 => vdp | e.g. vdp|ym_sr_bit:sr364|v2[0] -> vdp|sat_out_2[1]
+D | Slow 1100mV 0C Model | worst -0.316 | endpoints 3 | tns -0.774 | m68k|cpu => m68k | e.g. fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|Abd[7] -> fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|pswCcr[2]~DUPLICATE
+D | Slow 1100mV 0C Model | worst -0.312 | endpoints 3 | tns -0.910 | ic|cartridge => ic | e.g. core_top:ic|cartridge:cartridge|rom_addr[18] -> core_top:ic|cartridge:cartridge|paprium_scum:scum_gen.scum|data[10]
+D | Slow 1100mV 0C Model | worst -0.310 | endpoints 1 | tns -0.310 | vdp|sl_test_18 => vdp | e.g. vdp|ym_slatch_r:sl_test_18|mem[10] -> vdp|io_data[0]
+D | Slow 1100mV 0C Model | worst -0.306 | endpoints 2 | tns -0.363 | z80|w95_i => z80 | e.g. z80|w95_i~DUPLICATE -> z80|w527[15]
+D | Slow 1100mV 0C Model | worst -0.232 | endpoints 1 | tns -0.232 | VA => VD | e.g. VA[22] -> VD[0]
+D | Slow 1100mV 0C Model | worst -0.164 | endpoints 1 | tns -0.164 | vdp|dff8 => VD | e.g. vdp|ym7101_dff:dff8|l2[0] -> VD[14]
+D | Slow 1100mV 0C Model | worst -0.160 | endpoints 1 | tns -0.160 | vdp|dff21 => VD | e.g. vdp|ym7101_dff:dff21|l2[0] -> VD[5]
+D | Slow 1100mV 0C Model | worst -0.156 | endpoints 10 | tns -0.466 | z80|w147_prev => z80 | e.g. z80|w147_prev[0] -> z80|z80_rs_trig_nor:rs1|nq
+D | Slow 1100mV 0C Model | worst -0.125 | endpoints 5 | tns -0.424 | vdp|io_address => vdp | e.g. vdp|io_address[22] -> vdp|ym_sr_bit_en:sr409|ym_sr_bit_array:mem|ym_sr_bit:l1[0].sr|v1[0]
+D | Slow 1100mV 0C Model | worst -0.097 | endpoints 2 | tns -0.100 | vram1|l2 => vram1 | e.g. vram:vram1|vram_ip:l2[4].mem|spram:ram|spram_sz:spram_sz|altsyncram:altsyncram_component|altsyncram_6234:auto_generated|ram_block1a64~porta_we_reg -> vram:vram1|RD_o[2]
+D | Slow 1100mV 0C Model | worst -0.012 | endpoints 1 | tns -0.012 | z80|rs361 => z80 | e.g. z80|z80_rs_trig_nor:rs361|q -> z80|regs[11][1][7]
+D | Slow 1100mV 0C Model | negative clk_md setup endpoints: 115
+E | Slow 1100mV 0C Model | hold to vram1 | +0.586 | vram:vram1|o_valid -> vram:vram1|o_valid~DUPLICATE | lv 1 | dd 0.692 | skew +0.106
+E | Slow 1100mV 0C Model | hold to vram1 | +0.592 | vdp|ym_dlatch_2:dl578|mem[0] -> vram:vram1|o_RAS | lv 1 | dd 0.711 | skew +0.119
+E | Slow 1100mV 0C Model | hold to vram1 | +0.593 | vram:vram1|o_valid -> vram:vram1|o_valid | lv 1 | dd 0.693 | skew +0.100
+E | Slow 1100mV 0C Model | hold from vram1 | +0.464 | vram:vram1|o_valid~DUPLICATE -> AD_mem[0] | lv 1 | dd 0.565 | skew +0.101
+E | Slow 1100mV 0C Model | hold from vram1 | +0.525 | vram:vram1|vram_ser[6] -> SD_mem[6] | lv 1 | dd 0.630 | skew +0.105
+E | Slow 1100mV 0C Model | hold from vram1 | +0.532 | vram:vram1|vram_ser[4] -> SD_mem[4] | lv 1 | dd 0.649 | skew +0.117
+K | Slow 1100mV 0C Model | fx68k_ccr | -0.316 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|Abd[7] -> fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|pswCcr[2]~DUPLICATE | lv 8 | dd 9.353 | skew -0.145 | negative endpoints 2
+K | Slow 1100mV 0C Model | vd_bus | -0.232 | VA[22] -> VD[0] | lv 7 | dd 9.286 | skew -0.128 | negative endpoints 3
+K | Slow 1100mV 0C Model | va_ras_vd | -0.232 | VA[22] -> VD[0] | lv 7 | dd 9.286 | skew -0.128 | negative endpoints 2
+K | Slow 1100mV 0C Model | vdp_io_data | -0.310 | vdp|ym_slatch_r:sl_test_18|mem[10] -> vdp|io_data[0] | lv 5 | dd 9.333 | skew -0.159 | negative endpoints 1
+K | Slow 1100mV 0C Model | vdp_io_address | -0.125 | vdp|io_address[22] -> vdp|ym_sr_bit_en:sr409|ym_sr_bit_array:mem|ym_sr_bit:l1[0].sr|v1[0] | lv 4 | dd 9.143 | skew -0.164 | negative endpoints 5
+K | Slow 1100mV 0C Model | z80_internal | -0.306 | z80|w95_i~DUPLICATE -> z80|w527[15] | lv 7 | dd 9.324 | skew -0.164 | negative endpoints 18
+K | Slow 1100mV 0C Model | z80_enable | -0.535 | vdp|ym7101_dff:prescaler_dff11|l2[0] -> z80|z80_dlatch:dw293|outp | lv 8 | dd 9.540 | skew -0.177 | negative endpoints 28
+==== Fast 1100mV 85C Model
+A | Fast 1100mV 85C Model | endpoints in vram1 with setup slack < 0.3 : 0
+B | Fast 1100mV 85C Model | endpoints outside vram1 fed from vram1 with setup slack < 0.3 : 0
+C | Fast 1100mV 85C Model | distinct start->end pairs into vram1 < 0.3 : 0
+D | Fast 1100mV 85C Model | negative clk_md setup endpoints: 0
+E | Fast 1100mV 85C Model | hold to vram1 | +0.182 | vram:vram1|o_valid -> vram:vram1|o_valid~DUPLICATE | lv 1 | dd 0.215 | skew +0.033
+E | Fast 1100mV 85C Model | hold to vram1 | +0.183 | vram:vram1|o_valid -> vram:vram1|o_valid | lv 1 | dd 0.216 | skew +0.033
+E | Fast 1100mV 85C Model | hold to vram1 | +0.265 | vdp|ym_dlatch_2:dl578|mem[0] -> vram:vram1|o_RAS | lv 1 | dd 0.302 | skew +0.037
+E | Fast 1100mV 85C Model | hold from vram1 | +0.182 | vram:vram1|o_valid -> vram:vram1|o_valid~DUPLICATE | lv 1 | dd 0.215 | skew +0.033
+E | Fast 1100mV 85C Model | hold from vram1 | +0.183 | vram:vram1|o_valid -> vram:vram1|o_valid | lv 1 | dd 0.216 | skew +0.033
+E | Fast 1100mV 85C Model | hold from vram1 | +0.206 | vram:vram1|o_valid~DUPLICATE -> AD_mem[0] | lv 1 | dd 0.240 | skew +0.034
+K | Fast 1100mV 85C Model | fx68k_ccr | +4.927 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|oper[3] -> fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|pswCcr[0] | lv 7 | dd 3.991 | skew -0.264 | negative endpoints 0
+K | Fast 1100mV 85C Model | vd_bus | +4.711 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|busControl:busControl|rAS~DUPLICATE -> VD[14] | lv 6 | dd 4.198 | skew -0.273 | negative endpoints 0
+K | Fast 1100mV 85C Model | va_ras_vd | +4.711 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|busControl:busControl|rAS~DUPLICATE -> VD[14] | lv 6 | dd 4.198 | skew -0.273 | negative endpoints 0
+K | Fast 1100mV 85C Model | vdp_io_data | +4.518 | vdp|ym_slatch_r:sl_test_18|mem[10] -> vdp|io_data[0] | lv 5 | dd 4.607 | skew -0.057 | negative endpoints 0
+K | Fast 1100mV 85C Model | vdp_io_address | +4.797 | vdp|io_address[22] -> vdp|io_data[8] | lv 6 | dd 4.326 | skew -0.059 | negative endpoints 0
+K | Fast 1100mV 85C Model | z80_internal | +4.692 | z80|z80_dlatch:dl29|outp -> z80|z80_dlatch:dw417|outp | lv 7 | dd 4.447 | skew -0.043 | negative endpoints 0
+K | Fast 1100mV 85C Model | z80_enable | +4.602 | vdp|ym7101_dff:prescaler_dff11|l2[0] -> z80|z80_dlatch:dw417|outp | lv 8 | dd 4.735 | skew +0.155 | negative endpoints 0
+==== Fast 1100mV 0C Model
+A | Fast 1100mV 0C Model | endpoints in vram1 with setup slack < 0.3 : 0
+B | Fast 1100mV 0C Model | endpoints outside vram1 fed from vram1 with setup slack < 0.3 : 0
+C | Fast 1100mV 0C Model | distinct start->end pairs into vram1 < 0.3 : 0
+D | Fast 1100mV 0C Model | negative clk_md setup endpoints: 0
+E | Fast 1100mV 0C Model | hold to vram1 | +0.173 | vram:vram1|o_valid -> vram:vram1|o_valid~DUPLICATE | lv 1 | dd 0.202 | skew +0.029
+E | Fast 1100mV 0C Model | hold to vram1 | +0.174 | vram:vram1|o_valid -> vram:vram1|o_valid | lv 1 | dd 0.203 | skew +0.029
+E | Fast 1100mV 0C Model | hold to vram1 | +0.240 | vdp|ym_dlatch_2:dl578|mem[0] -> vram:vram1|o_RAS | lv 1 | dd 0.272 | skew +0.032
+E | Fast 1100mV 0C Model | hold from vram1 | +0.173 | vram:vram1|o_valid -> vram:vram1|o_valid~DUPLICATE | lv 1 | dd 0.202 | skew +0.029
+E | Fast 1100mV 0C Model | hold from vram1 | +0.174 | vram:vram1|o_valid -> vram:vram1|o_valid | lv 1 | dd 0.203 | skew +0.029
+E | Fast 1100mV 0C Model | hold from vram1 | +0.188 | vram:vram1|o_valid~DUPLICATE -> AD_mem[0] | lv 1 | dd 0.218 | skew +0.030
+K | Fast 1100mV 0C Model | fx68k_ccr | +5.280 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|oper[3] -> fx68k_m68kcpu_wrap:m68k|fx68k:cpu|excUnit:excUnit|fx68kAlu:alu|pswCcr[0] | lv 7 | dd 3.640 | skew -0.262 | negative endpoints 0
+K | Fast 1100mV 0C Model | vd_bus | +5.117 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|busControl:busControl|rAS~DUPLICATE -> VD[14] | lv 6 | dd 3.795 | skew -0.270 | negative endpoints 0
+K | Fast 1100mV 0C Model | va_ras_vd | +5.117 | fx68k_m68kcpu_wrap:m68k|fx68k:cpu|busControl:busControl|rAS~DUPLICATE -> VD[14] | lv 6 | dd 3.795 | skew -0.270 | negative endpoints 0
+K | Fast 1100mV 0C Model | vdp_io_data | +5.054 | vdp|ym_slatch_r:sl_test_18|mem[10] -> vdp|io_data[0] | lv 5 | dd 4.073 | skew -0.055 | negative endpoints 0
+K | Fast 1100mV 0C Model | vdp_io_address | +5.260 | vdp|io_address[22] -> vdp|io_data[8] | lv 6 | dd 3.867 | skew -0.055 | negative endpoints 0
+K | Fast 1100mV 0C Model | z80_internal | +5.224 | z80|z80_dlatch:dl29|outp -> z80|z80_dlatch:dw417|outp | lv 7 | dd 3.920 | skew -0.038 | negative endpoints 0
+K | Fast 1100mV 0C Model | z80_enable | +5.167 | vdp|ym7101_dff:prescaler_dff11|l2[0] -> z80|z80_dlatch:dw298|outp | lv 8 | dd 4.180 | skew +0.165 | negative endpoints 0

@@ -3,6 +3,7 @@ paprium-pocket: the Paprium MCU firmware changes against krikzz/mega-ppm
 
 scripts/build_mcu.sh applies this to that commit (read with git archive) and builds the four
 rtl/PAPRIUM images. mega-ppm is BSD-3-Clause (Copyright (c) 2025, krikzz); see THIRD_PARTY_NOTICES.md.
+Our changes in this patch: Copyright (C) 2026 Marsupial Solutions LLC, GPL-3.0-or-later.
 The CPU MATE brain is not in this patch: zz_buddy_brain.c links it from the separate release download.
 Patch notes: patches/README.md. Build notes: docs/firmware/README.md.
 
@@ -404,7 +405,7 @@ index b568843..3ec6801 100644
 +// bounds by every node above 79.
 +#define PPM_SAT_ENTRIES         144
 +
-+// Event log instead of the object-table dump. 0 keeps the existing capture.
++// Event log instead of the object-table record. 0 keeps the existing capture.
 +#define PPM_EVENT_LOG           0
 +
 +// ---------------------------------------------------------------------------
@@ -1844,7 +1845,7 @@ index b568843..3ec6801 100644
 +
 +    memcpy(&b[8], &ppmio.ramdp->sat_data[0], 80 * 8);
 +
-+    // The 1024-byte object-table dump used to live here. It has not informed a
++    // The 1024-byte object-table record used to live here. It has not informed a
 +    // conclusion since the SAT ownership map was deleted, and every counter added
 +    // since has been squeezing into scraps while it sat unread. Reclaimed.
 +    // b[648..1671] is now the counter arena; SNAP_OFF_* below carve it up.
@@ -1869,7 +1870,7 @@ index b568843..3ec6801 100644
 +    #define SNAP_OFF_T         (8 + 640 + 1024 + 80)
 +
 +#if PPM_OBJ_DUMP
-+    // Compact object-table dump, 64 objects x 6 bytes, in the arena the onset and
++    // Compact object-table record, 64 objects x 6 bytes, in the arena the onset and
 +    // epoch rings leave free. Same mutual exclusion as those rings: only ONE
 +    // instrument may claim the arena and the compiler decides, rather than a
 +    // reader discovering the overlap in a capture.
@@ -2052,7 +2053,7 @@ index b568843..3ec6801 100644
 +        u8 *r = &b[SNAP_OFF_RINGMETA];
 +        // dma_budget is a ROM constant the GAME writes (0x0B00 or 0x1200 -> 10
 +        // or 16 blocks a frame). Recording it makes the affordability column
-+        // readable without going back to the disassembly to find which room
++        // readable without having to look up again which room
 +        // this was.
 +        u32 rv[6] = { ((u32) snap_ring_idx << 16) | PPM_ONSET_FRAMES,
 +                      snap_ring_seen,
@@ -3603,7 +3604,7 @@ index 06ccf59..a6757ca 100644
 +//   this port, on hardware, one capture with a pickup left spinning on screen:
 +//     93, 137, 233, 440, 659, 900 - climbing with every frame drawn.
 +// GPGX acts on the 1 and writes 0 BACK so the game can ask again
-+// (gpgx-build/core/cart_hw/paprium.h:1242, inside `reload:`); this firmware never
++// (GPGX's core/cart_hw/paprium.h:1242, inside `reload:`); this firmware never
 +// zeroes it, so the game's restart request can be honoured at most ONCE and can
 +// never be re-issued. The pickups sit at anim 0x01 with nextAnim 0xFFFF for their
 +// whole life - no chain is ever queued, which is why every chain-based fix missed.
@@ -3614,7 +3615,7 @@ index 06ccf59..a6757ca 100644
 +// switch test still detects a game write; and consume a 1 by writing 0 back, as
 +// GPGX does. 0 = the shipping 0.2.2/0.2.3 behaviour.
 +#define PPM_ANIM_FLAG_SEMANTICS 1
-+// COMPACT OBJECT-TABLE DUMP (2026-09-10). The full 1024-byte obj_data dump was
++// COMPACT OBJECT-TABLE RECORD (2026-09-10). The full 1024-byte obj_data record was
 +// reclaimed from the SAT snapshot for want of a question; the pickup-spin bug is
 +// that question. Items keep looping their fall instead of taking their ground
 +// pose, and NEITHER instrumented mechanism explains it - a capture measured
@@ -3627,7 +3628,7 @@ index 06ccf59..a6757ca 100644
 +// it as a one-shot flag, taking a queued follow-up only when it reads 0 and
 +// setting it to 1 once consumed (gpgx paprium.h, "else if( reset == 0 )"). Those
 +// are incompatible readings of one field, and GPGX renders pickups correctly
-+// where this port does not - so the dump records it raw, per object, and lets a
++// where this port does not - so the record keeps it raw, per object, and lets a
 +// capture decide rather than another guess.
 +//
 +// 64 objects x 6 bytes = 384 bytes at SNAP_OFF_ARENA, which the onset and epoch
@@ -3643,7 +3644,7 @@ index 06ccf59..a6757ca 100644
 +// the free gap between the onset ring's meta and the dispatch block) rewritten
 +// at every command entry/exit, per object, per walked sprite, per stream DMA,
 +// at BGM unpack and at frame end. On a hang, exit the core from the Pocket
-+// menu: the OS dumps bram to the .sav and scripts/decode_heartbeat.py reads
++// menu: the OS writes bram to the .sav and scripts/decode_heartbeat.py reads
 +// where the firmware stopped. No behaviour change. Layout (big-endian):
 +//   0 'PHBT'  4 frame u32  8 cmd u8  9 phase u8 (1 cmd 2 render 3 dma 5 bgm 6 frame-end)
 +//  10 obj u8  11 sprite u8  12 count u16  14 cursor tile u16  16 stage u16

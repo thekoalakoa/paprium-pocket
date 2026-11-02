@@ -1,12 +1,12 @@
 """Instrument GPGX's VDP control port to log every register write.
 
-    python scripts/apply_gpgx_vdplog.py ../gpgx-build/core/vdp_ctrl.c
+    python scripts/apply_gpgx_vdplog.py [<Genesis Plus GX source>/core/vdp_ctrl.c]   (default: core/vdp_ctrl.c in the current folder)
 
 Idempotent: refuses to apply twice. Adds a PAPRIUM_VDPLOG build switch and,
 when it is 1, appends one record per VDP register write to paprium_vdplog.bin
 in the working directory of the running frontend (RetroArch's cwd).
 
-WHY: the FX68K soak measured CPU-to-VDP write latency against register $8B,
+WHY: the FX68K soak (our testing and debugging of the builds that use the FX68K 68000 core) measured CPU-to-VDP write latency against register $8B,
 whose latch (w213 in ym7101.v:2988, feeding reg_lscr/reg_hscr/reg_vscr at
 :3391) sets the plane scroll mode. Optimising that latency only matters if the
 game actually writes $8B while a frame is on screen. Latching a CONSTANT late
@@ -15,8 +15,8 @@ $8B-to-$C00004 writes and a savestate is a one-shot snapshot, not mid-frame
 churn. This answers it from a live run.
 
 It also reports $8C, which carries RS0 (bit 7) and RS1 (bit 0) and therefore
-decides H32 vs H40 - the mode a VDP sim harness has to be told, and which no
-note in the campaign stated.
+decides H32 vs H40 - the mode a VDP simulation has to be told, and which none of
+our notes had stated so far.
 
 Result when this was first run (2026-09-07, menu + doors, 6044 frames,
 668,712 register writes): $8B was written TWICE across both captures combined,
@@ -52,7 +52,7 @@ TWO TRAPS, both of which cost a build here:
     the applier reports zero hits rather than failing loudly. Line endings are
     detected below and the inserted text follows the file.
 
-Written with the Write tool, and with no backslash escapes: tabs, newlines and
+Written with no backslash escapes: tabs, newlines and
 quotes are built with chr(), per the note in apply_gpgx_winlog.py about heredocs
 arriving with a backslash stripped.
 """
@@ -64,7 +64,7 @@ CR = chr(13)
 
 
 def main():
-    p = sys.argv[1] if len(sys.argv) > 1 else '../gpgx-build/core/vdp_ctrl.c'
+    p = sys.argv[1] if len(sys.argv) > 1 else 'core/vdp_ctrl.c'
     s = open(p, encoding='utf-8', newline='').read()
 
     if 'ppm_vdplog' in s:

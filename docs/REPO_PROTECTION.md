@@ -48,9 +48,9 @@ orthogonal to everything else in this file.
     deletion          the branch cannot be deleted
     non_fast_forward  no force-push; history cannot be rewritten
 
-`tag-protection.json` - on every tag (`refs/tags/*`; the release tags are `0.x.y`,
-with no `v`), so a published release tag cannot be deleted or moved to a different
-commit:
+`tag-protection.json` - on every tag (`refs/tags/*`; the releases up to 0.2.6 are tagged `0.x.y`, and from
+0.3.0 the tag has a `v`, `v0.3.0`, the same on both ports), so a published release tag cannot be deleted or
+moved to a different commit:
 
     deletion          the tag cannot be deleted
     update            the tag cannot be re-pointed, forward or backward
@@ -107,8 +107,10 @@ Checked 2026-08-31, all clean:
 
 - **no game data in history.** The largest blobs ever committed are revisions of
   `docs/PORT_PLAN.md`. No ROM, no `.pcm`, no saves, no wave bank
-- **no ROM links.** No `archive.org` reference in any commit, which is the
-  standing rule - the ROM must not be linked from core metadata or docs
+- **no ROM links.** No commit links to a copy of the game ROM or to any site that
+  hosts one. That is the standing rule: the ROM is never linked from core metadata
+  or docs, and players supply their own copy of the game. The site names the check
+  looks for are kept out of this file on purpose, so the rule does not spread them.
 - **no credential-shaped strings** in the tree
 
 Re-run those checks if history is ever rewritten:
@@ -136,8 +138,8 @@ downscaled platform image was **kept** - decided 2026-08-31 - as the artwork in 
 functional form rather than a redistributable copy.
 
 **That no longer describes the shipped file.** Since `dd6bc42` the platform image
-has been original artwork drawn for this core by LemonGrwab, replaced again at
-0.2.5 (`c9f64ac`) with their updated banner. So the repository carries no
+has been original artwork produced by good friends for this core, replaced again
+at 0.2.5 (`c9f64ac`) with their updated banner. So the repository carries no
 game-derived artwork at all, and the judgement above now applies only to the
 history. `scripts/make_platform_logo.py`, which produced the key-art version,
 remains in the tree and its output is not shipped.

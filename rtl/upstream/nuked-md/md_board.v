@@ -19,13 +19,15 @@
  *          help & support.
  *
  */
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 //`define M68K_CHEAT
 //`define Z80_CHEAT
 //`define EXT_CLOCKS
 //`define VRAM_128K
+//`define VRAM_ORIG	// pocket: define to put Nuked's vram.v back as vram1 (default: vram_alt.v, design B)
 
-module md_board
+module md_board #(parameter [5:0] YM_TRIM = 6'h00)   // pocket: stage 5 trfm, fc1004's ym3438 TRIM (0 = full chip)
 	(
 	// input MCLK,
 	input MCLK2,
@@ -65,6 +67,8 @@ module md_board
 	// pocket: 0.2.6 - version register bit 5 (DISK, 1 = no expansion unit) and the version nibble
 	input disk_n,
 	input [3:0] version,
+	// pocket: 0.3.0 stage 1 (F3) - TeraDrive: the 128 KB VRAM test's stub answers (vram_td_stub.v)
+	input td_en,
 	
 	// tmss
 	input tmss_enable,
@@ -148,6 +152,7 @@ module md_board
 	wire WE1;
 	wire WE0;
 	wire OE1;
+	wire RAS1_nx, CAS1_nx, WE0_nx, OE1_nx;   // pocket (V1b): their next values, for vram_alt's shadow pins
 	wire [7:0] RD;
 	wire [7:0] ym_RD_o;
 	wire ym_RD_d;
@@ -249,6 +254,12 @@ module md_board
 	wire ZCLK;
 	wire ZCLK_o;
 	wire ZCLK_d;
+	// pocket (0.3.0 stage 1, G1 round 3): ZCLK's value at the next MCLK2 edge for the Z80's instruction-register
+	// look-ahead: ZCLK = ~ZCLK_d & ZCLK_o, ZCLK_d = tmss_test_2 is constant on this board (TEST1-3 tied high, the same
+	// premise as zclk_q's CLK1_gate), so ZCLK (next) = ZCLK_o_nsel ? ZCLK_nx1 : ZCLK_nx0.
+	wire ZCLK_o_nx0, ZCLK_o_nx1, ZCLK_o_nsel;
+	wire ZCLK_nx0 = ~ZCLK_d & ZCLK_o_nx0;
+	wire ZCLK_nx1 = ~ZCLK_d & ZCLK_o_nx1;
 	wire EDCLK;
 	wire EDCLK_o;
 	wire EDCLK_d;
@@ -306,7 +317,7 @@ module md_board
 		MCLK_e <= ~MCLK_e;
 	end
 	
-	fc1004 ym
+	fc1004 #(.YM_TRIM(YM_TRIM)) ym
 		(
 		.MCLK(MCLK2),
 		.MCLK_e(MCLK_e),
@@ -319,6 +330,10 @@ module md_board
 		.WE1(WE1),
 		.WE0(WE0),
 		.OE1(OE1),
+		.RAS1_nx(RAS1_nx),
+		.CAS1_nx(CAS1_nx),
+		.WE0_nx(WE0_nx),
+		.OE1_nx(OE1_nx),
 		.RD_i(RD),
 		.RD_o(ym_RD_o),
 		.RD_d(ym_RD_d),
@@ -423,6 +438,9 @@ module md_board
 		.ZCLK_i(ZCLK),
 		.ZCLK_o(ZCLK_o),
 		.ZCLK_d(ZCLK_d),
+		.ZCLK_o_nx0(ZCLK_o_nx0),   // pocket (G1 round 3)
+		.ZCLK_o_nx1(ZCLK_o_nx1),
+		.ZCLK_o_nsel(ZCLK_o_nsel),
 		.EDCLK_i(EDCLK),
 		.EDCLK_o(EDCLK_o),
 		.EDCLK_d(EDCLK_d),
@@ -591,7 +609,11 @@ module md_board
 	wire z80_ZWR_d;
 	wire INT;
 	
-	z80cpu z80
+	z80cpu
+`ifndef EXT_CLOCKS
+		#(.IR_LA(1))   // pocket (0.3.0 stage 1, G1 round 3): the instruction register as a look-ahead register
+`endif
+		z80
 		(
 		.MCLK(MCLK2),
 `ifndef EXT_CLOCKS
@@ -599,6 +621,9 @@ module md_board
 `else
 		.CLK(ext_ZCLK_i),
 `endif
+		.CLK_nx0(ZCLK_nx0),   // pocket (G1 round 3): ZCLK's next value (read only with IR_LA)
+		.CLK_nx1(ZCLK_nx1),
+		.CLK_nsel(ZCLK_o_nsel),
 		.ADDRESS(z80_ZA_o),
 		.ADDRESS_z(z80_ZA_d2),
 `ifndef Z80_CHEAT
@@ -636,14 +661,27 @@ module md_board
 	wire vram1_AD_d;
 	wire [7:0] vram1_SD_o;
 	wire vram1_SD_d;
-	
+
+`ifdef VRAM_ORIG
 	vram vram1
+`else
+	// pocket: design B (vram_alt.v): the same pins and outputs as vram.v from two block RAMs instead of ~2,100
+	// registers; STRICT = 1, no G1 port-B write, F1-F3 timing hardening; SHADOW = 1 (0.3.0 V1b, F4): it reads
+	// registers loaded with the pins' next values (ym7101 *_nx), equal to the pins on every clock
+	vram_alt #(.STRICT(1), .G1(0), .SHADOW(1)) vram1
+`endif
 		(
 		.MCLK(MCLK2),
 		.RAS(RAS1),
 		.CAS(CAS1),
 		.WE(WE0),
 		.OE(OE1),
+`ifndef VRAM_ORIG
+		.RAS_nx(RAS1_nx),
+		.CAS_nx(CAS1_nx),
+		.WE_nx(WE0_nx),
+		.OE_nx(OE1_nx),
+`endif
 		.SC(SC),
 		.SE(SE0),
 		.AD(AD),
@@ -653,6 +691,25 @@ module md_board
 		.SD_o(vram1_SD_o),
 		.SD_d(vram1_SD_d)
 		);
+
+// pocket: 0.3.0 stage 1 (F3) - TeraDrive detection stub on bank 2's random port (WE1, RD); never drives SD
+	wire [7:0] td_RD_o;
+	wire td_RD_d;
+
+	vram_td_stub td_stub
+		(
+		.MCLK(MCLK2),
+		.en(td_en),
+		.RAS(RAS1),
+		.CAS(CAS1),
+		.WE(WE1),
+		.OE(OE1),
+		.AD(AD),
+		.RD_i(RD),
+		.RD_o(td_RD_o),
+		.RD_d(td_RD_d)
+		);
+// pocket-end
 
 `ifdef VRAM_128K
 	wire [7:0] vram2_RD_o;
@@ -717,8 +774,10 @@ module md_board
 	reg [7:0] SD_mem;
 	
 `ifndef VRAM_128K
+	// pocket: 0.3.0 F3 - the TeraDrive stub answers bank 2's random reads; with td_en = 0 it never drives
+	// (td_RD_d = 1), so RD is the 0.2.6 expression
 	assign RD =
-		(~ym_RD_d ? ym_RD_o : RD_mem);
+		(~ym_RD_d ? ym_RD_o : ~td_RD_d ? td_RD_o : RD_mem);
 `else
 	assign RD =
 		(~ym_RD_d ? ym_RD_o : 8'h0) |

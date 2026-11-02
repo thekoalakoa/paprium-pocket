@@ -1,7 +1,9 @@
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 `ifndef PAPRIUM_DEFS_SV
 `define PAPRIUM_DEFS_SV
 
-`define CLK_FREQ 53_693_175
+// pocket: 0.3.0 new core (the clock-following change) - `CLK_FREQ is retired. The clock value is the CLK_HZ / CLK_MD_HZ
+// parameter pair of core_top, passed down; scripts/clkcheck.py refuses a clock literal elsewhere.
 // MEM_TIME is the fixed wait the MCU/CPU *_io state machines hold before
 // capturing port-3 read data. On the original board this matched a real flash
 // chip's fixed access time. On MiSTer the shared SDRAM port-3 round trip is

@@ -1,3 +1,4 @@
+# Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 # pocket: the Paprium cartridge subsystem, vendored from
 # MisterPezz82/Paprium_MegaDrive_MiSTer rtl/PAPRIUM/ unmodified except where a
 # "// pocket:" comment marks a change. File order mirrors that repo's files.qip:
@@ -17,36 +18,87 @@ set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/structs.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/memory.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/audio_clock.sv"]
+# pocket: 0.3.0 synth step (test build 5, the 0.3.0 hardware test build of the synth) - audio_sfx (the interim SFX
+# FIFOs) is not built while core_top's PAPRIUM_SYNTH = 1 (test build 5:
+# paprium_cart's synth_on branch); listed, unreachable, for a PAPRIUM_SYNTH = 0 diagnostic build
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/audio_sfx.sv"]
+# pocket: synth step, its first version - the synth (region 0x06 with FEAT.SYNTH; the blocks B1-B10 are listed in
+# paprium_synth.sv's header): its package first, then the MCU interface (B1),
+# its state RAM, the CRAM client mux (B10) and the shell paprium_cart instantiates (core_top PAPRIUM_SYNTH)
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_pkg.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_sram.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_if.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_cram.sv"]
+# pocket: synth step - B2, the timebase and block scheduler: the chip's TIM6 decision, then the scheduler
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_tim6.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_sched.sv"]
+# pocket: synth step - B3, the wave envelope (the wave half of the cart's envelope pass); the engine
+# wires it in front of the mix (the integration)
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_env.sv"]
+# pocket: synth step - B6, the SFX channels (the cart's SFX channel mix; its sample tables are
+# in the TABLES ROM, paprium_synth_trom port B); the integration instantiates it in the shell
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_sfx.sv"]
+# pocket: synth step - B7, the echo rings: the BGM / SFX bus zeroing and ring prefill, the two ring writes
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_echo.sv"]
+# pocket: synth step - B8, the output stage (the YM filter, the curve, dac_buf); the engine (the integration)
+# instantiates it
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_out.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_dtplay.sv"]
+# pocket: synth step - B5, the 16 wave voices (the cart's wave voice mix); B4, their
+# gain chain and level table T; (the integration) the BUS RAM, and the shell wires the block engine in the chip's order
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_trom.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_gain.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_wave.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth_bus.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_synth.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/mcu_core.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/ramdp_io.sv"]
+# pocket: 0.3.0 new core - the cart register file $1FE0-$1FFF, instantiated from paprium_cart.sv
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_regfile.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/fpgio.sv"]
+# pocket: 0.3.0 new core (MCU interface v1.1) - the VS counter's clk_md tap, instantiated from core_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_vs_tap.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_mcu_mem.sv"]
+# pocket: 0.3.0, the sprite-decoder step - the cart FPGA's sprite decoder and load-list queue, instantiated from
+# paprium_cart.sv
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_hwdec.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_backup.sv"]
+# pocket: synth step (test build 5) - the interim MD+ block is no longer instantiated (paprium_cart: region 0x07
+# unassigned, FEAT.MDP = 0); listed, unreachable, with the album files below until a cleanup deletes them
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_mdp_adapter.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cart.sv"]
 # pocket: Scum! menu switches (0.2.6), instantiated from cartridge.sv
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_scum.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_addons.sv"]
+# pocket: 0.3.0 synth step: the virtual Grand Stick III, instantiated from paprium_pads.sv
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_gs3.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_pads.sv"]
 
 # The CDDA path. Listed before it is instantiated so synthesis elaborates and
 # syntax-checks it; an unreachable module costs no area.
+# pocket: synth step (test build 4a on, the first sound-cache build) - the album path is no longer instantiated
+# (core_top: the sound-cache slot took its CRAM port A); paprium_cdda_play / _fetch / _buf / _buf_cram and their IMA
+# decoder paprium_ima_decode stay listed, unreachable, until the synth integration deletes them with the rest of the
+# interim audio. paprium_cmd_log is not an album file (the diagnostic command log, instantiated from paprium_cart.sv).
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_play.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_fetch.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cmd_log.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_ima_decode.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_buf.sv"]
-# pocket: xram stage 1 - Pocket SRAM / CRAM controllers, the CRAM ring, the register block
+# pocket: xram step 1 (the first step of our Pocket SRAM / CRAM work) - Pocket SRAM / CRAM controllers, the CRAM ring,
+# the register block
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_xram.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cram.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_cdda_buf_cram.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_xlink.sv"]
-# pocket: xram stage 2 - the hook-free CPU MATE link (option D) and the Word RAM / PRG snoop
+# pocket: xram step 2 - the hook-free CPU MATE link (option D) and the Word RAM / PRG snoop
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_mcd_link.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_snoop.sv"]
 
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_package.vhd"]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_top_stdlogic.vhd"]
+# pocket: 0.3.0 new core - the cart MCU's NEORV32 configuration, instantiated by mcu_core.sv
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/paprium_neorv32.vhd"]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_top.vhd"]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_busswitch.vhd"]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) "PAPRIUM/risc-v/neorv32_wishbone.vhd"]

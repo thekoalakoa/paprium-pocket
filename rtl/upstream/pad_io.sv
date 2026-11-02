@@ -16,6 +16,7 @@
 //  with this program; if not, write to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //============================================================================
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 module pad_io
 (
@@ -52,7 +53,12 @@ module pad_io
 
 	output [6:0] port_out,
 	input  [6:0] port_in,
-	input  [6:0] port_dir
+	input  [6:0] port_dir,
+
+	// pocket (0.3.0 stage 1, G1 fit round 2): the gamepad data register and its next value (the D input it loads on
+	// the next clock), for paprium_pads' exact look-ahead read register. port_out is unchanged
+	output [5:0] pdata_q,
+	output [5:0] pdata_nx
 );
 
 assign port_out = (~port_dir & port_in) | (port_dir & (GUN_EN ? gdata : MOUSE_EN ? {2'b00,mdata} : {1'b1, pdata}));
@@ -84,21 +90,35 @@ always @(posedge clk) begin
 		if(~THd & TH) JCNT <= JCNT + 1'd1;
 
 		if(~&JTMR) JTMR <= JTMR + 1'd1;
-		if(THd & ~TH) JTMR <= 0;
+		// pocket (0.3.0 card 4, the six-button fix): the timeout restarts on every TH edge, the rise too (upstream:
+		// only the fall). A read that starts with TH already low (Paprium's direct-port read at $B1FC0, after a frame
+		// with TH left low) gave its first rise while JTMR was past the timeout, so JCNT counted it and was cleared
+		// again on the next clock: the six-button test at the second rise failed and the game saw a three-button pad.
+		// A real six-button pad counts that rise (B Jam's CDX + cart, 2026-10-16: the Boom Box shows the six-button
+		// badge on port 1); Genesis Plus GX also restarts its timeout on the rise (gamepad.c). Reads that start with
+		// TH high (the EA 4-Way Play's, $B1EB4) count as before
+		if(THd ^ TH) JTMR <= 0;
 	end
 end
 
-wire [5:0] pdata;
-always @(posedge clk) begin
+// pocket (0.3.0 stage 1, G1 fit round 2): the same register, written as its D input (pdata_d) and a plain load, so
+// the next value can be an output. The six cases cover every {SMS,JCNT,TH}; the default (hold) never applies
+reg [5:0] pdata;
+reg [5:0] pdata_d;
+always @(*) begin
+	pdata_d = pdata;
 	priority casex({SMS,JCNT,TH})
-		4'b1XXX: pdata <= { ~P_C,     ~P_B, ~P_RIGHT, ~P_LEFT, ~P_DOWN, ~P_UP}; 
-		4'b0100: pdata <= { ~P_START, ~P_A,   1'b0,     1'b0,    1'b0,   1'b0};
-		4'b0110: pdata <= { ~P_START, ~P_A,   1'b1,     1'b1,    1'b1,   1'b1};
-		4'b0111: pdata <= { ~P_C,     ~P_B, ~P_MODE,  ~P_X,    ~P_Y,    ~P_Z };
-		4'b0XX1: pdata <= { ~P_C,     ~P_B, ~P_RIGHT, ~P_LEFT, ~P_DOWN, ~P_UP};
-		4'b0XX0: pdata <= { ~P_START, ~P_A,   1'b0,     1'b0,  ~P_DOWN, ~P_UP};
+		4'b1XXX: pdata_d = { ~P_C,     ~P_B, ~P_RIGHT, ~P_LEFT, ~P_DOWN, ~P_UP}; 
+		4'b0100: pdata_d = { ~P_START, ~P_A,   1'b0,     1'b0,    1'b0,   1'b0};
+		4'b0110: pdata_d = { ~P_START, ~P_A,   1'b1,     1'b1,    1'b1,   1'b1};
+		4'b0111: pdata_d = { ~P_C,     ~P_B, ~P_MODE,  ~P_X,    ~P_Y,    ~P_Z };
+		4'b0XX1: pdata_d = { ~P_C,     ~P_B, ~P_RIGHT, ~P_LEFT, ~P_DOWN, ~P_UP};
+		4'b0XX0: pdata_d = { ~P_START, ~P_A,   1'b0,     1'b0,  ~P_DOWN, ~P_UP};
 	endcase
 end
+always @(posedge clk) pdata <= pdata_d;
+assign pdata_q  = pdata;
+assign pdata_nx = pdata_d;
 
 // MOUSE ------------------------------------------------------
 

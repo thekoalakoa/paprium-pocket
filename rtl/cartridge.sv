@@ -23,6 +23,7 @@
 // and the lightgun. The SVP does not fit either, but Virtua Racing needs it, so it
 // is behind the SVP parameter and ships as its own bitstream that trades the save
 // hardware for the DSP. Every difference sits inside a marker pair below.
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 module cartridge
 // pocket: the device cannot hold the SVP next to the full core, so the SVP build
 // is a separate bitstream the Chip32 loader picks for Virtua Racing only. Virtua
@@ -31,15 +32,36 @@ module cartridge
 // paprium: PAPRIUM is a third bitstream variant on the same footing as SVP. It swaps
 // the general mapper/protection hardware for the Paprium cartridge subsystem: SSF2
 // banking is suppressed, SDRAM port 2 moves from the SVP to the Paprium MCU, and the
-// save RAM becomes the MCU-managed 4 KB backup RAM. SVP and PAPRIUM are mutually
+// save RAM becomes the MCU-managed 8 KB backup RAM (4 KB in 0.2.x). SVP and PAPRIUM are mutually
 // exclusive - both want port 2
-#(parameter SVP = 1'b0, parameter PAPRIUM = 1'b0, parameter PAPRIUM_SFX = 1'b1, parameter PAPRIUM_CMDLOG = 1'b0)
+#(parameter SVP = 1'b0, parameter PAPRIUM = 1'b0, parameter PAPRIUM_SFX = 1'b1, parameter PAPRIUM_CMDLOG = 1'b0,
+// pocket: words used in the pocket comments of this file. "new core" = the first step of the 0.3.0 work, which built
+// the new cart register file and MCU interface v1.0 (the firmware's docs/STAGE1_PLAN.md); "synth step" = the 0.3.0
+// step that moved the cart chip's audio work into logic (paprium_synth). "Test build S3c" = a 0.3.0 hardware test
+// build of the MegaWire step that B Jam ran on the Pocket. "xram step 1 / 2" = the two steps of our Pocket SRAM /
+// CRAM work (paprium_xlink.sv). FPGAIO = the MCU's register block in the FPGA (fpgio.sv); MCU interface vN = the
+// firmware's docs/MCU_INTERFACE.md.
+// pocket: new core - the two clock values from core_top (the clock-following change; scripts/clkcheck.py rule R4:
+// default 0 = unset, every instance sets them):
+// CLK_HZ = clk (clk_sys) for paprium_cart; CLK_MD_HZ = clk_ram (= clk_md, VCO/6) for the SDRAM refresh compares
+  parameter integer CLK_HZ = 0,
+  parameter integer CLK_MD_HZ = 0,
+// pocket: synth step (MCU interface v1.3) - FPGAIO FEAT (slot 23): what this bitstream carries, from core_top's
+// PAPRIUM_FEAT
+  parameter [31:0] PAPRIUM_FEAT = 32'd0,
+// pocket: synth step - region 0x06 is the synth (paprium_synth) instead of the interim audio_sfx FIFOs (FEAT.SYNTH)
+  parameter PAPRIUM_SYNTH = 1'b0)
 // pocket-end
 (
 	input             clk,
 	input             clk_ram,
 	input             reset,
 	input             reset_sdram,
+	input             pap_reset,    // Fafrium: paprium_cart's reset (core_top: = reset, except while the boot stub runs)
+	input             fw_done,      // Fafrium: core_top's power-on flag, the boot view's end (paprium_cart)
+	output            fw_go,        // Fafrium: the boot stub's GO (paprium_cart)
+	output            fw_len_bad,   // Fafrium: 1 unless the slot's last load was exactly 256 KB (files up to 32 MB, see
+	                                // fw_len_ok_q; the boot stub reads it)
 
 	output            SDRAM_CLK,
 	output            SDRAM_CKE,
@@ -100,8 +122,17 @@ module cartridge
 // APF CDDA streamer to consume instead
 	output            paprium_active,
 	output            paprium_md_reset,
+	// pocket: new core - the Mega CD option is None (core_top: opt_cd_unit_s == 0, clk_ram)
+	input             paprium_cd_none,
+	output            paprium_opt_at_reset_en,   // new core: fpgio CTRL bit 5 (clk), the dormant option latch
+	// pocket: test build S3c - core_top's Console Reset: a one-clock pulse in (clk) sets FPGAIO CAUSE.V; its level comes
+	// back out (clk) while the firmware has not acknowledged it
+	input             paprium_console_reset,
+	output            paprium_cause_v,
 	output signed [15:0] paprium_sfx_l,
 	output signed [15:0] paprium_sfx_r,
+	// pocket: 0.3.0 new core, the Pocket-menu music mute - FPGAIO CTRL bit 4 (MENU_MUTE_EN), clk domain
+	output            paprium_menu_mute_en,
 
 	// paprium: mailbox command log read-back (diagnostic builds only)
 	input          [13:0] cmdlog_read_addr,
@@ -125,13 +156,15 @@ module cartridge
 	input             scum_pills,
 	input             scum_lives,
 	input             scum_arcade,
+	input             scum_arc3p,    // 0.3.0: Arcade Mode Multiplayer
+	input             scum_tap,      // 0.3.0: the EA 4-Way Play present (core_top, taken at boot)
 	input             scum_6btn,
 	input       [4:0] scum_stage,
 	input       [3:0] scum_pad1,     // {MODE,X,Y,Z} held
 	input       [3:0] scum_pad2,
 	// pocket-end
 
-	// pocket: xram stage 1 - the Paprium MCU's external-memory bus, out to core_top (clk domain)
+	// pocket: xram step 1 - the Paprium MCU's external-memory bus, out to core_top (clk domain)
 	output            xb_req,
 	output      [1:0] xb_region,
 	output     [23:0] xb_addr,
@@ -140,11 +173,17 @@ module cartridge
 	output     [31:0] xb_wdata,
 	input      [31:0] xb_rdata,
 	input             xb_ack,
-	// pocket: xram stage 2 - option-D status into the MCU's FPGAIO ctrl read [14:8]
+	// pocket: xram step 2 - option-D status into the MCU's FPGAIO ctrl read [14:8]
 	input       [6:0] link_status,
+	// pocket: new core - XLINK posts_s[0] (clk domain): every change is one buddy post, FPGAIO CAUSE.S
+	input             link_post,
+	// pocket: new core (MCU interface v1.1) - core_top's paprium_vs_tap (clk domain): flips once per VDP vertical
+	// sync, FPGAIO VSCNT
+	input             vs_tog,
 
-	// pocket: 0.2.6 - the cart MCU's GPIO input, {MegaWire, $1FE4 bit 10, 9, 8, 6} (clk)
-	input       [4:0] mcu_opts,
+	// pocket: 0.2.6 - the cart MCU's GPIO input, {MegaWire, $1FE4 bit 10, 9, 8, 6} (clk); the new core adds
+	// {PAL, Japan, Pocket menu open} on top: {PAL, JAP, MENU, MegaWire, model[3:0]}
+	input       [7:0] mcu_opts,
 	// the SFX echo line's CRAM port (paprium_cram port E, clk domain)
 	input             echo_ready,
 	output            echo_wr,
@@ -154,6 +193,21 @@ module cartridge
 	output     [12:0] echo_rslot,
 	input             echo_rd_done,
 	input      [31:0] echo_rdata,
+	// pocket: synth step (PAPRIUM_SYNTH) - the synth's CRAM clients on paprium_cram ports C and E (clk domain)
+	output            syn_c_rd,
+	output     [20:0] syn_c_raddr,
+	input             syn_c_rd_done,
+	input      [15:0] syn_c_rdata,
+	output            syn_e_wr,
+	output     [21:0] syn_e_waddr,
+	output            syn_e_wpair,
+	output     [31:0] syn_e_wdata,
+	output            syn_e_rd,
+	output     [21:0] syn_e_raddr,
+	output            syn_e_rpair,
+	input             syn_e_rd_done,
+	input      [31:0] syn_e_rdata,
+	input             syn_e_wbusy,
 	// pocket-end
 // paprium-end
 
@@ -162,7 +216,20 @@ module cartridge
 	output     [23:0] md_addr
 );
 
-sdram sdram
+// pocket: new core - the Paprium build needs CLK_HZ (paprium_cart: the NEORV32 clock, the 48 kHz SFX divider). Left at
+// 0 (unset) it stops elaboration in every tool: the instance below names a module that does not exist. sdram.sv
+// checks CLK_MD_HZ the same way
+generate if (PAPRIUM && CLK_HZ <= 0) begin : clk_hz_check
+	cartridge_CLK_HZ_is_unset clk_hz_bad();
+end endgenerate
+
+// pocket: new core (the VDP DMA fix) - cart_dma (md_board's vdp_dma = the VDP's l6 | l8, clk_ram = MCLK2) one register
+// later into sdram.sv's DMA hold, Paprium only: the other builds' arbitration is unchanged (hold1 = 0)
+reg paprium_dma_hold = 1'b0;
+always @(posedge clk_ram) paprium_dma_hold <= PAPRIUM && cart_dma;
+// pocket-end
+
+sdram #(.CLK_MD_HZ(CLK_MD_HZ)) sdram
 (
 	.*,
 	.init(reset_sdram),
@@ -199,8 +266,9 @@ sdram sdram
 	.wrl2(paprium_active & paprium_mem_wrl),
 	.wrh2(paprium_active & paprium_mem_wrh),
 	.req2(paprium_active ? paprium_mem_req : rom2_req),
-	.ack2(rom2_ack)
+	.ack2(rom2_ack),
 // paprium-end
+	.hold1(paprium_dma_hold)   // pocket: new core (the VDP DMA fix) - the VDP DMA read slot, see sdram.sv
 );
 
 reg        cart_wr_addr0;
@@ -209,6 +277,31 @@ wire       rom_wrack;
 reg [24:1] rom_mask;
 reg [25:1] rom_sz;
 reg [26:0] cart_wr_addr;
+wire       fw_dl_word = PAPRIUM && cart_dl_addr[24];   // Fafrium: a firmware-file word (Paprium build only)
+// Fafrium (the cart firmware file): fw_len_ok_q is the length mark. For a file up to 32 MB it is 1 only when the
+// Fafrium slot's last load ended exactly at 256 KB, the size of the file and of its window in SDRAM. The loader writes
+// the slot in 16-bit words, in order:
+// - the slot's first word (offset 0) clears it, so every load of the slot starts with the mark clear;
+// - the window's last word (offset 256 KB - 2) sets it, so a load that stops before the end never sets it;
+// - any word at offset 256 KB or more (cart_dl_addr[23:18] not 0) clears it again. Such a word wraps onto the start
+//   of the file in SDRAM, so the boot stub cannot see it in the file itself.
+// The mark covers files up to 32 MB. cart_dl_addr is the bridge address's low 25 bits, so it repeats every 32 MB:
+// the slot's words at offsets 16 MB to 32 MB (cart_dl_addr[24] 0) are taken as ROM words, the words at 32 MB to
+// 48 MB look like offsets 0 to 16 MB again, and so on. So a longer file whose size is 256 KB plus a multiple of
+// 32 MB, from 32 MB + 256 KB up to 224 MB + 256 KB, ends with the mark set, and then only the stub's own checks
+// of its last 256 KB stand between it and the firmware. From 256 MB + 256 KB on, the file's last 256 KB lie past
+// the bridge addresses that reach this loader (core_top passes it only 0x1000_0000-0x1FFF_FFFF, and
+// 0x1100_0000 + 256 MB is past that), so the mark stays clear and the stub refuses the file. That last case is
+// worked out from the address decode, not tried on a Pocket. All of this is known and accepted (B Jam's decision
+// of 2026-10-31); data.json asks the Pocket for exactly 256 KB.
+// The stub cannot judge the length from the window: a shorter load leaves older bytes after its own, and a longer
+// one can leave a whole file there. So it reads fw_len_bad as XLINK FAFRIUM (see core_top) and refuses the file
+// when it is 1, whatever the window holds.
+// The mark is 0 at power-on and no reset changes it: with no load of the slot the stub refuses, and the mark keeps
+// its verdict on the last load until the slot is loaded again.
+// fw_len_bad reads 0 once the boot view has closed (fw_done), so the firmware itself never sees it.
+reg        fw_len_ok_q = 1'b0;
+assign     fw_len_bad = ~fw_len_ok_q & ~fw_done;
 
 always @(posedge clk) begin
 	reg old_dl, old_reset;
@@ -227,9 +320,22 @@ always @(posedge clk) begin
 		cart_dl_wait <= 1;
 		cart_wr_addr0 <= cart_ms;
 		rom_wr <= ~rom_wr;
-		cart_wr_addr <= rom_sz;
-		rom_mask <= rom_mask | rom_sz[24:1];
-		rom_sz <= rom_sz + 1'd1;
+		// Fafrium: a word of the firmware file (bridge address 0x1100_0000, loader address bit 24) goes to SDRAM word
+		// 0x80_0000 plus its offset, inside a 256 KB window that the boot stub reads (from SDRAM byte 0x0100_0000).
+		// The file is exactly 256 KB, and a longer file wraps onto the start of the window. The length mark (see
+		// fw_len_ok_q above): a word at or past 256 KB clears it, the window's last word sets it, and the slot's word
+		// at offset 0 clears it. rom_sz and rom_mask move on ROM words only.
+		if (fw_dl_word) begin
+			cart_wr_addr <= {3'd0, 7'h40, cart_dl_addr[17:1]};
+			if (|cart_dl_addr[23:18]) fw_len_ok_q <= 1'b0;
+			else if (&cart_dl_addr[17:1]) fw_len_ok_q <= 1'b1;
+			else if (~|cart_dl_addr[17:1]) fw_len_ok_q <= 1'b0;
+		end
+		else begin
+			cart_wr_addr <= rom_sz;
+			rom_mask <= rom_mask | rom_sz[24:1];
+			rom_sz <= rom_sz + 1'd1;
+		end
 	end
 	else if(rom_wr == rom_wrack) begin
 		if(cart_wr_addr0) begin
@@ -267,6 +373,17 @@ wire        rom_ack;
 wire [15:0] rom_data;
 reg         rom_rd;
 wire [24:1] paprium_stream_addr_md;   // pocket: xfix SP-X, driven by stream_x below
+
+// pocket: new core (the firmware's docs/CART_FPGA_SPEC.md 2.3) - the FM bank. In the game view the cart serves byte
+// addresses $2000-$7FFF as the file XOR 0xA8A2 (the file holds the FM bank under the cartridge reader's key; the Z80
+// reads its patches at $4000-$50DF). The choice is made at the read launch, into rom_xor: a console read (not the
+// MCU's stream) in $2000-$7FFF while the game view is on (paprium_mini_md = 0; off after 84, on again at reset).
+// At the capture only the six 1-bits of 0xA8A2 (15, 13, 11, 7, 5, 1) gain an input. The MCU's views read the
+// file as is (port 2). Rule for later patches: a ROM-image patch inside $2000-$7FFF must be stored pre-XORed
+// (in the file's own form); a Scum! word is served as given, never XORed. None exists today (the lowest Scum!
+// word is at byte $1A9FA)
+wire        paprium_fm_hit = (cart_addr[23:15] == 9'd0) && (cart_addr[14:13] != 2'd0);
+reg         rom_xor;
 reg         dtack_ext;
 
 // pocket: Scum! (0.2.6). The lookup runs on the latched rom_addr; scum_use keeps the
@@ -288,6 +405,8 @@ generate
 			.en_pills (scum_pills),
 			.en_lives (scum_lives),
 			.en_arcade(scum_arcade),
+			.en_arc3p (scum_arc3p),
+			.en_tap   (scum_tap),
 			.en_6btn  (scum_6btn),
 			.stage    (scum_stage),
 			.pad1     (scum_pad1),
@@ -312,7 +431,7 @@ always @(posedge clk_ram) begin
 		if(rom_rd) begin
 			// pocket: Scum! words replace ROM words on every console read (68000 and VDP DMA),
 			// never on the MCU's stream (scum_use)
-			cart_data <= scum_use ? scum_data : rom_data;
+			cart_data <= scum_use ? scum_data : (rom_data ^ (rom_xor ? 16'hA8A2 : 16'h0000));   // new core: the FM bank XOR
 			if(cart_cs_ext) dtack_ext <= 1;
 		end
 		rom_rd <= 0;
@@ -329,6 +448,7 @@ always @(posedge clk_ram) begin
 		rom_req <= ~rom_req;
 		rom_rd <= sdram_rd;
 		paprium_stream_pending <= paprium_stream_cs & sdram_rd;  // paprium
+		rom_xor <= PAPRIUM && paprium_fm_hit && !paprium_stream_cs && !paprium_mini_md;   // pocket: new core, the FM bank XOR
 	end
 
 // pocket: three deletions in one region. The reads whose source is gone: Master
@@ -398,8 +518,8 @@ if(SVP) begin
 	assign sram_q  = 0;
 	assign sram2_q = 0;
 end
-// paprium: the Paprium save is paprium_backup's 4 KB array inside paprium_cart, and
-// save_do / save_change are muxed to it, so this 64 KB cart SRAM is pure dead weight
+// paprium: the Paprium save is paprium_backup's array inside paprium_cart (8 KB from the new core on; 4 KB in 0.2.x),
+// and save_do / save_change are muxed to it, so this 64 KB cart SRAM is pure dead weight
 // in the Paprium build. At 512 Kbit it is more block RAM than the entire Paprium
 // subsystem costs (MCU work RAM 256 Kbit + firmware ROM 128 Kbit + backup 32 Kbit),
 // which makes dropping it the single largest memory saving available to this bitstream
@@ -446,8 +566,8 @@ end
 endgenerate
 // pocket-end
 
-// paprium: the Paprium save is the MCU-managed 4 KB backup RAM inside paprium_cart,
-// not this build's cart SRAM
+// paprium: the Paprium save is the MCU-managed backup RAM inside paprium_cart (8 KB from
+// the new core on), not this build's cart SRAM
 assign save_do     = paprium_active ? paprium_save_do     : sram2_q;
 assign save_change = paprium_active ? paprium_save_change : sram_wren;
 // paprium-end
@@ -591,10 +711,12 @@ wire  [7:0] paprium_save_do;
 wire        paprium_save_change;
 reg         paprium_stream_pending = 0;
 reg         paprium_stream_ack_toggle = 0;
+wire        paprium_mini_view;   // pocket: new core - the 84 view switch from the register file (clk)
 
-// pocket: xfix SP-X. paprium_stream_addr comes from a clk register (paprium_cart stream_ptr) and rom_addr takes it
-// on the clk_ram edge where the 68000/VDP read strobe is first seen. Nothing ties that edge to the pointer update,
-// so the same-edge hold check on this capture is a real path (fast-0C misses: buddy s4 -0.009, b26 -0.030).
+// pocket: xfix SP-X (xfix = our clk_sys / clk_md crossing fixes, the block of that name in core_constraints.sdc; SP-X =
+// its stream-pointer part). paprium_stream_addr comes from a clk register (paprium_cart stream_ptr) and rom_addr takes
+// it on the clk_ram edge where the 68000/VDP read strobe is first seen. Nothing ties that edge to the pointer update,
+// so the same-edge hold check on this capture is a real path (fast-0C misses on two earlier fits: -0.009 and -0.030).
 // clk and clk_ram are one PLL's VCO/12 and VCO/6 with aligned edges, so every second clk_ram edge is shared
 // with a clk edge. On an edge between two clk edges rom_addr keeps taking the live value (the 9.31 ns setup
 // path, unchanged). On a shared edge it takes held, a clk_ram copy made on the previous in-between edge, which
@@ -629,7 +751,7 @@ endgenerate
 
 // The Paprium build is Paprium-only. Like the SVP bitstream, the loader has already
 // decided by serial which core to launch, so re-detecting the header here would only add
-// a way to fail on a differently-headered dump. Hard-wiring it also drops the whole quirk
+// a way to fail on a differently-headered ROM file. Hard-wiring it also drops the whole quirk
 // table, cart_id and crc from this build. To go back to serial detection, restore the
 // 'GM T-574120' compare in the quirk table and drive this from it
 wire paprium_quirk = PAPRIUM;
@@ -650,10 +772,11 @@ end
 
 generate
 if(PAPRIUM) begin
-	paprium_cart #(.SFX(PAPRIUM_SFX), .CMDLOG(PAPRIUM_CMDLOG)) paprium
+	paprium_cart #(.SFX(PAPRIUM_SFX), .CMDLOG(PAPRIUM_CMDLOG), .CLK_HZ(CLK_HZ), .FEAT(PAPRIUM_FEAT),
+	               .SYNTH(PAPRIUM_SYNTH)) paprium
 	(
 		.clk(clk),
-		.reset(reset),
+		.reset(pap_reset),     // Fafrium (was reset)
 		.enable(paprium_quirk),
 
 		.cart_addr(cart_addr),
@@ -670,6 +793,10 @@ if(PAPRIUM) begin
 		.stream_cs(paprium_stream_cs),
 		.stream_addr(paprium_stream_addr),
 		.md_reset(paprium_md_reset),
+		.mini_view(paprium_mini_view),   // pocket: new core
+		.opt_at_reset_en(paprium_opt_at_reset_en),   // new core
+		.console_reset(paprium_console_reset),       // pocket: test build S3c
+		.cause_v(paprium_cause_v),                   // pocket: test build S3c
 
 		.mdp_track_request(mdp_track_request),
 		.mdp_track_num(mdp_track_num),
@@ -685,6 +812,7 @@ if(PAPRIUM) begin
 
 		.sfx_l(paprium_sfx_l),
 		.sfx_r(paprium_sfx_r),
+		.menu_mute_en(paprium_menu_mute_en),   // pocket: 0.3.0 new core, the Pocket-menu music mute
 
 		.dbg_ramdp_write(),
 		.dbg_ramdp_addr(),
@@ -707,7 +835,7 @@ if(PAPRIUM) begin
 		.mem_req(paprium_mem_req),
 		.mem_ack(rom2_ack),
 
-		// pocket: xram stage 1
+		// pocket: xram step 1
 		.xb_req(xb_req),
 		.xb_region(xb_region),
 		.xb_addr(xb_addr),
@@ -719,8 +847,10 @@ if(PAPRIUM) begin
 
 		.mcu_opts(mcu_opts),   // pocket: 0.2.6
 
-		// pocket: xram stage 2
+		// pocket: xram step 2
 		.link_status(link_status),
+		.link_post(link_post),   // pocket: new core
+		.vs_tog(vs_tog),         // pocket: new core (v1.1) - VSCNT
 
 		// pocket: the SFX echo line in CRAM
 		.echo_ready(echo_ready),
@@ -730,11 +860,30 @@ if(PAPRIUM) begin
 		.echo_rd(echo_rd),
 		.echo_rslot(echo_rslot),
 		.echo_rd_done(echo_rd_done),
-		.echo_rdata(echo_rdata)
+		.echo_rdata(echo_rdata),
+
+		// pocket: synth step - the synth's CRAM clients
+		.syn_c_rd(syn_c_rd),
+		.syn_c_raddr(syn_c_raddr),
+		.syn_c_rd_done(syn_c_rd_done),
+		.syn_c_rdata(syn_c_rdata),
+		.syn_e_wr(syn_e_wr),
+		.syn_e_waddr(syn_e_waddr),
+		.syn_e_wpair(syn_e_wpair),
+		.syn_e_wdata(syn_e_wdata),
+		.syn_e_rd(syn_e_rd),
+		.syn_e_raddr(syn_e_raddr),
+		.syn_e_rpair(syn_e_rpair),
+		.syn_e_rd_done(syn_e_rd_done),
+		.syn_e_rdata(syn_e_rdata),
+		.syn_e_wbusy(syn_e_wbusy),
+		.fw_go(fw_go),         // Fafrium
+		.fw_done(fw_done)      // Fafrium
 	);
 end
 else begin
 	assign paprium_cart_data   = 0;
+	assign fw_go               = 0;   // Fafrium
 	assign paprium_mailbox_cs  = 0;
 	assign paprium_stream_cs   = 0;
 	assign paprium_stream_addr = 0;
@@ -746,8 +895,12 @@ else begin
 	assign paprium_save_do     = 0;
 	assign paprium_save_change = 0;
 	assign paprium_md_reset    = 0;
+	assign paprium_mini_view   = 0;   // pocket: new core
+	assign paprium_opt_at_reset_en = 0;   // new core
+	assign paprium_cause_v     = 0;   // pocket: test build S3c
 	assign paprium_sfx_l       = 0;
 	assign paprium_sfx_r       = 0;
+	assign paprium_menu_mute_en = 0;
 	assign cmdlog_read_data    = 0;
 
 	assign mdp_track_request  = 0;
@@ -760,7 +913,7 @@ else begin
 	assign mdp_volume_request = 0;
 	assign mdp_active         = 0;
 
-	assign xb_req    = 0;   // pocket: xram stage 1
+	assign xb_req    = 0;   // pocket: xram step 1
 	assign xb_region = 0;
 	assign xb_addr   = 0;
 	assign xb_sel    = 0;
@@ -772,8 +925,25 @@ else begin
 	assign echo_wdata = 0;
 	assign echo_rd    = 0;
 	assign echo_rslot = 0;
+
+	assign syn_c_rd    = 0;   // pocket: synth step - no synth
+	assign syn_c_raddr = 0;
+	assign syn_e_wr    = 0;
+	assign syn_e_waddr = 0;
+	assign syn_e_wpair = 0;
+	assign syn_e_wdata = 0;
+	assign syn_e_rd    = 0;
+	assign syn_e_raddr = 0;
+	assign syn_e_rpair = 0;
 end
 endgenerate
+
+// pocket: new core - mini_view (clk, set once per boot by the 84 view switch, cleared only by reset) into this
+// clock through two flops, for the FM bank XOR. The first flop's input is a false path (core_constraints.sdc)
+reg [1:0] paprium_mini_sync = 2'b00;
+always @(posedge clk_ram) paprium_mini_sync <= {paprium_mini_sync[0], paprium_mini_view};
+wire paprium_mini_md = paprium_mini_sync[1];
+// pocket-end
 // paprium-end
 
 // SRAM
@@ -894,7 +1064,11 @@ wire        schan_quirk = 0;
 // MK3U Trilogy 10MB version (13MB isn't compatible with real HW!)
 // pocket: Virtua Racing is 2 MB, so cart_addr[23:22] and cart_addr < rom_sz cannot both hold
 // in the SVP build; the fitter cannot see that, and the compares feed the dtack_ext path
-wire cart_cs_ext = !SVP && ~cart_ms && (cart_addr[23:22] && cart_addr[23:20]<'hA) && (cart_addr < rom_sz);
+// pocket: new core (B Jam: "keep it like the cart") - with Mega CD = None the Paprium cart
+// does not answer $400000-$7FFFFF: no data, no DTACK, no SDRAM read, so the console's own open bus and its
+// arbiter's DTACK apply, as on a real console with no Mega CD. With a unit chosen this select is 0.2.6's exactly:
+// it gives the unit stub (core_top paprium_addons) its DTACK, and the stub's data wins the read
+wire cart_cs_ext = !SVP && ~cart_ms && !(PAPRIUM && paprium_cd_none) && (cart_addr[23:22] && cart_addr[23:20]<'hA) && (cart_addr < rom_sz);
 // pocket-end
 
 // Realtec
@@ -995,9 +1169,12 @@ wire        sf_sram_wr    = sf_sram_en & cart_lwr;
 reg         chk_cs;
 reg  [15:0] chk_data;
 
+// pocket: new core (a logic saving that came with the FM bank change) - Paprium's header checksum matches none
+// of these, so the Paprium build drops the whole check (and with it the whole-ROM crc_real adder and one cart_data
+// input)
 always @(posedge clk) begin
 	chk_cs <= 0;
-	case(chk_quirk)
+	if(!PAPRIUM) case(chk_quirk)
 		1: if(md_addr == 'h400000) begin
 				chk_data <= 'h9000;
 				chk_cs <= 1;
@@ -1128,7 +1305,7 @@ always @(posedge clk) begin
 // no save RAM behind the flag, and announcing one would let APF overwrite a real
 // save file with zeroes if a battery game is ever run there by hand
 // paprium: the Paprium header carries NO "RA" battery-RAM marker at 0x1B0 (verified
-// against the GM MK-12056-00 dump), so header detection would leave sram_present low,
+// against a local copy of the ROM), so header detection would leave sram_present low,
 // APF would never allocate a save slot, and the MCU's backup RAM would never persist.
 // The Paprium build announces the save unconditionally - it is a Paprium-only bitstream
 		if(cart_dl_addr == 'h1B0 && (PAPRIUM || ({cart_dl_data[7:0],cart_dl_data[15:8]} == "RA" && !SVP))) sram_present <= 1;
@@ -1147,7 +1324,8 @@ always @(posedge clk) begin
 	end
 	
 // pocket: the checksum quirks key off crc_real, so gating here drops that whole-ROM adder too
-	if(~cart_dl && !SVP) begin
+// (the new core: the Paprium build too)
+	if(~cart_dl && !SVP && !PAPRIUM) begin
 // pocket-end
 		if(crc == 'h0000 && crc_real == 'h7037) chk_quirk <= 1; // Ma Jiang Qing Ren - Ji Ma Jiang Zhi
 		if(crc == 'h0000 && crc_real == 'h3b95) chk_quirk <= 1; // Super Majon Club

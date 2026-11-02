@@ -1,6 +1,6 @@
 """Instrument GPGX's Paprium cart to log every read of the stream window.
 
-    python scripts/apply_gpgx_winlog.py ../gpgx-build/core/cart_hw/paprium.h
+    python scripts/apply_gpgx_winlog.py <Genesis Plus GX source>/core/cart_hw/paprium.h
 
 Idempotent: refuses to apply twice. Adds a PAPRIUM_WINLOG build switch and,
 when it is 1, appends one record per event to paprium_winlog.bin in the
@@ -37,8 +37,8 @@ Record, 8 bytes, little-endian:
     u16  address
     u32  stamp    frame counter (high 16) | v_counter (low 16)
 
-This file is written with the Write tool on purpose: every heredoc that
-carried escape sequences arrived with a backslash stripped, and a broken
+This file is written as a plain file on purpose, not through a shell heredoc:
+every heredoc that carried escape sequences arrived with a backslash stripped, and a broken
 version of this applier produced three stale-core runs before anyone
 noticed the build had been dying at this step. No backslash escapes below:
 tabs, newlines and quotes are built with chr().

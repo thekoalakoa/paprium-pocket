@@ -1,10 +1,12 @@
 # Build logs
 
-Quartus console output from every fit of the Paprium core since the 0.1.0 release,
-one file per run. Each is the full `quartus_sh -t generate.tcl paprium <seed>` transcript:
-analysis, fitter, assembler and the timing report. They are kept so a placement or a
-slack figure quoted in [docs/PORT_PLAN.md](../docs/PORT_PLAN.md) can be checked against
-the run that produced it.
+Quartus console output from the fits of the Paprium core from the 0.1.0 release to
+11 September 2026, one file per run: each was the full
+`quartus_sh -t generate.tcl paprium <seed>` transcript (analysis, fitter, assembler and the
+timing report). From 0.3.0 the 36 logs are no longer in the tree; they stay in this
+repository's history (the 0.2.6 release and earlier). The table below was read from them,
+so a placement or a slack figure quoted in [docs/PORT_PLAN.md](../docs/PORT_PLAN.md) can
+still be checked against the run that produced it.
 
 How a log is produced (from the repo root, Git Bash):
 

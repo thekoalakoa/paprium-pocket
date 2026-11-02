@@ -17,7 +17,7 @@ Decode with ffmpeg:
     ffmpeg -i wave-bank.wv wave-bank.wav
 
 The result is derived from a commercial ROM. Keep it local; it is gitignored
-alongside the SFX dump.
+alongside the SFX files.
 """
 import struct, sys
 

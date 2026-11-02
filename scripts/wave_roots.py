@@ -5,7 +5,7 @@
 
 `scripts/dump_wave.py` extracts the bank; decode it to WAV with ffmpeg first.
 The program table sits at offset 0 of the decoded bank - 256 entries of 16 bytes,
-94 live (see the project notes). Per entry, big-endian:
+94 live. Per entry, big-endian:
 
     +0x00  4  sample pointer into the bank
     +0x04  4  sample length

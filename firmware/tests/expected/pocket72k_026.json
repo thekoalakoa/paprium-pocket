@@ -1,0 +1,21 @@
+{
+  "note": "Milestone 2 pin: the final 0.2.6 modules relinked into pocket72k (measured 2026-10-10, the sources of that day). Same objects as legacy54k; only .rodata, the .data image and the stack top moved. A lockstep run (an earlier rig of ours that runs two RV32 images side by side in the Unicorn emulator and compares them event by event: the pocket72k image against test3, a 0.2.6 test build) on the solo capture frames 0-34,000, TEST and RELEASE: 0 differences, and per-frame posts and modelled cycles equal to the legacy images' own lockstep (docs/LAYOUT.md, last section). Update this pin deliberately when the pocket link set changes (new modules, placement), never to make a failing check pass.",
+  "pocket72k": {
+    "test": {
+      "mcu.txt":     "5f0ff6dd8791da4080ad9f90d7a3de6f",
+      "mcu_ext.txt": "67b6eb01f7fdc28b22edf1b62f49bf6f",
+      "wram_hi.txt": "de23c59f9f776b280d93c8ca4701297a",
+      "wram_lo.txt": "156bf4ec663e4be038f6591de899ef76",
+      "rom.bin":     "6b47099df5a4f9e9bcc240812e836f7f",
+      "wcode.bin":   "29189a78dbbbc1c209829bf30942c0da"
+    },
+    "release": {
+      "mcu.txt":     "4e01a7327ba789ff5123eb19c22b3244",
+      "mcu_ext.txt": "80aa389421982b302e9ad9463da5f43e",
+      "wram_hi.txt": "7e61c1ea5adbe9f717f641620450b865",
+      "wram_lo.txt": "86368c8142ed4bd3b671e8e001c48a16",
+      "rom.bin":     "8e55ec4bbf678b43983fc0d1d3cee823",
+      "wcode.bin":   "2c1ce124c556a836f27d4195f6262282"
+    }
+  }
+}

@@ -53,7 +53,7 @@ import sys
 
 import numpy as np
 
-# Teal bar colour test. Measured on "1E Gothic.mkv": bar pixels are
+# Teal bar colour test. Measured on the hardware capture of 1E Gothic: bar pixels are
 # RGB (0..37, 194..213, 88..133), so both halves have wide margin.
 G_MIN = 100
 G_OVER_R = 40
@@ -279,7 +279,7 @@ def read_heights(path, geom, w, seconds=None, verbose=True):
 def find_quantum(heights, floor_h, forced=None):
     """Largest step that explains every observed height to within a pixel.
 
-    The captures are a scaled recording, not a framebuffer dump, so a bar drawn
+    The captures are a scaled recording, not a framebuffer capture, so a bar drawn
     n*q tall can land n*q-1 px tall. A quantum is accepted only if EVERY height
     in the file sits within 1 px of a multiple of it - one outlier disqualifies
     it, which is what stops 1 or 3 from trivially "fitting".

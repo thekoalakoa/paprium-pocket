@@ -4,6 +4,7 @@
 # Everything listed under Data loaders / Audio is agg23/openfpga-NES target/pocket/ verbatim, and
 # core_bridge_cmd.v is open-fpga/core-template/src/fpga/core/ verbatim; each says so in its own header.
 # Only core_top.sv and core_constraints.sdc are local, and both say so in theirs.
+# Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "core_top.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "video_cleaner.sv"]
 set_global_assignment -name VERILOG_FILE       [file join $::quartus(qip_path) "core_bridge_cmd.v"]
@@ -12,6 +13,14 @@ set_global_assignment -name SDC_FILE           [file join $::quartus(qip_path) "
 # Data loaders
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "data_loader.sv"]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "data_unloader.sv"]
+# pocket: 0.3.0 synth step (the firmware's docs/MCU_INTERFACE.md v1.3; test builds 4a and 4b, the 0.3.0 hardware test
+# builds of the sound cache) - local, not agg23's: the sound-cache slot (data.json id 20,
+# instantiated in core_top's xmem block) and the first-boot bar (core_top's video output)
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "paprium_cache_slot.sv"]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "paprium_bar.sv"]
+# pocket: 0.3.0 synth step (test build 5, the hardware test build of the synth; a project decision) - local: the picture
+# during a cart hold (core_top's video output)
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "paprium_holdvid.sv"]
 
 # Audio
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) "sound_i2s.sv"]

@@ -27,18 +27,32 @@
           "srm"
         ],
         "address": "0x20000000",
-        "size_maximum": "0x1000"
+        "size_maximum": "0x2000"
       },
       {
-        "name": "Paprium music",
-        "id": 300,
+        "name": "Sound cache",
+        "id": 20,
         "required": false,
-        "parameters": "0x00000008",
-        "deferload": true,
-        "filename": "paprium.pcm",
+        "parameters": "0x02",
+        "nonvolatile": true,
+        "filename": "paprium_sound_cache.bin",
         "extensions": [
-          "pcm"
-        ]
+          "bin"
+        ],
+        "address": "0x60000000",
+        "size_maximum": "0x400000"
+      },
+      {
+        "name": "Little-Man Firmware",
+        "id": 30,
+        "required": true,
+        "parameters": "0x0A",
+        "filename": "little_man_firmware.bin",
+        "extensions": [
+          "bin"
+        ],
+        "address": "0x11000000",
+        "size_exact": "0x40000"
       }
     ]
   }

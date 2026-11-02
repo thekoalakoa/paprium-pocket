@@ -1,12 +1,12 @@
 """Instrument GPGX to measure how much vblank margin Paprium actually has.
 
-    python scripts/apply_gpgx_vbllog.py ../gpgx-build/core/vdp_ctrl.c
+    python scripts/apply_gpgx_vbllog.py [<Genesis Plus GX source>/core/vdp_ctrl.c]   (default: core/vdp_ctrl.c in the current folder)
 
 Apply AFTER apply_gpgx_vdplog.py - this block sits below it and reuses the
 stdio/stdlib includes it adds. Idempotent: refuses to apply twice.
 
-WHY: the FX68K soak's OSD-freeze test (2026-09-07) showed the frozen picture is
-CLEAN while the running picture is not. VRAM is correct at all times, so the
+WHY: in the FX68K soak (our testing and debugging of the builds that use the FX68K 68000 core), the OSD-freeze
+test (2026-09-07) showed the frozen picture is CLEAN while the running picture is not. VRAM is correct at all times, so the
 defect is not corrupt data - the VDP is scanning a region while the CPU is still
 writing it. That means the game's per-frame update is spilling out of vblank
 into active display. Whether a small CPU throughput difference can cause that
@@ -16,7 +16,7 @@ If Paprium finishes its updates with 200 lines to spare, no plausible slowdown
 pushes it into active display and the whole timing family is dead. If it
 finishes with 5 lines to spare, it is fragile by construction and a small
 throughput loss breaks it exactly as observed. Either way the answer is a
-number, and it tells the ISA lane how much slowdown the design can absorb.
+number, and it tells the CPU-timing side of that work how much slowdown the design can absorb.
 
 VOLUME: data-port writes are far too frequent to log individually - a
 full-screen tile update is around 18,000 words, over a million a second. So
@@ -46,7 +46,7 @@ fit inside.
 
 Decode with scripts/decode_vbllog.py.
 
-Written with the Write tool, no backslash escapes: tabs, newlines and quotes
+Written with no backslash escapes: tabs, newlines and quotes are
 built with chr(), per the note in apply_gpgx_winlog.py.
 """
 import sys
@@ -57,7 +57,7 @@ CR = chr(13)
 
 
 def main():
-    p = sys.argv[1] if len(sys.argv) > 1 else '../gpgx-build/core/vdp_ctrl.c'
+    p = sys.argv[1] if len(sys.argv) > 1 else 'core/vdp_ctrl.c'
     s = open(p, encoding='utf-8', newline='').read()
 
     if 'ppm_vbl' in s:

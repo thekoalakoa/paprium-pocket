@@ -1,0 +1,320 @@
+{
+ "note": "Config of tools/fwstack.py (static stack bound per interrupt level and nesting chain). Function names are the linked image's symbols. The report labels each number MEASURED (from this build's code or a recorded run), PROXY (today's functions standing in for a 0.3.0 level that is not written yet, measured here) or MODELLED (a number from the plan, an estimate).",
+ "skip_ranges": [
+  [
+   "0x00005360",
+   "0x0000D2EC",
+   "brain blob (.brain_irom): not walked; its depth is the MEASURED @brain"
+  ],
+  [
+   "0x80002C00",
+   "0x80004648",
+   "cf.bin + pad + rodata.bin (.wram_cf): brain helpers and tables, counted in @brain"
+  ]
+ ],
+ "opaque": {
+  "@brain": {
+   "bytes": 224,
+   "mie_open": true,
+   "label": "MEASURED",
+   "basis": "measured in the Unicorn emulator: the deepest stack of the brain (its own frames + the cf.bin helpers it calls) over 5,971 calls in two fight scenarios (224 B in both). The brain runs with MIE = 1 (zz_buddy.c run_call)."
+  },
+  "@chip_song_tick": {
+   "bytes": 400,
+   "label": "PROXY",
+   "basis": "deepest AUD chain (TIM14 ISR -> the synth tick -> the sequencer step -> the row reader -> the module command -> event_post: 368; deepest AUD root 400). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_packet": {
+   "bytes": 256,
+   "label": "PROXY",
+   "basis": "the Z80 packet flush -> the packet build -> the DMA start -> event_post. PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_watchdog": {
+   "bytes": 224,
+   "label": "PROXY",
+   "basis": "TIM7 ISR chain (watchdog / heartbeat). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_mbx": {
+   "bytes": 240,
+   "label": "PROXY",
+   "basis": "mbxA_dispatch chain (partial: the two dispatchers did not compile, their own frames are missing). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_jobs": {
+   "bytes": 560,
+   "label": "PROXY",
+   "basis": "deepest job-type chain: MegaWire 560, saves 384, unpackers 304, scaling 208 (the chip's F4/F5/B6 use static buffers). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  }
+ },
+ "indirect": {
+  "ppm_cmd_handler": {
+   "targets": [
+    "re:^cmd_"
+   ],
+   "basis": "the cmd_ptr table (filled by ppm_init_cmd_ptr) holds only cmd_* handlers"
+  },
+  "buddy_call_brain": {
+   "targets": [
+    "@brain"
+   ],
+   "basis": "jalr a0 / jalr s0 = the brain's H2 and H1 entries"
+  },
+  "memset": {
+   "targets": [],
+   "self": true,
+   "basis": "newlib memset: computed jump/call into its own store table, no frame"
+  },
+  "neorv32_uart_printf": {
+   "targets": [],
+   "switch": true,
+   "basis": "switch table on the format character"
+  }
+ },
+ "sp_init": [
+  "_start",
+  "__crt0_pointer_init"
+ ],
+ "sp_restore": {
+  "buddy_abort_land": "lw sp from buddy_jmp_sp: unwinds to buddy_call_brain's own frame (abort path, reached only through mepc)"
+ },
+ "entries_extra": [
+  "__crt0_dummy_trap_handler",
+  "buddy_fw_tramp",
+  "buddy_abort_land"
+ ],
+ "address_taken_ok": {},
+ "schemes": {
+  "026": {
+   "gate": true,
+   "what": "the code as it is (final 0.2.6): a polled thread; MEI and MTI are enabled only while a brain call runs (zz_buddy.c run_call) and go through buddy_trap",
+   "levels": [
+    {
+     "name": "thread",
+     "entries": [
+      "_start"
+     ],
+     "basis": "reset entry: crt0 -> main -> ppm_start (main loop, dispatch, buddy_event)"
+    },
+    {
+     "name": "msi",
+     "absent": "0.2.6 has no software-interrupt handler"
+    },
+    {
+     "name": "mti",
+     "stub": "buddy_trap",
+     "entries": [
+      "buddy_isr_tick"
+     ],
+     "preempts": [
+      "thread"
+     ],
+     "basis": "MTIME tick (cause 7) inside a brain call"
+    },
+    {
+     "name": "mei",
+     "stub": "buddy_trap",
+     "entries": [
+      "buddy_isr_post"
+     ],
+     "preempts": [
+      "thread",
+      "mti"
+     ],
+     "basis": "mailbox latch (cause 11) inside a brain call or a tick's MIE window"
+    }
+   ]
+  },
+  "030": {
+   "gate": false,
+   "what": "the 0.3.0 design: L1 mailbox MEI > L2a timer MTI > L2b MSI > L3 thread (job queue); every level runs with interrupts open above it (software nesting, 80 B frame per level); F5/F4 buffers static in WRAM",
+   "levels": [
+    {
+     "name": "thread",
+     "planned": [
+      "l3_thread"
+     ],
+     "proxy": {
+      "entries": [
+       "main",
+       "@chip_jobs"
+      ],
+      "exclude": [
+       "buddy_event",
+       "cmd_F5_stamp_rescale"
+      ],
+      "base_frames": [
+       "main",
+       "ppm_start"
+      ],
+      "basis": "L3 = the job queue: today's main loop with the job commands (DA/DB/F2/F4/C6/saves), measured here, the brain call removed (it moves to MSI), and the chip's own job chains (PROXY)"
+     }
+    },
+    {
+     "name": "msi",
+     "planned": [
+      "l2b_msi"
+     ],
+     "stub": "buddy_trap",
+     "preempts": [
+      "thread"
+     ],
+     "proxy": {
+      "entries": [
+       "buddy_call_brain",
+       "@chip_song_tick",
+       "@chip_packet"
+      ],
+      "base_frames": [
+       "buddy_event"
+      ],
+      "basis": "L2b = the brain call (today's buddy_call_brain + @brain, under the glue frame of buddy_event) or one song-tick slice or the Z80 packet + Boom Box feed"
+     }
+    },
+    {
+     "name": "mti",
+     "planned": [
+      "l2a_mti"
+     ],
+     "stub": "buddy_trap",
+     "preempts": [
+      "thread",
+      "msi"
+     ],
+     "modelled_bytes": 32,
+     "proxy": {
+      "entries": [
+       "@chip_song_tick",
+       "@chip_watchdog"
+      ],
+      "basis": "L2a = timer wheel (an estimated 32 B frame) + the urgent tick promotion (rest of the tick + packet) or the watchdog"
+     }
+    },
+    {
+     "name": "mei",
+     "planned": [
+      "l1_mei"
+     ],
+     "stub": "buddy_trap",
+     "preempts": [
+      "thread",
+      "msi",
+      "mti"
+     ],
+     "modelled_bytes": 64,
+     "proxy": {
+      "entries": [
+       "ppm_cmd_handler",
+       "@chip_mbx"
+      ],
+      "exclude": [
+       "cmd_F5_stamp_rescale",
+       "cmd_F4_unpack_scal",
+       "cmd_DA_unpack",
+       "cmd_F2_unpack",
+       "cmd_C6_setup_data",
+       "cmd_DF_eep_rd",
+       "cmd_E0_eep_wr",
+       "cmd_8C_bgm_play"
+      ],
+      "basis": "L1 = mailbox decode + gates + reply: today's dispatcher with the job commands removed (they become L3 jobs), measured, or the chip's dispatcher chain (PROXY); + an estimated 64 B for the status layer and the held-post entry"
+     }
+    }
+   ]
+  },
+  "030-f5-on-stack": {
+   "gate": false,
+   "what": "the 0.3.0 design with F5's 4 KB local buffer LEFT on the stack (as in 0.2.6): shows why the design moves it",
+   "levels": [
+    {
+     "name": "thread",
+     "planned": [
+      "l3_thread"
+     ],
+     "proxy": {
+      "entries": [
+       "main",
+       "@chip_jobs"
+      ],
+      "exclude": [
+       "buddy_event"
+      ],
+      "base_frames": [
+       "main",
+       "ppm_start"
+      ],
+      "basis": "L3 = the job queue: today's main loop with the job commands (DA/DB/F2/F4/C6/saves and F5 with its 4 KB buffer), measured here, the brain call removed (it moves to MSI), and the chip's own job chains (PROXY)"
+     }
+    },
+    {
+     "name": "msi",
+     "planned": [
+      "l2b_msi"
+     ],
+     "stub": "buddy_trap",
+     "preempts": [
+      "thread"
+     ],
+     "proxy": {
+      "entries": [
+       "buddy_call_brain",
+       "@chip_song_tick",
+       "@chip_packet"
+      ],
+      "base_frames": [
+       "buddy_event"
+      ],
+      "basis": "L2b = the brain call (today's buddy_call_brain + @brain, under the glue frame of buddy_event) or one song-tick slice or the Z80 packet + Boom Box feed"
+     }
+    },
+    {
+     "name": "mti",
+     "planned": [
+      "l2a_mti"
+     ],
+     "stub": "buddy_trap",
+     "preempts": [
+      "thread",
+      "msi"
+     ],
+     "modelled_bytes": 32,
+     "proxy": {
+      "entries": [
+       "@chip_song_tick",
+       "@chip_watchdog"
+      ],
+      "basis": "L2a = timer wheel (an estimated 32 B frame) + the urgent tick promotion (rest of the tick + packet) or the watchdog"
+     }
+    },
+    {
+     "name": "mei",
+     "planned": [
+      "l1_mei"
+     ],
+     "stub": "buddy_trap",
+     "preempts": [
+      "thread",
+      "msi",
+      "mti"
+     ],
+     "modelled_bytes": 64,
+     "proxy": {
+      "entries": [
+       "ppm_cmd_handler",
+       "@chip_mbx"
+      ],
+      "exclude": [
+       "cmd_F5_stamp_rescale",
+       "cmd_F4_unpack_scal",
+       "cmd_DA_unpack",
+       "cmd_F2_unpack",
+       "cmd_C6_setup_data",
+       "cmd_DF_eep_rd",
+       "cmd_E0_eep_wr",
+       "cmd_8C_bgm_play"
+      ],
+      "basis": "L1 = mailbox decode + gates + reply: today's dispatcher with the job commands removed (they become L3 jobs), measured, or the chip's dispatcher chain (PROXY); + an estimated 64 B for the status layer and the held-post entry"
+     }
+    }
+   ]
+  }
+ }
+}

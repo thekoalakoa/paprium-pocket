@@ -72,7 +72,7 @@ module paprium_cmd_log (
 	// APF read-back port. data_unloader only supports byte-wide reads - its
 	// apf_bridge_write_data[31-WORD_SIZE:0] slice degenerates at 32 bits - so the
 	// word is served a byte at a time, most significant first, which makes a
-	// hexdump of the file read as the 32-bit values directly.
+	// hex view of the file read as the 32-bit values directly.
 	input  wire [13:0] read_addr,
 	output reg   [7:0] read_data
 );

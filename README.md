@@ -10,146 +10,291 @@
 A standalone openFPGA core for **Paprium** (WaterMelon, 2020), running on the
 Analogue Pocket.
 
-This is a single-game core, not a Mega Drive emulator. The general cartridge
-hardware is stripped out to make room for Paprium's own — the NEORV32 MCU, the
-streaming window, and the cartridge's 8-channel PCM sound engine. Don't load other
+This core plays one game. It isn't a Mega Drive emulator. I stripped out the general cartridge hardware to make room for
+Paprium's own: the NEORV32 processor that stands in for the cart's chip and runs our firmware, Little-Man Firmware; the
+streaming window; and a sprite decoder and synthesiser we rebuilt to work the way the cart's do. Please don't load other
 ROMs into it.
 
 > [!IMPORTANT]
-> **You must supply your own cartridge dump.** None is included, and none will be
-> linked. WaterMelon have ceased trading and the game is no longer sold, but that
-> does not put it in the public domain — it is still their work, and this project
-> treats it that way.
+> **You need your own copy of the game.** I don't include one and I won't link one. WaterMelon have stopped trading and
+> the game isn't sold anymore, but that doesn't make it public domain. It's still their work, and this project treats it
+> that way.
 >
-> The music is likewise not included — see [Music](#music).
+> You don't need a soundtrack file anymore. From 0.3.0 on, the core makes the game's music from your own copy of the
+> game, the same way the cart does. See [What 0.3.0 is](#what-030-is).
 
-This exists for preservation. The cartridge depends on hardware that has never
-been dumped, and the company that made it has wound up; a core that runs the game
-from your own dump is a way of keeping it playable.
+I made this for preservation. The cart depends on hardware of its own, and the company behind it has wound up. A core
+that runs the game from your own copy is one way to keep it playable.
 
 ## Download
 
-**[Get the latest release](https://github.com/thekoalakoa/paprium-pocket/releases/latest)** — `openfpga-Paprium_<version>.zip`, and unzip it onto your SD card.
+**[Grab the latest release](https://github.com/thekoalakoa/paprium-pocket/releases/latest)**. There are two downloads:
+the core, `openfpga-Paprium_<core version>.zip`, which you unzip onto your SD card, and the cart firmware,
+`Little-Man_Firmware_<firmware version>.zip`, which has `little_man_firmware.bin` inside. For 0.3.0 that's
+`openfpga-Paprium_0.3.0.zip` and `Little-Man_Firmware_1.0.zip`.
+The core zip already holds the firmware file; the firmware's own download is for firmware-only updates.
 
 > [!NOTE]
-> **The core is not in this repository — it is in the release.** `paprium.rbf_r` is
-> the compiled bitstream, a build artefact, so it is deliberately not committed
-> (`.gitignore`). Cloning the repo and copying `pkg/pocket/` to your card gives you
-> the JSON metadata **without the core**, and the Pocket will not run it. Download
-> the release zip, or build the bitstream yourself — see [Building](#building).
+> **The core isn't in this repo. It's in the release.** `paprium.rbf_r` is the compiled bitstream, which is a build
+> output, so I leave it out on purpose (`.gitignore`). The firmware file `little_man_firmware.bin` isn't committed
+> either. If you clone the repo and copy `pkg/pocket/` to your card, you get the JSON metadata **but no core**, and the
+> Pocket won't run it. Download the release, or build the bitstream and the firmware file yourself (see
+> [Building](#building)).
 
 **Installation: [docs/INSTALL.md](docs/INSTALL.md)**
 
 ---
 
-## What works
+## What 0.3.0 is
 
-Boot, decompression, graphics streaming, saves, the cartridge's own sound effects,
-and music — with correct per-scene track selection and one-shot cues that stop
-rather than loop.
+With 0.3.0 the core acts like the original cart. Two things changed the most.
 
-Fits a Cyclone V `5CEBA4F23C8` at **98% ALM and 82% M10K** (0.2.6: 18,079 ALM, 253
-M10K), on a device with less than half the logic of the MiSTer board this was ported
-from. From 0.2.2 the 68000 is [FX68K](https://github.com/ijor/fx68k) rather than the
-gate-level netlist, which freed about ten points of ALM; 0.2.6 spends most of them on
-the CPU MATE link and the new menu options. There is little room left; see
-[docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) before adding anything.
+- **The game's own music, made the way the cart makes it.** We rebuilt the cart's sound chip in the core's logic, and
+  our music player runs in the firmware, working like the cart's does. The music and sound effects are made from your
+  own copy of the game the same way the cart makes them, so the music reacts to what's happening in the game just like
+  on a real cart. Both of the game's sound options work, YM and Datenmeister. No more soundtrack file.
+- **Our own firmware for the cart's chip.** The cart has its own processor. It unpacks the game's graphics, drives the
+  sprites, keeps the saves and plays the sound. In this core that processor runs **Little-Man Firmware**, which our team
+  wrote from our own study of how the cart behaves. It's its own file, `little_man_firmware.bin`, version 1.0. It's free
+  software under the GPL (version 3 or later), and the source is in this repo's [`firmware/`](firmware/) folder.
 
-The core boots straight into the game — no file browser. The cost is that the dump
-and the save are both fixed names; see [docs/INSTALL.md](docs/INSTALL.md).
+Anything a player might notice that's different from the original cart is listed below under
+[Known differences from the original cartridge](#known-differences-from-the-original-cartridge). Every one of them is
+there on purpose.
 
-From 0.2.6 the menu also has the [Scum!](#scum-and-the-console-options) switches
-(cheats, the hidden Arcade Mode with a stage select, and a 6-Button switch), a choice
-of console and Mega CD unit, which brings in the game's **CPU MATE** partner, and 32X
-and MegaWire options. All of it is off by default; the one visible difference from
-0.2.5 at the defaults is that no MegaWire shows as connected, as on a real cartridge
-with nothing plugged in.
+## What you need
+
+- An Analogue Pocket on firmware 2.3 or later.
+- A microSD card set up for the Pocket.
+- Your own copy of the game's ROM (8 MiB), made from your own cartridge. I don't include one and I won't link one.
+- Two files from the release page: the core, `openfpga-Paprium_0.3.0.zip`, and the cart firmware,
+  `Little-Man_Firmware_1.0.zip`.
+  The core zip already holds the firmware file; the firmware's own download is for firmware-only updates.
+
+You can forget the soundtrack file (`paprium.pcm`). 0.3.0 doesn't read it.
+
+The core boots straight into the game with no file browser, so the game, the firmware file and the save each have a
+fixed name and spot. Install steps are in [docs/INSTALL.md](docs/INSTALL.md).
+
+## What changed since 0.2.6
+
+**Sound**
+- The music comes from our music player in the firmware plus our rebuild of the cart's sound chip, which work the way
+  the cart's do, in both of the game's sound options (YM and Datenmeister). It follows the game like the cart does:
+  the low-health music, the sax man's cues, the Boom Box's X, Y and Z effects and the fades.
+- Sound effects play on our rebuild of the cart's synthesiser, filter and echo included.
+- The audio option in the game's own options menu works like it does on the cart.
+- The first start takes about 30 seconds. After the Pocket's loading bar you get a black screen with a bar along the
+  bottom while the core unpacks the game's sounds from your copy of the game into a sound cache file. Starts after that
+  take about 12 to 14 seconds.
+- While the Pocket's menu is open, the music pauses right where it is and the cart's sound effects go quiet. When you
+  close the menu, the music picks up from the same spot.
+
+**How the cart behaves**
+- The sprites, the zooms (the intro's SEGA CD logo, the arcade title and the stage zooms), unpacking the game's data,
+  the saves, the start-up and the cart's watchdog all work the way the cart does them.
+- Sprites get the cart's colours. Dice's afterimage outline is green like on the cart (0.2.x drew it blue), and the first
+  level's doorway gets its colours from the cart's own rule.
+- Saves use the cart's own format, 8 KB, the size of the cart's save chip. A 0.2.x save gets converted once, the first
+  time 0.3.0 starts. Make a copy of your save before you install (see [docs/INSTALL.md](docs/INSTALL.md)).
+- The cart's watchdog is back. With the Pocket's menu closed, if the game stops sending its once-a-frame signal for
+  about 4 seconds, the cart's chip halts, just like a real cart.
+
+**The menu**
+- **Console Reset** is new. It resets the console like the console's own Reset button. During play, the game starts
+  over from its NX TERMINAL screen (the status page at the start of the intro), same as on the cart.
+- **Arcade Mode** has its own entry now: Off, On, Multiplayer and Stick Only. Anything but Off plugs a virtual Grand
+  Stick III into controller port 1. On flips the stick's ARCADE switch, so the game turns on its own arcade mode without
+  any change to the ROM. Multiplayer adds the stick's 3 PLAYERS switch, with the third player on Dock controller 3.
+  Stick Only is the stick with every switch off, which plays the normal game. With On or Multiplayer, Select drops a
+  coin, and the first coin after power-on or a reset gives no credit, just like a cart with a Grand Stick III. With Stick
+  Only, Select is the stick's Mode button.
+- New alongside it: **Arcade Coins** (1 Coin 1 Credit, 2 Coins 1 Credit, Inf. Credits (0012)) and **Attract Only**, the
+  stick's other switches. They only count with Arcade Mode On or Multiplayer, like Arcade Stage Select.
+- **3-Player Mode** is new (Off by default). It plugs in an EA 4-Way Play so the game's three-player modes work with
+  three Dock controllers. With Arcade Mode on there's no 4-Way Play: Dock controller 3 goes into the stick's EXT socket.
+- **6-Button** now hands the game real six-button pads on controllers 1 and 2, and the game reads X, Y, Z and Mode
+  itself. An empty controller port reads as empty. With Arcade Mode on, port 1 is the stick, which has all its buttons
+  no matter what 6-Button says.
+- **TeraDrive** joins the Console list (it's a Japanese console, so the region is Japan).
+- **MegaWire** is out of the menu: its On / Off row did nothing in 0.3.0. Our MegaWire code always runs and acts like the
+  cart's does. See [MegaWire](#megawire).
+
+**Fixed**
+- Hall of Fame name entry: the highlight bar is clean with Arcade Stage Select or 6-Button on. Details are in
+  [docs/SCUM.md](docs/SCUM.md#fixed-in-030-the-hall-of-fame-name-entry-bar).
+- The Arcade coin plays the game's coin sound on every press.
+- Soft Reset holds the 68000 from the very first clock of the reset, so a warm reset doesn't repeat the bus cycle it cut
+  off anymore.
+- TMSS, the licence check the later consoles run at power-on, works on every all-in-one Mega CD unit (Wondermega,
+  Wondermega M2 / X'Eye, LaserActive, Aiwa CSD-GM1, CDX), same as on the real ones.
+- The two Soft Reset issues of 0.2.6 are tested and fixed in 0.3.0 with Little-Man Firmware 1.0: a second Soft Reset
+  needed after a **Console** or **Mega CD** change, and the rare black screen after a Soft Reset.
 
 ## Scum! and the console options
 
-The core's settings menu, in the order the Pocket shows it:
+Here's the core's settings menu, in the order the Pocket shows it:
 
 | Entry | Choices | Takes effect |
 |---|---|---|
-| Soft Reset (mini game) | action: restarts the console (see [docs/INSTALL.md](docs/INSTALL.md) for the mini-game) | — |
-| Aspect Ratio | Original (default), Corrected | at once |
-| Little-Man | Off (default), Health, Pills, Lives, Health + Pills, Health + Lives, Pills + Lives, All Three | at once |
+| Soft Reset (mini game) | action: restarts the console and the cart's chip (see [docs/INSTALL.md](docs/INSTALL.md) for the mini-game) | — |
+| Console Reset | action: resets the console like its own Reset button | — |
+| Aspect Ratio | Original (default), Corrected | right away |
+| Little-Man | Off (default), Health, Pills, Lives, Health + Pills, Health + Lives, Pills + Lives, All Three | right away |
+| Arcade Mode | Off (default), On, Multiplayer, Stick Only | Soft Reset |
+| Arcade Coins | 1 Coin 1 Credit (default), 2 Coins 1 Credit, Inf. Credits (0012) | Soft Reset |
+| Attract Only | off (default) / on | Soft Reset |
 | Arcade Stage Select | Off (default), Block 888, Intercom, MTS, Bion Mart, Roof-Top, Police HQ, Ice Factory, Reformatory, Sanophix PU, Central Park, Green Cross, The Docks, Golden Of Seas, Deep Storage, Aquaworld | Soft Reset |
 | Arcade Stage Select 2 | Off (default), Blue Bar, Powder-Zone, Bohpal B-2, Juvanium, Sky Spa, Digniti KTV, The Vault, Sanophix Labs, The Solarium, Arena | Soft Reset |
-| 6-Button | off (default) / on | at once |
-| Console | Mega Drive (default), Genesis, Mega Drive 2, Genesis Model 2, Genesis 3, Nomad, Mega Jet, Unknown | Soft Reset |
+| 6-Button | off (default) / on | right away |
+| 3-Player Mode | off (default) / on | Soft Reset |
+| Console | Mega Drive (default), Genesis, Mega Drive 2, Genesis Model 2, Genesis 3, Nomad, Mega Jet, TeraDrive, Unknown | Soft Reset |
 | Mega CD | None (default), Mega-CD / Sega CD, Mega-CD 2 / Sega CD 2, Wondermega, Wondermega M2 / X'Eye, LaserActive, Aiwa CSD-GM1, CDX, Unknown CD | Soft Reset |
 | 32X Mode | off (default) / on | Soft Reset |
-| MegaWire | off (default) / on | Soft Reset |
 
-**Scum!** is this project's name for the first four game switches:
 
-- **Little-Man** (the cheats). Health: players take no damage and specials cost no
-  health; enemies are unaffected. Pills: using a Blu pill (Down + A) does not spend
-  one. Lives: dying does not spend a life.
-- **Arcade Stage Select** and **Arcade Stage Select 2**: choosing a stage switches on
-  the game's hidden ARCADE PAPRIUM mode (credits and friendly fire) and starts it on
-  that stage. **Select inserts a coin.** If both pages hold a stage, page 2's applies.
-- **6-Button**: X, Y, Z and Mode reach the game, on L, the Pocket's X, R and Select.
-  Paprium's pad code does read a 6-button pad, but on this core, as on MiSTer and
-  EverDrive, those buttons never arrive; the switch hands them to the game directly.
+**Soft Reset (mini game)** restarts the console and the cart's chip together. **Console Reset** resets just the 68000,
+like the console's own Reset button. During play, the game starts over from its NX TERMINAL screen.
 
-Nothing touches the ROM file. While a switch is on, the cartridge hands the console a
-few replacement words in place of the game's own, the same kind of patch a Game Genie
-makes, done in the FPGA; switching it off gives back the original bytes.
+**Scum!** is what I call the game switches:
 
-The other four change the machine the game believes it is running on. **Console**
-sets the region (Mega Drive, Mega Drive 2, Mega Jet and Unknown are Japan; the others
-USA) and the console picture in the Boom Box; the TMSS consoles boot without a licence
-screen. **Mega CD** picks the unit the game finds, with its splash and region. **32X
-Mode** makes the game believe a 32X is attached (some throwables become 32X boxes).
-**MegaWire** off is what a real cartridge reports with nothing plugged in (MODEM :
-NONE, no icon); on is what every earlier release reported. The game reads all four at
-boot: change the setting, then Soft Reset.
+- **Little-Man** (the cheats). Health: you take no damage. With it on, enemies you throw don't take any damage either,
+  because one of its patches sits in the game's throw-damage routine. Every other hit on an enemy does full damage.
+  Pills: using a Blu pill (Down + A) doesn't use one up. Lives: dying doesn't cost a life.
+- **Arcade Mode**: anything but Off plugs a virtual Grand Stick III, Paprium's arcade stick, into controller port 1,
+  and the game reads the stick's switches itself, with nothing patched. **On** flips the stick's ARCADE switch, which
+  turns on the game's hidden ARCADE PAPRIUM mode (credits and friendly fire), and **Select drops a coin**.
+  **Multiplayer** adds the stick's 3 PLAYERS switch, with the third player on Dock controller 3 in the stick's EXT
+  socket. **Stick Only** is the stick with every switch off: the normal game, with Select as the stick's Mode button. The
+  game gives no credit for the first coin after power-on or a reset, just like a cart with a Grand Stick III.
+- **Arcade Coins** and **Attract Only** are the stick's other switches. They only count with Arcade Mode On or
+  Multiplayer. Inf. Credits (0012) makes the game stop on its red 0012 screen at boot, which is exactly what the game
+  does with that switch on a real stick.
+- **Arcade Stage Select** and **Arcade Stage Select 2**: which stage Arcade Mode starts on, only with Arcade Mode On or
+  Multiplayer. If both pages have a stage picked, page 2 wins. A stage you picked in 0.2.6 waits until you set Arcade
+  Mode, since that entry is new and starts Off.
+- **6-Button**: the pads turn into real six-button pads, and the game reads X, Y, Z and Mode itself, on L, the Pocket's
+  X, R and Select (off: three-button pads). With Arcade Mode on, port 1 is the stick, which has all its buttons no
+  matter what 6-Button says, and 6-Button then sets the pads on port 2 and in the stick's EXT socket. A controller port
+  with no Pocket controller behind it reads as empty, so a handheld Pocket doesn't get a phantom player 2.
+- **3-Player Mode** (off by default) plugs in an EA 4-Way Play (more below).
 
-**CPU MATE.** Choose a Mega CD unit (any except Unknown CD) and Soft Reset, and the
-game offers CPU MATE in its Options: a computer-controlled partner. Switch it on, and
-at character select bring the partner in. Played handheld, turn **6-Button** on in the
-core menu: **hold Select** to add the partner, and while still holding it move the
-partner's cursor with the D-pad and press **Start** to pick its character; release
-Select to pick your own. No second controller needed: it is the game's own six-button
-control with a Mega CD ([Paprium FAQ](https://www.wafflenet.com/paprium.html#questions)). With a second controller on the
-Dock, press **Start on controller 2** (again to pick its character).
-The partner's brain is the game's own Mega CD AI, translated to run on the cartridge
-MCU. The release bitstream has it built in. Because it is made from the game's code it
-is not in this repository: anyone building the core gets it as a separate download next
-to each release, and a core built without it has no brain, so the partner stands
-still. See [docs/firmware/README.md](docs/firmware/README.md).
+**Three players.** With **3-Player Mode** on and Arcade Mode Off, the core shows the game an EA 4-Way Play, as if it was
+plugged in before power-on, and the game supports it: with three Dock controllers, Arena takes three players. With
+Arcade Mode on there's no 4-Way Play. Multiplayer puts Dock controller 3 in the stick's EXT socket as the third player,
+and so does 3-Player Mode with On or Stick Only. Controller 3 only counts as a docked pad. The game looks for the adapter
+and the stick at boot, so Soft Reset after you change it. With the 4-Way Play, the first-boot mini-game only listens to
+controller 3, same as a real console.
 
-How all of it works, the patch sites, what was measured, and what did not work:
-[docs/SCUM.md](docs/SCUM.md).
+None of this touches the ROM file. Little-Man and the Arcade stage pick work like a Game Genie: while one is on, the cart
+hands the console a few replacement words instead of the game's own (done in the FPGA), and switching it off gives back
+the original words. Arcade Mode, 6-Button and 3-Player Mode don't change a single word of the game. They change what the
+game finds on its controller ports.
 
-## What this is not
+The other three change what machine the game thinks it's running on. **Console** sets the region (Mega Drive, Mega Drive
+2, Mega Jet, TeraDrive and Unknown are Japan; the rest are USA) and the console picture in the Boom Box. The TMSS
+consoles boot without a licence screen. TeraDrive is detection only: the core answers the game's video RAM test, so the
+Boom Box shows the TeraDrive. **Mega CD** picks the unit the game finds, with its splash and region. The all-in-one
+units (Wondermega, Wondermega M2 / X'Eye, LaserActive, Aiwa CSD-GM1, CDX) report TMSS like the real ones do and also boot
+without a licence screen. **32X Mode** makes the game think a 32X is attached (some throwables turn into 32X boxes).
+There's no MegaWire setting any more. Our MegaWire code always runs and acts like the cart's does, and with no module
+plugged in (the Pocket never has one) the game looks like a real cart with nothing plugged in (see
+[MegaWire](#megawire)). The game reads all three at boot, so change the setting and then Soft Reset.
 
-Not a faithful reproduction of the cartridge, but an attempt with what we have.
-Paprium's "DATENMEISTER" chipset — in reality an Intel MAX 10 FPGA, an STM32F446
-and a flash die — decompresses the graphics and synthesises the music. **Neither
-the MAX 10 bitstream nor the STM32 firmware has ever been dumped... yet.**
+**CPU MATE.** Pick a Mega CD unit (anything except None and Unknown CD) and Soft Reset, and the game offers CPU MATE in
+its Options: a computer-controlled partner. Turn it on, then bring the partner in at character select. Playing handheld?
+Turn **6-Button** on in the core menu, then **hold Select** to add the partner. While you're still holding it, move the
+partner's cursor with the D-pad and press **Start** to pick its character; let go of Select to pick your own. You don't
+need a second controller: it's the game's own six-button control with a Mega CD
+([Paprium FAQ](https://www.wafflenet.com/paprium.html#questions)). With a second controller on the Dock, press **Start
+on controller 2** (and again to pick its character). The partner's brain ships inside the firmware file,
+`little_man_firmware.bin` (see [Little-Man Firmware](#little-man-firmware)). It's a reverse-engineered emulation of the
+game's CPU partner. Its files aren't part of this repo's source. A firmware file built without it still runs the game,
+but the partner just stands there.
 
-So this takes the same approach as the EverDrive Pro: it runs krikzz's
-[`mega-ppm`](https://github.com/krikzz/mega-ppm) replacement MCU firmware and
-substitutes the released soundtrack for the synthesised music.
+How all of it works, the patch spots, what we measured and what didn't work: [docs/SCUM.md](docs/SCUM.md).
 
-Expect it to play well, not to be cycle-accurate.
+## Known differences from the original cartridge
+
+0.3.0 tries to act like the original cart. These are the differences a player can notice. We know about each one, and
+each one is there on purpose:
+
+- **Starting takes longer than on the cart.** Before the game starts, the core checks the firmware file, and it holds
+  the game until the cart's chip is ready. It also reads the cart's save table from your copy of the game while the game
+  waits. In simulation that read adds about a tenth of a second at power-on and at each Soft Reset, and the firmware
+  file check adds about 0.15 seconds of black screen after the Pocket's loading bar. The very first start also builds the
+  sound cache (about 30 seconds total), and every start after that checks it (about 2 seconds of black). After that, the
+  game waits for the cart's chip to set up its sound and sprites for the same number of frames as on a real cart.
+- **A Console Reset early in the boot.** If you press it during the game's fake licence screen at power-on, this core
+  stays black for about 2 seconds before the NX TERMINAL screen. A real cart, pressed a bit later in that screen, stayed
+  black for about 6.5 seconds. We haven't compared a press at exactly the same moment. Where a Reset locks up and where
+  it restarts follows the game's own checks, same as on the cart. A Reset during the intro's SEGA CD zoom freezes the
+  picture, just like on the cart, where only switching it off gets you out. Here, **Soft Reset (mini game)** gets the
+  game going again.
+- **One frame of the intro logo zoom.** One frame of the SEGA CD logo zoom can land one step off. That's a timing race
+  inside the game itself, between its main loop and its screen interrupt. We don't know which picture a real cart shows
+  there.
+- **The Pocket's menu.** The cart doesn't have a menu. While the Pocket's menu is open, the music pauses, the cart's
+  sound effects go quiet and the cart's watchdog stops counting.
+- **Datenmeister's output.** In Datenmeister mode the sound leaves the cart's chip the same way it does on the cart.
+  What the cart's own output circuit does to it after that (its level next to the YM music, a low cut, its polarity)
+  isn't copied. Instead there's a simple stand-in: one volume, and a filter that only takes out a steady offset (below
+  4 Hz).
+- **Corners the game never reaches.** A few edge cases the game never hits, like asking for more than 53 sprite slots,
+  an object number of 268 or higher, or a zoom or unpack that runs past the chip's own memory, are handled safely here.
+  On the cart, the chip would read or write unrelated memory of its own.
+
+The full list, with how each difference was measured, is in [firmware/docs/ALLOWLIST.md](firmware/docs/ALLOWLIST.md).
+
+## MegaWire
+
+- **No menu setting.** 0.2.6 had a MegaWire On / Off row. In 0.3.0 it changed nothing, so it's gone.
+- Our MegaWire code always runs, and acts like a real cart's does with no MegaWire module plugged in. The Pocket never
+  has a module, so the boot terminal says MODEM : NONE, and there's no MegaWire icon and no MEGAWIRE row in Options,
+  like a real cart with nothing plugged in. 0.2.6's "connected" look is gone.
+- Two details only a plugged-in module would ever see: the server name stored for the module is `www.koalakoa.com`,
+  where the cart names its own server, and the restart command in the game's own MegaWire menu doesn't save a MegaWire
+  record.
+- The intro's "MegaWire 4.0" logo is part of the game's own credits screen. A real cart shows it with no MegaWire
+  attached. It doesn't mean a MegaWire is plugged in.
+
+## Little-Man Firmware
+
+Little-Man Firmware (trademark pending) is the firmware the cart's chip runs in this core. It's one file,
+`little_man_firmware.bin`, version 1.0, and it holds three things: the firmware itself, our MegaWire code, and the brain
+of the game's CPU MATE partner.
+
+- It goes in `/Assets/paprium/Koala_Koa.Paprium/` on the SD card. See [docs/INSTALL.md](docs/INSTALL.md).
+- The core checks the file at every power-on, before the firmware starts. It isn't signed and it isn't encrypted. The
+  check looks at its length, its version, its fixed layout and two checksums, and that's all.
+- If the file is damaged or was made for a different core version, the core turns it down: the screen goes plain red,
+  with no text and no sound, and the game doesn't start. Copy over the firmware file that goes with your core, then quit
+  the core and start it again.
+  If the file is missing or the wrong size, the Pocket itself tells you before the core starts.
+- The core and the firmware file go together. 0.3.0 takes Little-Man Firmware 1.0. Any later firmware release will say
+  which core versions it runs on.
+- The source is in [`firmware/`](firmware/), under GPL-3.0-or-later, with its own design docs and
+  [THIRD_PARTY_NOTICES.md](firmware/THIRD_PARTY_NOTICES.md).
+- The **Little-Man** entry in the core's menu is the cheats. It has nothing to do with the firmware file.
 
 ## Known issues
 
-Four: two on the audio side, and two that came with the 0.2.6 menu options.
-Everything else that was listed here has moved to [Fixed here](#fixed-here).
+None listed for 0.3.0.
 
-| Issue | Status |
-|---|---|
-| Hall of Fame: garbage on the name-entry bar while **Arcade Stage Select** or **6-Button** is on | **Open (0.2.6).** The blinking highlight bar on the name-entry row shows garbage in the first 24 pixels of every 64-pixel group, worst at the left edge where the initials go. The code those two switches add is served from ROM space that looked like padding and is really the bar's tile data, which the game copies to VRAM with a DMA; the substitution covers DMA reads too. Little-Man alone does not do it, and with both switches off the bar is clean. Moving the code needs a new fit. Details in [docs/SCUM.md](docs/SCUM.md) |
-| Rarely, a Soft Reset after changing **Console** or **Mega CD** needs a second Soft Reset | **Open (0.2.6), rare.** The firmware reads the console model and the MegaWire setting once, about 2 ms into a reset. A setting changed after that read gives that one boot a mixed machine, such as the wrong console picture; the next reset is clean. Change the setting first, then Soft Reset. Separately, a Soft Reset can, rarely, end on a black screen with a few pixels at the bottom edge; another Soft Reset recovers. On the release build, Soft Resets passed across changes of mode, Console, Mega CD and MegaWire, and once afterwards a Soft Reset needed a second one. The cause of the black screen is not established |
-| The music is the released soundtrack, not the cartridge's synthesiser | **Open.** The real cartridge synthesises the music live on a 26-voice sampler and bends it with play: the crisis variant the game switches to, the sax man's cues, the pitch of hits. This port plays the album instead, so none of that reacts. The instrument bank and all 52 sequence modules are decoded; the event semantics are not, and a 26-voice renderer needs FPGA area the 68000 swap is expected to free. Tracked in `docs/PORT_PLAN.md` |
-| The "VM DAC" option does nothing when enabled | **Open.** On a real cartridge, enabling it routes the cartridge's PCM through the YM2612's DAC and thins the mix. Here the stream buffer the 68000 reads for it (cart RAM `0x1802–0x19FF`) is held at mid-scale, so the option is silent rather than static and the audio is unchanged. Making it work means the firmware keeping that buffer filled with the mixed PCM the game expects |
+The two known issues of 0.2.6, a Soft Reset after changing **Console** or **Mega CD** that needed a second Soft Reset
+and a Soft Reset that rarely ended on a black screen, were tested and are fixed in 0.3.0 with Little-Man Firmware 1.0.
+
+Things that were listed here up to 0.2.6 and have since been fixed are under [Fixed here](#fixed-here) (0.1.0 to 0.2.6)
+and [What changed since 0.2.6](#what-changed-since-026) (0.3.0). The differences from the original cart that are there on
+purpose are under [Known differences from the original cartridge](#known-differences-from-the-original-cartridge).
 
 ### Fixed here
+
+This table is the record for 0.1.0 through 0.2.6, with each fix written up the way it was made back then. Those releases
+ran a cart firmware built from krikzz's mega-ppm and played the released soundtrack. 0.3.0 replaces both (see
+[What changed since 0.2.6](#what-changed-since-026)). So when a row says "now", it means from that release up to 0.2.6.
+Two rows read differently in 0.3.0: a single byte the console writes into cart memory (the first row) gets stored on both
+halves of the word, and the game's "VM DAC" option, its YM sound path, actually plays.
 
 Bugs present in every other Paprium build on this hardware, including the MiSTer
 core this forks. All verified on real hardware: up to 0.2.5 in both Arcade and
@@ -184,8 +329,9 @@ check, played normally on the release build.
 | Echo on sound effects | Never implemented, though the game requests it constantly. `0x4000` now runs a real delay line — a 1/6th-second ring, each flagged voice sending 33% of itself into it, following GPGX |
 | Stereo imaging on every off-centre effect | One side was phase-inverted, cancelling on the Pocket's mono speaker |
 
-The firmware changes are in [patches/](patches/) and rebuild from a clean
-[krikzz/mega-ppm](https://github.com/krikzz/mega-ppm) clone.
+Up to 0.2.6, the firmware changes were patches on top of krikzz's [mega-ppm](https://github.com/krikzz/mega-ppm). They're
+in [patches/](patches/) and rebuild that firmware from a clean mega-ppm clone. From 0.3.0 on, the cart's chip runs our own
+firmware: see [Little-Man Firmware](#little-man-firmware).
 
 Timing does not fully close on this device — inherited from the base core, which
 runs correctly on hardware regardless.
@@ -254,13 +400,11 @@ still open:
   on the way — MCU SDRAM traffic starving the 68000, pausing SFX reads during
   DMA, the crash recorder as the cost of the boot pause, and the streaming
   loader — each with one build and one ride in the shaft
-- **Reading the ROM at the poll sites.** The boot log listed every reader of the
-  cartridge's busy flag and the command posted before it; disassembling those
-  five addresses turned up one that waits for the command response first and
-  *then* polls busy-clear, with a 65,534-iteration timeout. The first busy fix
-  raised the flag again before the response, so that reader ran its full timeout
-  — 0.56 s — after every scene load. That was the boot pause, and it was a dozen
-  lines of 68000 code (`scripts/busy_polls.py`, `scripts/backtoback_posts.py`)
+- **Watching the poll sites.** The boot log listed everything that reads the cart's busy flag, plus the command posted
+  just before. Watching how the game behaved at those five addresses turned up one reader that waits for the command
+  response first and *then* polls for busy-clear, with a 65,534-iteration timeout. The first busy fix raised the flag
+  again before the response, so that reader sat through its whole timeout (0.56 s) after every scene load. That was the
+  boot pause, and the fix was a dozen lines of 68000 code (`scripts/busy_polls.py`, `scripts/backtoback_posts.py`)
 - **A crash recorder in battery RAM.** A build variant has the firmware write a
   40-byte record of what it is doing — phase, command, stack pointer, trap cause
   — into the save every frame, and the save survives a hang if the core is
@@ -269,15 +413,12 @@ still open:
   crash, which took a whole chain of "corrupted payload → CPU fault"
   explanations off the table without a single fix attempt
 
-- **Reading the game's own protocol instead of either port's guess.** Word `+0xA`
-  of the animation record is a frame counter that `mega-ppm` increments every
-  draw and restarts on any mismatch; in GPGX it is a one-shot reset the cart
-  clears. Six bytes of 68000 at ROM `0x031024` say which: the game compares the
-  requested animation with the current one, does nothing if equal, and otherwise
-  writes `1` once. With that, "a refused block load rewinds the object" became
-  "a refused block load overwrites the game's one request", and the attack
-  frames followed from a two-line change. Neither implementation was the
-  reference; the ROM was
+- **Going by the game's own protocol instead of either port's guess.** Word `+0xA` of the animation record is a frame
+  counter that `mega-ppm` bumps every draw and restarts on any mismatch. In GPGX it's a one-shot reset the cart clears.
+  The game's own behaviour settles it: it compares the requested animation with the current one, does nothing if they
+  match, and otherwise writes `1` once. Once we knew that, "a refused block load rewinds the object" turned into "a
+  refused block load overwrites the game's one request", and the attack frames came out of a two-line change. Neither
+  implementation was the reference. The cart was
 - **Counting in the save, before and after.** Two counters added to the save
   block (`scripts/decode_sat_snapshot.py`) measured the fault on the card that
   shipped: 230 lost animations in ten minutes on the old rule, and 92% of them
@@ -286,13 +427,10 @@ still open:
   walk-in slid on unchanged, so the budget was not the mechanism. A counter with
   a denominator turns "feels better" into a number, and a negative result into
   a closed door
-- **A committee that tries to knock each hypothesis down.** Six readers over the
-  firmware, the reference, the plan's history and the game side; four
-  diagnosticians with different lenses; three adversarial refuters per surviving
-  hypothesis; one synthesis. It ranked the lost switch first and refuted six
-  alternatives, and its read of the ROM's DMA accounting — the game rewrites the
-  remaining-budget word itself between frame start and the first draw — caught
-  a build that would have done nothing before it reached the card
+- **Trying to knock down every idea before a build.** We checked each candidate against the firmware, the reference and
+  the game's behaviour. That put the lost switch at the top, ruled out six other explanations, and showed that the game
+  rewrites the remaining-budget word itself between frame start and the first draw. That caught a build that would have
+  done nothing, before it ever got to the Pocket
 - **Logging what the game writes, not what the cart does with it.** The reference
   had the walk-in bug too, so comparing against it could not find it. The window
   logger gained one record per draw command holding the object record as the
@@ -411,18 +549,17 @@ fix was immediately audible.
   the best margin on those pins, better than every build measured before; it boots and
   plays. That these pins caused the black screen is the leading explanation, consistent
   with every hardware result so far, not a proof.
-- **Storing a single-byte write as the whole word.** Writing the byte over both halves of
-  the word passes the game's check too, and may be what a real cartridge does. But the
-  Arcade Stage Select coin writes a few stray bytes, some of them into the cartridge
-  memory, and stored as whole words they overwrite parts of the game's sprite records: in
-  the emulator, sprites went missing from the first coin. Ignoring the bytes changes
-  nothing the game uses, so the core ignores them.
-- **"Free padding" that was not.** The Scum! pad code went into a 512-byte block of `0xFF`
-  in the ROM. It is the Hall of Fame bar's tile data, which the game copies with a DMA:
-  the first known issue above.
-- **A one-time read.** The firmware copies the console model into the game's view once
-  per reset; changing it around a Soft Reset gives one mixed boot, the second known issue.
-  A latch that holds the options during reset was considered and not taken.
+- **Storing a single-byte write as the whole word.** Writing the byte over both halves of the word passes the game's
+  check too, and it might be what a real cart does. But the Arcade Stage Select coin writes a few stray bytes, some into
+  cart memory, and stored as whole words they overwrite bits of the game's sprite records. In the emulator, sprites went
+  missing from the first coin on. Ignoring those bytes changes nothing the game uses, so 0.2.6 ignores them. 0.3.0 stores
+  such a byte on both halves of the word.
+- **"Free padding" that wasn't.** The Scum! pad code went into a 512-byte stretch of ROM space that looked like padding.
+  It's actually the Hall of Fame bar's tile data, which the game copies with a DMA. That was 0.2.6's first known issue,
+  and it's fixed in 0.3.0 (see [What changed since 0.2.6](#what-changed-since-026)).
+- **A one-time read.** The 0.2.6 firmware copies the console model into the game's view once per reset, so changing it
+  around a Soft Reset gives you one mixed boot. That was 0.2.6's second known issue, and it's tested and fixed in 0.3.0
+  with Little-Man Firmware 1.0. We thought about a latch that holds the options during reset and decided against it.
 
 The CPU MATE partner went through five versions before this one; that story, and the
 Scum! patch sites, are in [docs/SCUM.md](docs/SCUM.md).
@@ -440,13 +577,15 @@ on hardware, the top half is **not** 128 more samples: slot `N + 0x80` fires row
 the bank is unheard. Anyone else working on this cartridge should not size a mixer
 for 256 voices on the strength of the menu's range.
 
-That also makes the menu a controlled A/B for the rate-step fix. `52` then `D2`
-drops 24000 Hz to 12000 Hz — an octave down and roughly double the length. Compare
-with `22` then `A2`, which **must** sound identical, because row `0x22` is already
-at the slowest rate and the firmware saturates rather than wrapping. Six rows
-behave that way (`22, 2C, 2F, 48, 4C, 71`); on those, identical is the fix working,
-not the fix failing. Without a saturated pair as a control, an unchanged sound is
-ambiguous.
+In 0.2.x that also turned the menu into a controlled A/B for the rate-step fix. `52` then `D2` dropped 24000 Hz to
+12000 Hz: an octave down and about twice as long. Compare that with `22` then `A2`, which **had to** sound the same,
+because row `0x22` is already at the slowest rate and the 0.2.x firmware's rate step stopped there instead of
+wrapping around. Six rows work that way (`22, 2C, 2F, 48, 4C, 71`). On those, sounding the same meant the fix was
+working, not failing. Without a pair that's already maxed out as a control, an unchanged sound could mean either
+thing.
+
+In 0.3.0 the music is fixed. The sound effects
+and the music now come from our rebuild of the cart's synthesiser and our own firmware, not from the 0.2.x firmware.
 
 `scripts/predict_boombox_pairs.py <rom>` reads the table and prints the predicted
 rate and duration for any pair, so a sweep can be checked against numbers rather
@@ -454,106 +593,6 @@ than judged by ear alone.
 
 [docs/PORT_PLAN.md](docs/PORT_PLAN.md) is the full engineering record: what was
 measured, what was tried, and which explanations turned out to be wrong.
-
-## Music
-
-Paprium's music is generated by a chip inside the cartridge that has never been
-dumped, so it cannot be reproduced. Like the EverDrive Pro, this core plays the
-**released soundtrack** from the SD card instead.
-
-**The core works fine without it.** You just get no music. If you want music, you
-supply your own copy of the soundtrack — it is not distributed here — and turn it
-into one file the core can stream.
-
-### What you need
-
-- **The Paprium soundtrack**, in any format ffmpeg can read: MP3, WAV or FLAC.
-- **[ffmpeg](https://ffmpeg.org/)**, on your `PATH`. On Windows:
-  `winget install Gyan.FFmpeg`, then **open a new terminal** — an already-open one
-  will not see it.
-- **Python 3**, for the second step.
-
-You will run two commands. The first converts your music; the second packs it into
-a single file. Together they take a few minutes and produce a **~543 MB** file
-called `paprium.pcm`.
-
-### Step 1 — put your soundtrack in one folder
-
-All the audio files in a single folder, nothing else. **What matters is that each
-filename starts with its two-digit track number.** The rest of the name is
-ignored, so the titles in your rip do not have to match anything:
-
-    ~/Music/Paprium/
-      01 Theme of Paprium.mp3
-      02 90's Acid Dub Character Select.mp3
-      05 Asian Chill.mp3
-      31 Bad Dudes vs Paprium.mp3
-      ...
-
-`02 Acid Dub.mp3` and `02 90's Acid Dub Character Select.wav` are both fine — only
-the leading `02` is read. A file whose name does **not** start with a number will
-not be found, and that track will be silent in game.
-
-### Step 2 — convert the tracks
-
-```bash
-./scripts/build_cdda.sh ~/Music/Paprium docs/paprium.cue cdda/
-```
-
-Point the first argument at *your* folder from step 1. This reads
-`docs/paprium.cue`, which maps the game's track numbers onto soundtrack files, and
-writes `track01.pcm … track62.pcm` into `cdda/`. It prints what it converted and
-what it could not find, so read that summary — missing files are reported here, not
-later.
-
-**Ten tracks are silent on purpose.** Cue entries 8, 9, 10, 13, 26, 31, 41, 44, 45
-and 48 point at `Blank.wav`, because the cartridge's own music table is empty at
-exactly those positions — the game has no music there either. Verified against two
-independent ROM dumps. Nothing is missing if you see those reported as blank.
-
-### Step 3 — pack it into one file
-
-```bash
-python scripts/build_cdda_adpcm.py cdda/ paprium.pcm
-```
-
-This compresses the tracks about 4:1 and writes a single `paprium.pcm` of roughly
-**543 MB**. (The uncompressed equivalent was 2.09 GB, which is why this step
-exists.)
-
-That script works one sample at a time on one core and takes ten minutes or more.
-`build_cdda_adpcm_fast.py` takes the same arguments and writes the same file byte
-for byte, but encodes the tracks in parallel on every core — about half a minute
-on an 8-core machine, and still faster than the original on a single core:
-
-```bash
-python scripts/build_cdda_adpcm_fast.py cdda/ paprium.pcm
-```
-
-### Step 4 — copy it to the SD card
-
-Put `paprium.pcm` in:
-
-    /Assets/paprium/common/paprium.pcm
-
-That is the same folder as your `Paprium.md` cartridge dump. Start the core and
-the music plays.
-
-### If something is wrong
-
-| Symptom | Cause |
-|---|---|
-| **No music at all**, everything else works | The blob is the old format or truncated. The core checks the file's header before playing anything, so a bad blob is silent rather than noisy — this is deliberate. Rebuild it, or convert an old one with the command below |
-| **One track silent**, the rest fine | That file's name does not start with the right two-digit number — or it is one of the ten that are silent by design |
-| `ffmpeg: command not found` | Not installed, or installed into a terminal that was already open. Open a new one |
-
-**Already built the old 2.09 GB blob?** You do not need your soundtrack files
-again — it is already the right sample rate and has a track table, so convert it in
-place:
-
-```bash
-python scripts/convert_cdda_to_adpcm.py old_paprium.pcm paprium.pcm
-```
 
 ## Building
 
@@ -575,38 +614,45 @@ python scripts/reverse_bitstream.py projects/output_files/megadrive_pocket.rbf b
 ./scripts/deploy_to_sd.sh /d
 ```
 
-`generate.tcl` takes an optional second argument, a fitter seed. Timing on this
-device is seed-sensitive by several nanoseconds (0.2.6's first six seeds ranged from
-−0.74 to −3.84 ns of setup), so a single failing fit is not by itself evidence that a
-change broke timing. The shipping bitstream is seed 3, which is also what
-`projects/megadrive_pocket.qsf` says, so `quartus_sh -t generate.tcl paprium` and
-`quartus_sh -t generate.tcl paprium 3` fit the same. The 0.2.6 gate was setup ≥ −2.60 ns,
-hold > 0, and a re-check of the clock crossings. On the final design seeds 1, 2, 3 and 6
-passed it; seed 2 passed and did not boot, and seed 3 (−1.026 ns setup, +0.085 ns hold)
-was picked for the best timing on the memory chip's address pins, which the gate does
-not check ([0.2.6: what worked, and what did not](#026-what-worked-and-what-did-not)).
+`deploy_to_sd.sh` copies the core's package to the SD card and leaves the Assets folders alone, so it won't copy the
+firmware file for you.
 
-Firmware is rebuilt separately with `./scripts/build_mcu.sh`, which installs four
-images into `rtl/PAPRIUM/` (`mcu.txt`, `mcu_ext.txt`, `wram_hi.txt`, `wram_lo.txt`) —
-the bitstream picks them up from there, so a firmware change that was not installed
-will silently rebuild the previous one. The committed images are the release firmware
-**without the CPU MATE brain**, which is not in this repository; with the brain
-download, `./scripts/build_mcu.sh --brain <folder>` builds the shipped firmware byte for
-byte. The released bitstream was fitted with the test firmware and then given the
-release firmware by a memory-initialisation update, so a fresh fit is not guaranteed
-to reproduce it bit for bit: the release download is the reference. Details:
-[docs/firmware/README.md](docs/firmware/README.md).
+The release fits a Cyclone V `5CEBA4F23C8` at 18,233 ALMs (99 %), 298 M10K blocks (97 %) and 24 DSP blocks (36 %). There's not much room left, so read [docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) before you add
+anything.
 
-Variants: `paprium`, `paprium_nosfx`, `paprium_cddadbg`, `paprium_cmdlog`. Tell
-them apart by **M10K**, not ALM: shipping drifts per release (279 at 0.2.5, 253 at
-0.2.6), and `cmdlog` was 308 before 0.2.6 (not re-measured since).
+`generate.tcl` takes an optional second argument, a fitter seed. Timing on this device swings by several nanoseconds
+from seed to seed, so one failing fit doesn't prove a change broke timing. The release bitstream is seed
+16, which is also what `projects/megadrive_pocket.qsf` says, so
+`quartus_sh -t generate.tcl paprium` and `quartus_sh -t generate.tcl paprium 16` fit the same.
+The 0.3.0 gate was setup ≥ −2.60 ns, hold > 0, a re-check of the clock crossings, the memory chip's pins and the
+video timing, and a census of the paths behind the freezes we'd already fixed. Of the twelve seeds tried on the
+release design (7 to 18), only seed 16 passed it, and three didn't fit at all. Seed 16 (−0.643 ns setup, +0.084 ns
+hold) is the release, and it passed an hour's warm soak on a Pocket.
 
-> Always check the fit summary **timestamp** and the `.rbf` **size** before
-> flashing. Quartus can fail and leave stale artifacts, which produce believable
+**The firmware builds on its own.** From 0.3.0 on, the bitstream only holds a small boot stub for the cart's chip. Its
+images in `rtl/PAPRIUM/` (`mcu.txt` holds the stub; `mcu_ext.txt` and the four lanes of the chip's work RAM,
+`wram_b0.txt` .. `wram_b3.txt`, are zeros) only change when the stub does. The firmware itself shows up at power-on as
+`little_man_firmware.bin` (see [Little-Man Firmware](#little-man-firmware)), so changing the firmware doesn't need a new
+fit. Its source is in [`firmware/`](firmware/): `firmware/README.md` explains how to build it, and
+`firmware/docs/FAFRIUM.md` explains how a build turns into the file (Fafrium is the file's working name inside the
+source). It's built with the xPack RISC-V GCC 15.2.0-1 toolchain. A different GCC version builds working firmware, just
+with different bytes.
+
+The CPU MATE brain inside the release file isn't in this repo's source. A firmware file built without it runs the game,
+and the CPU MATE partner just stands there.
+
+A fresh fit isn't guaranteed to match the released bitstream bit for bit, so treat the release download as the
+reference.
+
+Variants: `paprium` is the release. `generate.tcl` still offers `paprium_nosfx`, `paprium_cddadbg` and `paprium_cmdlog`,
+the 0.2.x debug builds; they weren't part of 0.3.0's testing.
+
+> Always check the fit summary **timestamp** and the `.rbf` **size** before you
+> flash. Quartus can fail and leave old files behind, and those give you believable
 > wrong answers on hardware.
 
 [docs/BUILD_REFERENCE.md](docs/BUILD_REFERENCE.md) has the fit and timing gates,
-and the measurements behind them.
+plus the measurements behind them.
 
 ## Reporting a bug
 
@@ -623,20 +669,85 @@ drawn with stale artwork rather than not drawn at all — two different subsyste
 
 Photos or video of the moment it goes wrong are worth more than any description.
 
-Please check [Known issues](#known-issues) first, and note that **we cannot help
-you obtain the ROM or the soundtrack** — see [What this is not](#what-this-is-not).
+Please check [Known issues](#known-issues) and
+[Known differences from the original cartridge](#known-differences-from-the-original-cartridge) first. And just so you
+know, **we can't help you get the game**: players supply their own legally obtained copy (see
+[What you need](#what-you-need)), and there's no music file any more. Tell us which firmware file is on your card too
+(for 0.3.0: Little-Man Firmware 1.0).
 
 ## Changelog
+
+**0.3.0** — the cart's own behaviour: our own firmware for the cart's chip, Little-Man Firmware 1.0, as its own file,
+and the game's music made the way the cart makes it, in both sound options.
+Bitstream seed 16: 18,233 ALM, 298 M10K, 24 DSP, worst setup −0.643 ns, worst hold +0.084 ns.
+
+**New**
+- **The music, made the way the cartridge makes it.** We rebuilt the cartridge's sound chip in the core's logic, and our
+  music player runs in the firmware the way the cartridge's does. So the music follows the game like it does on a cart:
+  the low-health music, the sax man's cues, the Boom Box's X, Y and Z effects and the fades.
+- **Sound effects on our rebuild of the cartridge's synthesiser**, filter and echo included.
+- **Little-Man Firmware**, our own firmware for the cartridge's chip, now its own file. It holds the firmware, our
+  MegaWire code and the CPU MATE partner's brain. It's GPL-3.0-or-later, and the source is in the repo's `firmware/`
+  folder. If the file is damaged or was made for a different core version, the screen goes plain red and the game won't
+  start (see INSTALL).
+  If the file is missing or the wrong size, the Pocket itself tells you before the core starts.
+- **A sound cache.** On the first start we unpack the game's sounds from your copy of the game, with a bar along the
+  bottom of the black screen. The Pocket keeps them in `paprium_sound_cache.bin` for next time. It's made on your Pocket,
+  so keep it on your own card.
+- **Console Reset** in the core's menu. It resets the console just like the console's own Reset button.
+- **Arcade Mode is now a virtual Grand Stick III**, with Off, On, Multiplayer and Stick Only. On and Multiplayer flip the
+  stick's ARCADE switch, so the game turns on its own arcade mode with no change to the ROM. Select drops a coin, and like
+  a real stick, the first coin after power-on or a reset doesn't give a credit. Stick Only is the stick with every switch
+  off: the normal game, with Select as the stick's Mode button. Also new: **Arcade Coins** and **Attract Only**, the
+  stick's other switches, for On and Multiplayer.
+- **3-Player Mode** (Off by default): an EA 4-Way Play, for the game's three-player modes with three Dock controllers.
+- **TeraDrive** in the Console list.
+
+**Changed**
+- **Saves** now use the cartridge's own format: 8 KB, the size of the cart's save chip. We convert a 0.2.x save once, on
+  the first start. We haven't tested going back to 0.2.x with a converted save, so keep a copy of your 0.2.x save.
+- **No more soundtrack file.** 0.3.0 doesn't read `paprium.pcm`, so you can delete it (0.2.6 still needs it).
+- **6-Button** gives the game real six-button pads on controllers 1 and 2, and the game reads X, Y, Z and Mode itself.
+  An empty controller port reads as empty, so no more phantom player 2.
+- **Opening the Pocket's menu pauses the music** right where it is and mutes the cartridge's sound effects. Close the
+  menu and the music picks up from the same spot.
+- **The cartridge's watchdog is back.** With the menu closed, if the game stops sending its once-a-frame signal for
+  about 4 seconds, the cartridge's chip halts, same as a real cart.
+- **Sprites, zooms, unpacking the game's data, saves and start-up** now work the way the cartridge does them.
+- **Sprites use the cartridge's colours.** Dice's afterimage outline is green like on the cart (0.2.x drew it blue), and
+  the first level's doorway takes its colours from the cartridge's own rule.
+- **A single byte the console writes into cartridge memory** now lands on both halves of the word.
+- **MegaWire** is gone from the menu. Its On / Off row did nothing in 0.3.0: our MegaWire code always runs and behaves
+  like the cartridge's, and with no module plugged in (the Pocket never has one) the game looks like a cart with
+  nothing plugged in.
+
+**Fixed**
+- **Hall of Fame name entry**: the highlight bar is clean with Arcade Stage Select or 6-Button on (a 0.2.6 known issue).
+- **The Arcade coin** plays the game's coin sound on every press.
+- **Soft Reset** holds the 68000 from the reset's very first clock, so a warm reset no longer repeats the bus cycle it cut.
+- **TMSS**, the licence check later consoles run at power-on, works on every all-in-one Mega CD unit (Wondermega,
+  Wondermega M2 / X'Eye, LaserActive, Aiwa CSD-GM1, CDX).
+- **Soft Reset after a Console or Mega CD change**: the two other 0.2.6 known issues, a second Soft Reset needed now
+  and then and the rare black screen after a Soft Reset, are tested and fixed in 0.3.0 with Little-Man Firmware 1.0.
+
+Tested on a real Pocket before release, on the release bitstream with the TEST firmware file and then the RELEASE
+one swapped in: the first start, the saves and a new save, five cold starts, the firmware file renamed away and
+swapped for the wrong file, Console Reset in play, at the NX terminal and early in the boot, the intro and stage
+zooms, MegaWire's boot terminal, the attract mode and the game's hidden MegaWire screen, the music in YM and
+Datenmeister, sound effects, CPU MATE, the Scum! menu, the Block 888 doorway and Dice's afterimage, busy scenes, an
+hour's warm soak, and the menu without its MegaWire row. The earlier 0.3.0 test builds were checked against a cart
+item by item: the music and its effects (the low-health music, the sax man, the Boom Box's X, Y and Z, the Blue Bar,
+the fades, the pause dip), the Grand Stick III options, the sprites side by side, the zooms, the saves and their
+one-time conversion, and every kind of Console Reset.
 
 **0.2.6** — the CPU MATE partner, the menu options, and the cartridge's own sprite
 rules. Bitstream seed 3: 18,079 ALM, 253 M10K, worst setup −1.026 ns, worst hold
 +0.085 ns.
 
-- **CPU MATE.** With a Mega CD unit chosen in the menu, the game offers its
-  computer-controlled partner. The partner's brain, the game's own Mega CD AI, runs on
-  the cartridge MCU behind a Mega CD link that answers at the moment the real sub-CPU
-  would; the game's code is not patched. The brain is built into the release bitstream
-  and is a separate download for anyone building the core
+- **CPU MATE.** With a Mega CD unit picked in the menu, the game offers its computer-controlled partner. The partner's
+  brain, a reverse-engineered emulation of the game's CPU partner, runs on the cart MCU behind a Mega CD link that
+  answers at the moment the real sub-CPU would. The game's code isn't patched. In 0.2.6 the brain was built into the
+  release bitstream, and anyone building the core got it as a separate download
   ([docs/SCUM.md](docs/SCUM.md#cpu-mate), [docs/firmware/README.md](docs/firmware/README.md)).
 - **Scum!**: **Little-Man** (infinite health, Blu pills and lives, in any combination),
   **Arcade Stage Select** (two pages: the hidden Arcade Mode, started on any of 25
@@ -679,10 +790,9 @@ Arcade coin, which credits and plays the coin sound; CPU MATE joining and playin
 and a long play including the elevator and The Solarium.
 
 **0.2.2** — the 68000 changes. The core now runs [FX68K](https://github.com/ijor/fx68k)
-(Jorge Cwik, GPL-3, vendored in `rtl/fx68k/`) in place of the gate-level netlist. For a
-player nothing should look or sound different; the point is area. The fit drops from 98%
-to 88% ALM, and that headroom is what the live synthesiser under
-[Known issues](#known-issues) needs.
+(Jorge Cwik, GPL-3, vendored in `rtl/fx68k/`) instead of the gate-level netlist. As a
+player you shouldn't see or hear any difference; the point is space. The fit drops from
+98% to 88% ALM, and that headroom is what the live synthesiser needed. It arrived in 0.3.0.
 
 Getting there needed one fix in the CPU wrapper worth recording, because it is the kind of
 fault that hides for a long time. The wrapper released the 68000's function-code pins as
@@ -714,162 +824,191 @@ built. Several changes in this project's history looked right, passed every fit
 gate, and were wrong on the device. The minor version moves when the known-issues
 list actually shrinks.
 
+**Little-Man Firmware has its own version number**, starting at 1.0 with 0.3.0. The file name on the SD card stays
+`little_man_firmware.bin`. The version is in the download's name, inside the file and in the release notes. Every core
+release says which firmware version it takes, and every firmware release says which core versions it runs on.
+
 ## Sponsor
 
 If this is useful to you, you can sponsor the work at
 [github.com/sponsors/thekoalakoa](https://github.com/sponsors/thekoalakoa).
 
-It changes nothing about the core: it is GPLv3, the source is all here, and none of
-it is or will be behind a sponsorship. It also cannot buy you the ROM or the
-soundtrack — see [What this is not](#what-this-is-not).
+Sponsoring doesn't change anything about the core or its firmware. Both are GPLv3, and all their source is right here
+(the firmware's is in [`firmware/`](firmware/)) except the CPU MATE brain (see [Licence](#licence)). None of it is or
+ever will be behind a sponsorship. It also can't get you the game (see [What you need](#what-you-need)).
 
 ## Lineage
 
-Built on seven projects. GPLv3 throughout, apart from the two BSD-licensed parts of the
-cartridge MCU (NEORV32 and mega-ppm), so all of it stays credited.
+This core stands on the projects below. It's GPLv3 all the way through, except for the parts under permissive licences:
+the BSD-licensed parts of the cartridge (NEORV32, krikzz's mega-ppm code, the WavPack decoder and two routines from the
+toolchain's C library), the MIT-licensed Pocket and audio modules (from agg23, OpenGateware and Gregory Hogan) and
+Analogue's framework files. One file from agg23, the scanline filler, doesn't name a licence of its own (see its row
+below). Every one of them stays credited. Our own changes to those parts are GPLv3 like everything else; see
+[Licence](#licence). The work that got this core going but isn't in it anymore is credited under [History](#history).
 
 | | |
 |---|---|
-| [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA) | nukeykt — gate-level model of the real silicon; the console itself. Everything but the 68000: the VDP, the arbiter, the I/O chip, the FM, the Z80 and the board |
-| [FX68K](https://github.com/ijor/fx68k) | Jorge Cwik (ijor) — the 68000, from 0.2.2. Replaces Nuked's gate-level CPU and frees the ALM the synthesiser needs; Nuked's netlist is still in the tree behind `USE_FX68K` |
+| [Nuked-MD-FPGA](https://github.com/nukeykt/Nuked-MD-FPGA) | nukeykt — a gate-level model of the real silicon, which is to say the console itself. Everything except the 68000: the VDP, the arbiter, the I/O chip, the FM, the Z80 and the board |
+| [FX68K](https://github.com/ijor/fx68k) | Jorge Cwik (ijor) — the 68000, since 0.2.2. It takes over from Nuked's gate-level CPU and frees up the logic the cart's synthesiser needs. Nuked's netlist is still in the tree behind `USE_FX68K` |
 | [MegaDrive_MiSTer](https://github.com/MiSTer-devel/MegaDrive_MiSTer) | MiSTer-devel — the core built around it |
-| [openFPGA-MegaDrive](https://github.com/drizzt/openFPGA-MegaDrive) | drizzt — the Pocket port this forks |
-| [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge RTL: MCU integration, mailbox, memory map, SFX engine, MD+ adapter |
-| [mega-ppm](https://github.com/krikzz/mega-ppm) | krikzz — the replacement MCU firmware, and the source this core's firmware is built from (BSD-3-Clause) |
-| [NEORV32](https://github.com/stnolting/neorv32) | Stephan Nolting — the RISC-V processor the cartridge MCU runs on, carried in MisterPezz82's cartridge RTL, and the runtime and linker script the firmware is built with (BSD-3-Clause) |
+| [openFPGA-MegaDrive](https://github.com/drizzt/openFPGA-MegaDrive) | drizzt — the Pocket port this one forks from |
+| [Paprium_MegaDrive_MiSTer](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) | MisterPezz82 — the Paprium cartridge RTL our cartridge is built on: the MCU integration, mailbox and memory map (`paprium_cart`, `mcu_core`, `fpgio`, `ramdp_io`, `memory`, `paprium_mcu_mem`, `paprium_backup`, `structs`, `paprium_defs`, all heavily changed since); serving patches as ROM reads, which the Scum! switches still use; and the SDRAM port-2 counter from their V.04 (in `rtl/sdram.sv`, Sorgelig's SDRAM controller from MegaDrive_MiSTer, GPL-3.0-or-later), which lets the cart's chip win a memory turn when it's waited too long |
+| [mega-ppm](https://github.com/krikzz/mega-ppm) | krikzz — the FPGA sources the cartridge files `fpgio.sv`, `mcu_core.sv`, `memory.sv`, `ramdp_io.sv` and `structs.sv` come from, and `audio_sfx.sv` and `audio_clock.sv`, which are still in the repository but aren't built into the bitstream (BSD-3-Clause). The firmware every release up to 0.2.6 was built from is credited under [History](#history). |
+| 0.2.6 firmware code still carried | Code from the 0.2.6 firmware that this release still has in it: krikzz's mega-ppm code (BSD-3-Clause) in the 0.2.6 command bodies `firmware/interim/s1/bodies_s1.c` (moved over from mega-ppm's `paprium.c`), which the 0.3.0 firmware still links, and in the 0.2.6 build's source files kept in `firmware/legacy/026/`, `firmware/interim/` and `firmware/board/`; the 0.2.6 LZO decoder in `firmware/legacy/026/mame.c`, ported from Genesis Plus GX's Paprium support (source for the 0.2.6 build only); and the parts of `mame.c` that mega-ppm based on TheHpman's MAME Paprium work. Each one keeps its credit, and krikzz's code keeps its notice. |
+| [NEORV32](https://github.com/stnolting/neorv32) | Stephan Nolting — the RISC-V processor the cart's chip runs on (it comes in with MisterPezz82's cartridge RTL), plus the linker script our firmware's linker scripts are based on (BSD-3-Clause). Its runtime, which the firmware linked up to 0.2.6, is credited under [History](#history) |
+| [WavPack](https://github.com/dbry/WavPack) | Conifer Software — the WavPack 4.0 "tiny decoder" in the firmware, as the Rockbox project carries it. It unpacks the game's sound bank from your own copy of the game on the first start (BSD) |
+| newlib | the C library from the xPack RISC-V GCC toolchain: its `memcpy` and `memset` are linked into the firmware (SiFive, FreeBSD licence) |
+| openFPGA and audio modules | agg23 (Adam Gastineau) — the Pocket's data loader and unloader, the I2S audio output and FIFO, and the scanline filler that pads each frame to the height the Pocket's scaler wants (`rtl/scanline_filler.sv`, from agg23's openfpga-SNES; it has no licence line of its own); OpenGateware (Marcus Andrade) — the Pocket's audio mixer and filter loader, and the audio filters written with Alexey Melnikov, as agg23's openFPGA cores carry them; Gregory Hogan (Soltan_G42) — the console's audio filters, as MegaDrive_MiSTer carries them (MIT, except the scanline filler; the OpenGateware filter modules themselves are GPL-3.0-or-later) |
+| Analogue Pocket Framework | Analogue — the Pocket's platform files, under Analogue's licence agreement in their headers |
 
-### The 0.2.6 menu switches and fixes
 
-The arcade unlock and the Mode-button credit are adroxe's
-([Paprium-Arcade](https://github.com/adroxe/Paprium-Arcade)); the arcade start-stage
-word was found by krikzz; serving patches as ROM reads, the pad hook that injects X,
-Y, Z and Mode, and the stage list come from MisterPezz82's Paprium MiSTer core (V.05
-and V.06). The sprite-table end mark that fixes The Solarium float is the MiSTer Paprium
-team's patch, their 32X and Mega CD detection stubs are where `paprium_addons.sv`
-started, and the CPU MATE link's restart rule was worked out with them. The health,
-pill and life patches, the console options and the CPU MATE link are new here.
+**The cart's firmware is our own: Little-Man Firmware.** Our team wrote it from our own study of how the cart behaves.
+It's GPL-3.0-or-later. It ships as its own file, `little_man_firmware.bin` (Little-Man Firmware 1.0 goes with this
+release). The source is in [`firmware/`](firmware/), published with this release, along with the design docs that explain
+how it all works.
+
+### Menu switches, controllers and the CPU MATE link
+
+Serving patches as ROM reads is MisterPezz82's idea, and the Arcade Stage Select list comes from their Paprium MiSTer core
+(V.05 and V.06). krikzz found the arcade start-stage word. The cheat spots were found on Genesis Plus GX with a 68000
+write watch. The MiSTer Paprium team's 32X and Mega CD detection stubs are where `paprium_addons.sv` began, and we worked
+out the CPU MATE link's restart rule together with them. New in this core: the health, pill and life patches, the console
+options, the CPU MATE link, the virtual Grand Stick III and the 3-Player Mode adapter.
+
+### Research credits
+
+Big thanks to Project Little Man, TheHpman (MAME Paprium research), MAVProxyUser (Genesis Plus GX Paprium work) and the
+whole Paprium preservation community.
 
 ### Artwork
 
-The platform image — the banner on the Pocket's system list — was made for
-this core by **LemonGrwab**, who supplies it in Analogue's format. The artwork
-is theirs. `scripts/make_platform_image.py` converts a PNG into that format for
-anyone who wants to start from one.
+The platform image (the banner on the Pocket's system list) is artwork produced by good friends for this core, handed
+over in Analogue's format. The artwork is theirs. If you'd rather start from a PNG, `scripts/make_platform_image.py`
+converts one into that format.
 
 ### What this port adds
 
-About 60% of `rtl/PAPRIUM` is new here — 3,540 of 5,862 lines are in files that
-did not exist upstream (at 0.2.5 it was 1,519 of 3,596) — plus changes throughout the
-rest:
+- **The cart's synthesiser, rebuilt in logic** (`rtl/PAPRIUM/paprium_synth*.sv`): the wave voices, the sound effects, the
+  filter and the echo, and the Datenmeister output, driven by our music player and sound-effect engine in the firmware.
+  It takes over from 0.2.x's sound path and the album.
+- **A sprite decoder that works the way the cart's does** (`paprium_hwdec.sv`), plus the cart's register file at
+  `$1FE0-$1FFF` (`paprium_regfile.sv`).
+- **Controllers the way the cart sees them** (`paprium_pads.sv`): real six-button pads, empty ports, an emulated EA
+  4-Way Play, and a **virtual Grand Stick III** (`paprium_gs3.sv`).
+- **The sound cache**: a data slot the Pocket keeps between starts (`target/pocket/paprium_cache_slot.sv`), the
+  first-start unpack with its bar (`paprium_bar.sv`, `paprium_holdvid.sv`), and the console's frame counter the firmware
+  uses to time its work (`paprium_vs_tap.sv`).
+- **The firmware file loader**: the bitstream only keeps a small boot stub. It checks `little_man_firmware.bin` and
+  starts it, or holds the cart on a plain red screen (`rtl/cartridge.sv`, `paprium_xlink.sv`, and the firmware's
+  `board/pocket/fafrium/`; Fafrium is the firmware file's working name inside the source).
+- **Console Reset**: Console Reset in the Pocket menu resets just the 68000, like the console's own Reset button.
+- **The MegaWire code** in the Pocket's SRAM, and a fix to NEORV32's Wishbone gateway so the cart's chip can run code
+  from there (`rtl/PAPRIUM/risc-v/`, with a "Changes:" line under NEORV32's notice).
+- Carried over from 0.2.x: Scum!, the add-on answers, the CPU MATE link, the Pocket's cellular RAM and SRAM.
+- And then the firmware's own parts, all written to act like the cart's chip: command handling and status bits, the job
+  queue and the watchdog, the sprite engine, the zooms, the unpackers, saves in the cart's format, the start-up, the
+  music player and the sound effects, and our MegaWire code.
+- The handful of places where we differ from the cart on purpose are written down and were signed off one at a time:
+  see [Known differences from the original cartridge](#known-differences-from-the-original-cartridge).
 
-- **The whole CDDA music path** — `paprium_cdda_fetch/buf/play.sv`. Streams the
-  soundtrack from an SD-card blob by seeking within a single APF data slot,
-  because a core is capped at 32 data slots and Paprium has 62 tracks.
-- **An IMA ADPCM decoder in fabric** — `paprium_ima_decode.sv`. The ring holds
-  compressed frames and decodes on the way out, which cut the blob to a quarter
-  and, as a side effect, bought about 4× the buffering (0.085 s → 0.337 s).
-- **Audio fixes in the SFX mixer** — echo (`0x4000`), which the game requests
-  constantly and neither this port nor MiSTer implemented; and a pan sign bug that
-  phase-inverted one side of every non-centred effect. The mixer also carries an
-  amplify path for `0x0100`, written when that bit was believed to be a gain. It
-  is deliberately never asserted — see below.
-- **Firmware fixes**, built from krikzz's source — see [patches/](patches/). The
-  punk-TV cue never looped because `sfx_player_update` abandons a channel once it
-  empties, so the game's later `sfx_loop` landed on a dead one. The elevator
-  corruption (0.2.0) is two firmware changes on unchanged RTL: the MCU's scratch
-  area — block unpacking and staging — moved from `0x9000`, where the game parks
-  and re-reads level payloads, to `0x1E0000` (`PPM_SCRATCH_HIGH`); and the busy
-  handshake redesigned so busy is held set at rest, dropped once the read
-  pointer has moved, released through the command response and raised again on
-  the game's next post (`PPM_BUSY_REST`, `PPM_BUSY_CLEAR_THROUGH_RESP`). Stock
-  `mega-ppm` has neither, so the fault is on every setup running it. The
-  animation faults (0.2.1) are three more firmware changes on the same RTL: a
-  refused block load no longer destroys the game's one-shot animation request
-  (`PPM_STICKY_SWITCH`), the frame shown meanwhile keeps its tiles
-  (`PPM_PIN_FALLBACK`), and a queued follow-up animation applies only when an
-  animation actually ends rather than at its next cycle end
-  (`PPM_CHAIN_ONLY_AT_END`) — a rule the reference emulator gets wrong too. A
-  small floor on the loader's share of the frame's DMA budget
-  (`PPM_DMA_FLOOR_BLOCKS`) ships alongside, measured harmless. 0.2.6 replaces
-  those animation rules, the floor and the eviction with the original
-  cartridge's sprite cache, DMA budget and animation queue, each behind its own
-  switch (`PPM_CHIP_*`), and closes the sprite table with the cartridge's end
-  mark (`PPM_FLOAT_ENDMARK`). The MCU's instruction memory grew from 16 KB to
-  32 KB to hold the diagnostic builds, and in 0.2.6 to 54 KB (a 22 KB
-  extension) for the CPU MATE brain, with a write-locked 16 KB code window in
-  the cartridge work RAM.
-- **Scum! and the console options** — `paprium_scum.sv` serves the switches'
-  replacement words on ROM reads (generated by `scripts/scum_table.py`);
-  `paprium_addons.sv` answers the 32X, Mega CD and TMSS checks and turns the
-  Console and Mega CD lists into the region, version register and unit ID the
-  game reads.
-- **The CPU MATE link** — `paprium_mcd_link.sv` and `paprium_xlink.sv` play the
-  Mega CD's side of the game's partner protocol at the real sub-CPU's timing,
-  and `paprium_snoop.sv` mirrors what the game writes for the sub-CPU into the
-  Pocket's SRAM, which `paprium_xram.sv` opens to the MCU. See
-  [docs/SCUM.md](docs/SCUM.md#cpu-mate).
-- **The Pocket's cellular RAM** — from 0.2.6, `paprium_cram.sv` and
-  `paprium_cdda_buf_cram.sv` hold the album's stream buffer and the sound-effect
-  echo line, which both used to take block RAM.
-- **Diagnostics** — a mailbox command logger, SFX channel-state capture, a
-  Genesis Plus GX cartridge-window logger with its analysers
-  (`scripts/apply_gpgx_winlog.py`, `scripts/analyze_stream.py`,
-  `scripts/busy_polls.py`) which since 0.2.1 also records the object record as
-  the game writes it on every draw command (`scripts/analyze_objrec.py`), a
-  battery-RAM crash recorder and its decoder (`scripts/decode_heartbeat.py`),
-  a block of counters in the save — block loads refused, animation switches
-  refused and completed, evictions, frames carried by the DMA floor — read by
-  `scripts/decode_sat_snapshot.py`, and savestate tooling that reads the VDP
-  registers, sprite table and tile patterns straight out of a GPGX state
-  (`scripts/parse_gpgx_state.py`, `scripts/render_vram_tiles.py`). The
-  loggers and the crash recorder sit behind switches and are off in the
-  release; the save-block counters are compiled in, cost nothing, and are how
-  the 0.2.1 numbers were read from the shipping card. The shipped firmware is
-  0.1.0's configuration plus the two elevator fixes (0.2.0), the three
-  animation fixes with the floor (0.2.1), the Boom Box level feed and the
-  restart-flag fix (0.2.3), and the dropped-weapon chain rule (0.2.4, rewritten
-  in 0.2.5); 0.2.6 then swaps the sprite and animation rules for the cartridge's
-  own, adds the float end mark, the Boom Box row clock, the console and MegaWire
-  bits and the CPU MATE glue, and compiles the debug aids out of the release
-  build. The savestate tooling is how the
-  VRAM map was settled: the planes and the sprites use strictly separate tile
-  ranges —
 
-      tiles  800-863   VRAM 0x6400-0x6BFF   background art, planes only
-      tiles 1984-2047  VRAM 0xF800-0xFFFF   sprite art, SAT only
+The cartridge RTL underneath all this is MisterPezz82's, and their
+[KNOWN_ISSUES.md](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer/blob/master/docs/KNOWN_ISSUES.md) is a really
+useful engineering record. It saved us at least one wasted build, because it already wrote down an elevator fix that had
+been tried and didn't work.
 
-  which is why the VRAM budget matters to animation and not to background
-  scrolling, and why an earlier attempt to relocate streaming blocks into
-  `0x6400` destroyed the cell-room floor.
-- **Everything Pocket-specific** — APF integration, data slots, and the fit work
-  that made room for all of it on a device this small.
+If something's wrong with **this** core, please report it here and not to those projects. Odds are it's something this
+port did.
 
-The cartridge RTL underneath it is MisterPezz82's, and their
-[KNOWN_ISSUES.md](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer/blob/master/docs/KNOWN_ISSUES.md)
-is a genuinely useful engineering record — it saved this project at least one
-wasted build by documenting an elevator fix that had already been tried and did
-not work.
+## History
 
-Please report issues with **this** core here, not to those projects. A problem is
-most likely a result of this port.
+Releases 0.1.0 through 0.2.6 stood on work that 0.3.0 doesn't run the same way anymore. That work got this core going, so
+it stays credited here. Whatever of it this release still carries is listed in [Lineage](#lineage) too.
+
+| | |
+|---|---|
+| [mega-ppm](https://github.com/krikzz/mega-ppm) — krikzz | The replacement cartridge MCU firmware (BSD-3-Clause). Every release from 0.1.0 to 0.2.6 ran it, built with this project's changes in `patches/mega-ppm-pocket.patch`: the elevator, animation and Boom Box fixes, and 0.2.6's cartridge rules. 0.3.0 runs our own firmware. krikzz's image converter has been replaced by our own; the image files keep its layout |
+| krikzz's first-level door fix | The palette fix for the first level's door (object 107, sprite 4) that 0.1.0 to 0.2.6 carried, reported by MisterPezz82 and shipped in their V.05. From 0.3.0 the cart's own palette rule gives the door its colours |
+| MisterPezz82's SFX engine and MD+ adapter | `audio_sfx.sv`, the 8-channel sound-effect engine adapted from mega-ppm's, and `paprium_mdp_adapter.sv`, the MD+ link the album played through: the 0.2.x sound path. From 0.3.0 our rebuild of the cart's synthesiser plays the sound effects and the music |
+| [Genesis Plus GX](https://github.com/ekeeke/Genesis-Plus-GX) — Eke-Eke and contributors; its Paprium support headed Project Little Man | The 0.2.x firmware's LZO decoder (asset type `0x81`), ported from its Paprium support (`paprium.h`), because stock mega-ppm's decoder broke the subway, among other spots. Genesis Plus GX is also an emulator our tests use, with logging patches of our own (the cartridge-window logger among them), and `tools/da-twin/da_twin.c` carries its decompressors for a test comparison |
+| TheHpman's MAME Paprium work | `rom.cpp`, which mega-ppm's `mame.c` says it's based on: the firmware in 0.1.0 to 0.2.6 was built on it |
+| NEORV32's runtime | Stephan Nolting — the start-up code (`crt0.S`) and the `neorv32_*` library the firmware linked up to 0.2.6 (BSD-3-Clause). 0.3.0's firmware has its own start-up code; the NEORV32 processor and the linker script are still in (see [Lineage](#lineage)) |
+| The album path | Up to 0.2.6 the music was the released soundtrack, which you turned into a `paprium.pcm` file: `paprium_cdda_fetch/buf/play.sv` streamed it from one data slot, and `paprium_ima_decode.sv` decoded IMA ADPCM in logic. From 0.3.0 our rebuild of the cart's synthesiser plays the music, and the soundtrack file isn't used. André Coelho's `scripts/build_cdda_adpcm_fast.py` (#10) packed that file on every core at once, byte for byte the same as our packer |
+
+### The 0.2.6 menu switches and fixes (as credited in 0.2.6)
+
+The arcade unlock and the Mode-button credit are adroxe's
+([Paprium-Arcade](https://github.com/adroxe/Paprium-Arcade)). krikzz found the arcade start-stage word. Serving patches
+as ROM reads, the pad hook that injects X, Y, Z and Mode, and the stage list come from MisterPezz82's Paprium MiSTer core
+(V.05 and V.06). The sprite-table end mark that fixes The Solarium float is the MiSTer Paprium team's patch, their 32X
+and Mega CD detection stubs are where `paprium_addons.sv` began, and we worked out the CPU MATE link's restart rule with
+them. The health, pill and life patches, the console options and the CPU MATE link were new in this core.
+
+What 0.3.0 changed there:
+- **adroxe's Arcade Mode unlock and the Mode-button credit** are gone. Arcade Mode is a virtual Grand Stick III now: the
+  game reads its switches and its coin, and the stick's ARCADE switch turns on the game's own arcade mode, on the
+  unpatched ROM.
+- **MisterPezz82's pad hook** is gone. The controllers are real six-button pads and the game reads X, Y, Z and Mode
+  itself.
+- **The float end mark**: 0.3.0's firmware closes the sprite table using the cart's own rule.
+- krikzz's start-stage word, MisterPezz82's ROM-read approach and stage list, and the MiSTer team's add-on stubs and
+  restart rule are all still in (see [Lineage](#lineage)).
 
 ## Licence
 
-GPLv3 or later. Nuked-MD-FPGA is GPLv2-or-later and FX68K is GPLv3-or-later;
-exercising Nuked's *or later* option is what lets the two combine, so the work as a
-whole is GPLv3-or-later. See [LICENSE](LICENSE), and the vendored
-`rtl/upstream/nuked-md/LICENSE` (GPLv2) and `rtl/fx68k/LICENSE` (GPLv3), both of
-which stay as they are.
+Copyright (C) 2026 Marsupial Solutions LLC, for the changes made in this repository and for the cartridge firmware. The
+projects it's built on keep their own copyright; see [Lineage](#lineage), [History](#history) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-The cartridge MCU's parts are BSD-3-Clause: the NEORV32 processor (in the bitstream)
-and its runtime, and krikzz's mega-ppm firmware, which this core's firmware is built
-from (in the bitstream's MCU memories). Their copyright notices and licence texts are
-in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which also ships in the release
-package.
+GPLv3 or later. Nuked-MD-FPGA is GPLv2-or-later and FX68K is GPLv3-or-later. Using Nuked's *or later* option is what
+lets the two go together, so the work as a whole is GPLv3-or-later. See [LICENSE](LICENSE), plus the vendored
+`rtl/upstream/nuked-md/LICENSE` (GPLv2) and `rtl/fx68k/LICENSE` (GPLv3), which both stay as they are.
 
-The CPU MATE brain download is made from the game's own code, so it is not part of this
-repository and is not offered under its licence. It is useful only together with your
-own copy of the game.
+**The firmware is our own.** Our team wrote the cart firmware, Little-Man Firmware, from our own study of how the cart
+behaves. It's GPL-3.0-or-later like the rest of the core. It ships next to the bitstream in the release as its own file,
+`little_man_firmware.bin`. It isn't signed and it isn't encrypted. The file also carries the MegaWire code, built from the
+same source under the same licence, and the CPU MATE brain (see below). Its source is in [`firmware/`](firmware/) in
+this repository, published with every release from 0.3.0 on, along with its design docs and its own
+[THIRD_PARTY_NOTICES.md](firmware/THIRD_PARTY_NOTICES.md). Our new files carry
+`Copyright (C) 2026 Marsupial Solutions LLC` and `SPDX-License-Identifier: GPL-3.0-or-later`. Files that came from
+someone else keep their own notice.
+
+**Little-Man Firmware** (trademark pending) is Marsupial Solutions LLC's name for this firmware.
+
+**We keep the BSD notices for everything still carried**: the NEORV32 processor (in the bitstream) and the NEORV32 linker
+script our firmware's linker scripts are based on (in the firmware source, with the Free Software Foundation notice the
+script carries); krikzz's mega-ppm code in the cartridge files `rtl/PAPRIUM/fpgio.sv`, `mcu_core.sv`, `memory.sv`,
+`ramdp_io.sv` and `structs.sv` (and in `audio_sfx.sv` and `audio_clock.sv`, which stay in the repository but aren't built),
+and in the firmware files based on mega-ppm that this release still carries (`firmware/THIRD_PARTY_NOTICES.md` lists
+them); the WavPack decoder (in the firmware); and the toolchain C library's `memcpy` and `memset` (in the firmware). Their
+original code stays under its BSD licence. Their copyright notices and licence texts are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which ships in the release too.
+
+
+Our own changes to that code aren't BSD. They're GPLv3-or-later, like the rest of this core. The firmware file and the
+bitstream are distributed under the GPL, with the BSD notices kept.
+
+**We keep the MIT and Analogue notices too.** agg23's modules (`target/pocket/data_loader.sv`, `data_unloader.sv`,
+`sound_i2s.sv`, `sync_fifo.sv`), OpenGateware's audio mixer and filter loader (`target/pocket/audio/audio_mixer.sv`,
+`filters/filter_loader.sv`, `filters/filters_rom.sv`) and Gregory Hogan (Soltan_G42)'s audio filters
+(`rtl/upstream/genesis_lpf.v`, `audio_iir_filter.v`) are MIT-licensed and built into the bitstream. agg23's scanline
+filler, `rtl/scanline_filler.sv`, is built into the bitstream too. It names agg23's openfpga-SNES as its source and has
+no licence line, so it's credited in [Lineage](#lineage), and our changes to it are GPL-3.0-or-later.
+The Analogue Pocket Framework files in `platform/pocket/` (`apf_top.v`, `common.v`, `io_bridge_peripheral.v`,
+`io_pad_controller.v`) keep Analogue's licence agreement in their headers; where it differs from the MIT License or the
+GPL, it says those licences win. `target/pocket/core_bridge_cmd.v`, from Analogue's core template, names Analogue and
+has no licence text. The Quartus-generated IP files keep Intel's terms in their headers. All of these notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) as well.
+
+**CPU MATE.** The partner's brain ships inside the firmware file. It's a reverse-engineered emulation of the game's CPU
+partner. Its files aren't part of this repository's source. It's only useful together with your own copy of the game.
+
+**The game.** You bring your own copy of the game. The ROM, and anything taken from it, never ships: not in this
+repository, not in a release, not in any download. The sound cache the core writes on the first start is made on your
+Pocket, from your own copy.
+
+Paprium is a trademark of its owners. This project is not affiliated with WaterMelon. It is a free, non-commercial
+project: it is not sold, and the game is not included.
 
 Paprium game content (WaterMelon IP)
 This project's GPLv3 license covers only our code. It does not include, and grants no rights to, Paprium's game ROM, code, music, graphics or other assets, which are owned by WaterMelon.

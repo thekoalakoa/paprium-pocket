@@ -403,7 +403,7 @@ def main():
     fence_crc, fence_len, tag, fence_age = struct.unpack('>4I', o[772:788])
     print()
     if tag != 0xC2C1C2C1:
-        # The arena is shared by every card that needs a kilobyte. Reading the
+        # The arena is shared by every diagnostic build that needs a kilobyte. Reading the
         # CRC layout out of an onset-ring capture would print 48 rows of frame
         # cells as if they were hashes - the exact aliasing this section itself
         # was created to expose.
@@ -437,7 +437,7 @@ def main():
         print("  stream path for 68000->VDP DMA / nametable. MISMATCH -> the")
         print("  unpack is wrong and it is still firmware.")
 
-    # The object-table dump was reclaimed as counter space - it had not informed a
+    # The object-table record was reclaimed as counter space - it had not informed a
     # conclusion since the SAT ownership map was deleted, while every new counter
     # fought for scraps. Nothing reads it any more.
 

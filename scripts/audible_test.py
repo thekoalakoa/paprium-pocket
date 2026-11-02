@@ -1,16 +1,18 @@
-import sys, subprocess, collections, numpy as np, wave as W
-sys.path.insert(0,"<HOME>/Downloads/PAPRIUM project/paprium-pocket/scripts")
+import os, sys, subprocess, collections, numpy as np, wave as W
+sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import mwmm, voice_notes
 from scipy.signal import butter, sosfiltfilt
 from scipy.stats import mannwhitneyu
-SP="<HOME>/AppData/Local/Temp/claude/<PROJECT>/<SESSION>/scratchpad"
-CAP="<HOME>/Downloads/captures master/captures/og hardware music tests/3A Tough Guy.mkv"
+# Usage: python scripts/audible_test.py <music modules folder> <your own capture of the track> <a render of the track, .wav>
+MODS=sys.argv[1]
+CAP=sys.argv[2]
+REN=sys.argv[3]
 SR=32000
 hw=np.frombuffer(subprocess.run(["ffmpeg","-v","error","-t","165","-i",CAP,"-ac","1","-ar",str(SR),"-f","f32le","-"],
     capture_output=True).stdout,dtype=np.float32).astype(float)
-w=W.open(SP+"/renders/v7/ToughGuy.wav")
+w=W.open(REN)
 rn=np.frombuffer(w.readframes(w.getnframes()),dtype="<i2").reshape(-1,w.getnchannels()).mean(1).astype(float)/32768.0
-m={x.n:x for x in mwmm.load_all(SP+"/music-modules")}[58]
+m={x.n:x for x in mwmm.load_all(MODS)}[58]
 tl,_=voice_notes.timeline(m,list(range(26)),2)
 notes=[(t,v,pg,12*b1+b0+11) for (t,v,pg,b0,b1) in tl if b0 and b0!=0x0E and t<150]
 # calibrate the module->capture lag on a loud in-bank voice (v13, prog 0x02, 960 notes)

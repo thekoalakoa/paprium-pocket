@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Paprium CDDA ring buffer - joins the fetch side to the player.
 //
-// APF lands data slot reads as BRIDGE writes, which a data_loader instance
+// APF (Analogue's Pocket framework) lands data slot reads as BRIDGE writes, which a data_loader instance
 // catches and presents as a byte/word stream in the clk_sys domain. Those go in
 // here 16 bits at a time.
 //

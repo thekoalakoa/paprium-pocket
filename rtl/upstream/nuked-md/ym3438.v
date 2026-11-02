@@ -22,8 +22,14 @@
  *
  * version: 1.0
  */
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
-module ym3438(
+// pocket: stage 5 trfm - TRIM ties off features the Paprium cart's Z80 driver never uses (0 = the chip as the die
+// shows it): bit 0 T1 LFO (reg 22), 2 T3 ch3 special mode / CSM (27 bits 6-7) and A8-AE, 3 T4 timers A / B (24-27
+// bits 0-5), 4 T5 test registers 21 / 2C and the debug read. Bit 1 T2 SSG-EG (90-9F) and bit 5 T6 AM (60-6F bit 7
+// with B4-B6 AMS) act only with their own on-top patches. Each ties a REGISTER to the value it holds from power-up
+// and after every IC.
+module ym3438 #(parameter [5:0] TRIM = 6'h00) (
 	input MCLK,
 	input PHI,
 	input [7:0] DATA_i,
@@ -193,7 +199,7 @@ module ym3438(
 	
 	wire [2:0] dac_index;
 	
-	ym3438_reg_ctrl reg_ctrl(
+	ym3438_reg_ctrl #(.TRIM(TRIM)) reg_ctrl(
 		.MCLK(MCLK),
 		.c1(c1),
 		.c2(c2),
@@ -246,7 +252,7 @@ module ym3438(
 	wire [11:0] fnum_lfo;
 	wire [5:0] lfo_am;
 		
-	ym3438_lfo lfo
+	ym3438_lfo #(.TRIM(TRIM)) lfo
 		(
 		.MCLK(MCLK),
 		.c1(c1),

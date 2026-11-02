@@ -26,6 +26,7 @@
 
 // An easily reusable method for synchronizing multiple bits across clock domains
 // Uses a shallow depth (4 entries) FIFO, so make sure to empty it quickly
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 module sync_fifo #(
     parameter WIDTH = 2
 ) (
@@ -65,6 +66,10 @@ module sync_fifo #(
       dcfifo_component.overflow_checking = "ON", dcfifo_component.rdsync_delaypipe = 5,
       dcfifo_component.underflow_checking = "ON", dcfifo_component.use_eab = "ON",
       dcfifo_component.wrsync_delaypipe = 5;
+  // pocket: 0.3.0 synth step (test build 5, the hardware test build of the synth; one of the M10K savings, a project
+  // decision) - the 4-word FIFO in an MLAB instead of an M10K (its one user is audio_mixer's 4 x 32 sample FIFO): the
+  // FIFO IP's own memory-type hint, the same dcfifo
+  defparam dcfifo_component.lpm_hint = "RAM_BLOCK_TYPE=MLAB";
 
   reg [1:0] read_state = 0;
 

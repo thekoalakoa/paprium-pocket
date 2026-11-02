@@ -6,8 +6,8 @@ produces the firmware this core ships in `rtl/PAPRIUM/` (`mcu.txt`,
 `mcu_ext.txt`, `wram_hi.txt`, `wram_lo.txt`).
 
 ```bash
-git clone https://github.com/krikzz/mega-ppm.git ../repos/mega-ppm
-./scripts/build_mcu.sh                      # applies the patch to 84be6bd itself
+git clone https://github.com/krikzz/mega-ppm.git <folder>
+./scripts/build_mcu.sh --mega-ppm <folder>  # 0.2.6's build_mcu.sh: applies the patch to 84be6bd itself
 ```
 
 `build_mcu.sh` reads the pinned commit with `git archive`, so the clone itself is
@@ -20,8 +20,10 @@ download, not in this patch): docs/firmware/README.md.
 
 The patch is kept here rather than the built binary alone because GPLv3 asks that
 a distributed binary come with its corresponding source, and the images are a
-compiled work. This is the source of our changes to it. mega-ppm itself is
-BSD-3-Clause, Copyright (c) 2025 krikzz.
+compiled work. This is the source of our changes to it. Our changes are Copyright
+(C) 2026 Marsupial Solutions LLC and are licensed
+GPLv3-or-later, like the rest of this core. The mega-ppm code they change stays
+BSD-3-Clause, Copyright (c) 2025 krikzz; its notice is in THIRD_PARTY_NOTICES.md.
 
 ## 0.2.6
 
@@ -73,7 +75,7 @@ link keeps its plain stub answers.
 "Boom Box VU bars" below (2026-09-15) was never in a release before this one.
 
 **Release and test builds.** `-DPPM_RELEASE=1` compiles the debug aids out (UART
-printf, SAT snapshot, object dump); the test build keeps them. The firmware no
+printf, SAT snapshot, object-table record); the test build keeps them. The firmware no
 longer fits 32 KB with the brain, so the IROM gained a 22 KB extension and the
 glue runs from a write-locked code window in the cart WRAM
 (`scripts/firmware/paprium_mcu.ld`).
@@ -124,7 +126,7 @@ option, choosing the YM2612 DAC over the cartridge's own — and the NTSC bit ar
 stored at cart RAM `0x1800`/`0x1801` for the game to read back. Observed on
 hardware firing five times during boot with arguments `0x02` and `0x0A`.
 
-GPGX's byte indices transcribe verbatim, which is correct rather than lucky:
+GPGX's byte indices carry over unchanged, which is correct rather than lucky:
 `ramdp_io.sv` places a 68000 byte at address A into MCU byte `A^1`, and GPGX's
 `ram[]` carries the same relationship, so the two agree.
 

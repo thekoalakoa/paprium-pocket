@@ -1,0 +1,793 @@
+{
+ "what": "0.3.0 allow-list: every difference a comparison may show WITHOUT failing, with the stage it applies from, the reference it is measured against, and the exact comparator scope. Anything not listed is a failure. THE ONE MAINTAINED LIST: the older copies in our planning notes (a short list in the plan, a list in the study notes, a row of the study's test matrix) are superseded and must not be edited. docs/ALLOWLIST.md is this file in plain words for B Jam's review; tests/check_tree.py rule 6 fails when the two name different ids. Stages are the steps of the 0.3.0 work (docs/STAGE1_PLAN.md): 0 = the 0.2.6 firmware moved into this tree; 1 = the new firmware's own start-up, scheduler, dispatcher and board layer (the FW_S1 builds: 'the stage-1 images'); 2 = the sprite engine; 3 = the unpackers, saves, zoom and MegaWire; 4 = the sound bank cache; 5 = the music, our own song engine and synth (the FW_S5 builds s5test / s5release: 'the stage-5 images'). The firmware builds B Jam tested on his own hardware are named test build 4, test build 5 (the first with our own song engine) and the stage-2 and stage-3 test builds S2, S3a, S3b and S3c. D-numbers (D01-D49) are the differences our firmware audit lists (a study of 0.2.6 against the cart's chip, not in this tree); G-, L- and U-numbers are items of our planning notes, Q1-Q7 B Jam's numbered questions. RAMDP = the cart RAM both the 68000 and the cart chip see; BRAM = the battery save RAM; VDP = the console's video chip; SAT = its sprite table; DT = Datenmeister, the music mode with the cart's own DAC; YM = the console's YM2612. History: drafted 2026-10-10; boot rows approved 2026-10-11; the stage-1 rows and the later decisions added 2026-10-13; the stage-5 rows B39-B43 (B Jam's decisions 3 and 6 of 2026-10-21, with MCU interface v1.3) 2026-10-21. 2026-10-27 (stage 2's first commit): two decisions of B Jam of 2026-10-26 (one accepted test build 5's eight possible differences: the new rows B45 / B46, sentences under B9, B39, B40 and B44; the other approved B26, B28, B29, B35, B36 and B38 and retired B30), B14's D49 correction and B47 for the MegaWire transforms T-S3. A masked difference is always COUNTED in its category, never dropped.",
+ "labels": "each status says in words how it is known: measured (seen in a test run), estimated (worked out from the code or the plan) or not known (no number yet)",
+ "references": {
+  "final026": "the final 0.2.6 firmware, passed on hardware: the reference for every module that is still moved-in 0.2.6 code",
+  "test3": "test3, a 0.2.6 test build tested on hardware: the plan's named reference; equals final026 outside A2 (measured)",
+  "chip": "the cart's chip, its STM32 program run in our test harness (in a CPU emulator): the reference for every row once ours does what the chip does",
+  "cart_runner": "the cart-music runner (our test harness that plays the music as the cart's chip does): the reference for the song engine / packet / Boom Box feed (stage 5)"
+ },
+ "entries": [
+  {
+   "id": "A1",
+   "name": "debug output (TEST builds only)",
+   "stage": "0+",
+   "against": "TEST vs RELEASE, or our TEST vs a reference RELEASE",
+   "scope": {
+    "printf_text": "all",
+    "uart_bytes": "all",
+    "bram": "0x900-0xFFF (0.2.6's SNAP_BOOT/SNAP_BASE window and trap record, TEST builds of the 0.2.6 bodies) and, from stage 1, 0x1000-0x1FFF (the stage-1 debug save: the upper half of the 8 KB save, board/pocket/dbgsave.h; RELEASE writes nothing there)",
+    "debug_counters": "the per-level cycle / late counters (stage 1+)"
+   },
+   "rule": "TEST vs TEST and RELEASE vs RELEASE: strict (0 allowed). Across variants: mask the scope, count it. The RELEASE store order of two independent RAMDP stores in ppm_reset ($1D2C/$1D1C) may differ: compare the reset store SET, not the order.",
+   "status": "measured: paprium-fw RELEASE vs TEST host, solo frames 0-3,000: 11,118 posts differ only in BRAM $900-$FFF, 1 only in printf text; the RELEASE image vs the TEST host build in the RV32 runner shows the same 11,118 + 1. Stage 1 (2026-10-12, B Jam's question Q1): the debug save moved to 0x1000-0x1FFF (2026-10-12); docs/MCU_INTERFACE.md section 3.6 corrected 2026-10-13"
+  },
+  {
+   "id": "A2",
+   "name": "MegaWire status field $1FE6 bits 0-2 against test3",
+   "stage": "0+",
+   "against": "test3",
+   "scope": {
+    "ramdp_bits": {
+     "0x1FE6": "0x0007"
+    }
+   },
+   "rule": "final 0.2.6 writes the core's option word [18:16] (default 0 = no module, as on the chip, D01); test3 wrote a fixed 7. Mask those 3 bits when the reference is test3; strict against final026 and against the chip with the default options.",
+   "status": "measured: the ONLY difference between the test3 and the final 0.2.6 host builds on every post of solo (511,584), duo (439,906) and attract (260,839), and at every checkpoint"
+  },
+  {
+   "id": "A3",
+   "name": "printf text format (host vsnprintf vs NEORV32 neorv32_uart_printf)",
+   "stage": "0+",
+   "against": "host build vs RV32 image",
+   "scope": {
+    "uart_bytes": "all"
+   },
+   "rule": "Never compare raw UART bytes with host printf text: NEORV32 prints %x as 8 zero-padded digits, sends '\\r\\n', and stops the line at %02x/%04x. Compare the printf ARGUMENTS (format + values captured at neorv32_uart_printf entry, formatted with C rules) with the host text: strict. Harness artefact, not a firmware difference.",
+   "status": "measured: boot UART '\r\nppm init...\r\nrom ver: ' + the ROM version word as 8 zero-padded hex digits + '\r\n' vs formatted 'rom ver: ' + the same word as 4 digits; formatted arguments equal the host text on every printf post (2 solo, 2 duo, 13 attract, 3 synthetic)"
+  },
+  {
+   "id": "A4",
+   "name": "album / SFX feeder compared at the call interface only",
+   "stage": "0-4",
+   "against": "final026 / test3",
+   "scope": {
+    "audio": "sfx_play/loop/stop, mdp_init/play/play_once/stop/set_vol: compared as (entry, arg, $1E10-$1E15)",
+    "regions": "SFX 0x06000000, MDP 0x07000000, sfx_chan state: not compared"
+   },
+   "rule": "The host build stubs these entry points; the RV32 runner stubs them the same way. The interim album shim leaves at stage 5, where the cart-runner lockstep and the sample-exact synth comparison replace this.",
+   "status": "the method is estimated; measured equal at the interface on every post of every stage-0 run"
+  },
+  {
+   "id": "A5",
+   "name": "main-loop effects the host harness cannot produce",
+   "stage": "0-1",
+   "against": "host build vs RV32 runner in board mode",
+   "scope": {
+    "ramdp_words": "0x1B98-0x1BFF (Boom Box VU, ppm_music_vu_update from ppm_start's loop)",
+    "fpgaio": "slot 1 time (modelled ms) and MTIME",
+    "printf_text": "values derived from FPGAIO->time"
+   },
+   "rule": "The host harness calls only ppm_cmd_handler; the board runner runs the polling loop and a modelled clock. Mask and count. From stage 5 the Boom Box feed is the chip's (D28) and is compared against the cart runner instead.",
+   "status": "measured: board mode, solo: VU words differ on 457,635 of 511,584 posts, nothing else (duo 388,681 of 439,906; attract 222,075 of 260,839)"
+  },
+  {
+   "id": "B1",
+   "name": "D43 sprite block data path",
+   "stage": "all",
+   "against": "chip",
+   "scope": {
+    "sdram": "all",
+    "ramdp_words": "0x1FF0-0x1FF6 (chip FIFO pointers and block descriptors)",
+    "fpgaio": "sdram_ptr"
+   },
+   "rule": "Ours decodes blocks into SDRAM and serves a byte tape; the chip writes flash addresses to FPGA +0x14/+0x16 and its FPGA decodes. Compare what the VDP gets (VRAM tiles after the DMA list), not SDRAM or the FIFO registers.",
+   "status": "applied in 0.2.0 (firmware audit D43); test harness: 224 of 248 chip payloads equal ours in the stage frames. Retired 2026-10-27 (approved by B Jam on 2026-10-27: B38 replaces it). Proposed 2026-10-15 with B38: retired from then on: our firmware writes the chip's flash addresses to +0x14 / +0x16 as the chip does and our FPGA (the RTL decoder, MCU interface v1.2) decodes; what still differs (where the decoded words sit, the decoder's output base write) is B38; the pushes are compared write for write against the chip (chiplock_s1, the T-S2 transform removed)"
+  },
+  {
+   "id": "B2",
+   "name": "D44 busy line $1FE4 bit 2, now made in RTL (docs/CART_FPGA_SPEC.md section 7)",
+   "stage": "all",
+   "against": "chip",
+   "scope": {
+    "ramdp_bits": {
+     "0x1FE4": "0x0004"
+    }
+   },
+   "rule": "From stage 1 the 68000's busy bit is generated in RTL: busy = guard | ~stream_valid. The guard is set on a 68000 DA/DB/F2 post and cleared by the MCU's next $1FF2/$1FEA write or by GO, so our interrupt latency (up to ~0.32 ms) can never expose stale stream data to the game's 10-15 us poll (the latency is estimated). Against the chip the ORDER of busy transitions must match (strict); their times are B9. Against test3/final026 (firmware busy, PPM_BUSY_REST v2) the bit is masked. Was: firmware busy v2 with a timer-wheel deadline.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review); docs/CART_FPGA_SPEC.md as of 2026-10-11"
+  },
+  {
+   "id": "B3",
+   "name": "D45 boot-page and ROM patches",
+   "stage": "all",
+   "against": "chip",
+   "scope": {
+    "ramdp_words": "0x1562, 0x1564, 0x1D1C, 0x1D2C (written by ppm_reset)",
+    "flash": "0x81104 (emulator-check NOP)"
+   },
+   "rule": "The cart's FPGA/bootloader does the real thing (inferred); ours patches. Strict against final026; masked against the chip at reset only.",
+   "status": "firmware audit D45"
+  },
+  {
+   "id": "B4",
+   "name": "D46 our stream path for DA / DB / F2",
+   "stage": "all (D46 ROM-direct modes 6/7 may narrow it in stage 3)",
+   "against": "chip",
+   "scope": {
+    "sdram": "destination addresses (chip DA02 -> 0xC01F3800; ours cmd_args[0])",
+    "fpgaio": "sdram_ptr"
+   },
+   "rule": "Compare the bytes the 68000 reads through the $C000 window from the posted pointer, not where they sit in SDRAM.",
+   "status": "firmware audit D46 (architectural). From 2026-10-15 (proposed with B38; the narrowing approved by B Jam on 2026-10-27): F2 and DA06 / DA07 with a 0x80 source now go through the RTL decoder as on the cart (the pushes compared write for write with the chip); where their decoded words sit is B38, so B4 is left with DA02, the 0x81 / 0x82 DA07 jobs and DB"
+  },
+  {
+   "id": "B5",
+   "name": "A858 MegaWire diagnostic pages: the rebuilt MegaWire screen",
+   "stage": "3+",
+   "against": "B Jam's photo of the real screen",
+   "scope": {
+    "vram": "the A858 screen's 68000 drawing program output"
+   },
+   "rule": "The drawing program is a labelled reconstruction (not in the ROM); the font comes from the ROM; the strings are the chip's. Checked against the photo, not the chip runner.",
+   "status": "photo received 2026-10-10; the rebuild decided (the plan's \"Cart FPGA and bootloader\": the 68000 drawing program and font were in the cart's bootloader, whose contents are not known); stage 3"
+  },
+  {
+   "id": "B6",
+   "name": "G1 option bits, now composer bits: Console model, region, MegaWire On",
+   "stage": "all",
+   "against": "chip",
+   "scope": {
+    "ramdp_bits": {
+     "0x1FE4": "68000 view only: composed (busy<<2) | Console model bits [10:8],[6]; other bits 0",
+     "0x1FE6": "0x0007 only when MegaWire = On, and only in the builds without the MegaWire port (no FW_MW, the MegaWire port's build switch: the stage-1 images and test build 5's); the FW_MW builds never write it (strict)"
+    }
+   },
+   "rule": "From stage 1 the 68000 view of $1FE4 is composed in RTL from busy and the Console option (docs/CART_FPGA_SPEC.md, the $1FE4 composer); MCU reads return the stored MCU word (the chip reads it back, e.g. the heartbeat's bit-11 test), strict against the chip. At the game's only whole-word read ($BCA22) the composed value equals 0.2.6's 0004|model. The Console region bit drives the header letters (docs/BOOT_SPEC.md BOOT-07). MegaWire On is a labelled difference. Every replay runs with the default word and at least one non-default word. Was: option bits written by firmware into RAMDP. Stage 3 (test build S3b): in the builds with the MegaWire port (FW_MW) the option is not read; On runs our MegaWire port as Off does (no 0.2.6 signed-in look on top), or test build 5's Off when the SRAM image is missing or refused, so $1FE6 bits 0-2 are the cart's and compared strictly (tests/equiv/mw_oracle.py).",
+   "status": "B Jam approved on 2026-10-11; the earlier measured status kept in git history; MegaWire part narrowed to the builds without FW_MW 2026-10-28 (test build S3b; stricter)"
+  },
+  {
+   "id": "B7",
+   "name": "G4 Pocket menu: music and cart SFX paused, watchdog gated",
+   "stage": "1+ (music mute and watchdog gate); 5+ (the song tick pauses too)",
+   "against": "chip / cart runner",
+   "scope": {
+    "audio": "frames while the Pocket menu is open: the album pauses in place and resumes where it was; the cart SFX pair is forced to 0 (FM / PSG are muted by the core as in 0.2.6)",
+    "watchdog": "D35 does not count while the menu is open (the 68000 is paused there)",
+    "song_tick": "stage 5: the song tick pauses with the menu"
+   },
+   "rule": "No cart counterpart (the cart has no menu). Stage 1 builds the RTL hook (docs/STAGE1_PLAN.md item F1: osd_pause(inmenu & CTRL.MENU_MUTE_EN), SFX pair to 0) and the stage-1 firmware sets CTRL.MENU_MUTE_EN at boot, so the music mute is live from stage 1, not stage 5; CTRL.MENU_MUTE_EN = 0 turns it off without a refit. Our watchdog works as the chip's; in addition, ours does not count while the GPIO menu bit is set (the heartbeat is not gated). The \"first-boot unpack\" gate of the plan is harmless but never needed: the watchdog is not armed before the game's 81 (found by the completeness check, D35). Replays never open the menu, so they stay strict; a menu-pause test is its own reference (test T2 of our 0.3.0 study's test matrix, not in this tree, and item 7 of H1, B Jam's hardware test list in docs/STAGE1_PLAN.md section 7).",
+   "status": "decided by B Jam on 2026-10-09 (music stops in the menu in 0.3.0); watchdog gating locked 2026-10-10. Stage column moved from 5 to 1 at the allow-list review of 2026-10-13 (docs/STAGE1_PLAN.md section 2 row 9): measured: test T2 passes and CTRL 0x09 -> 0x19 at boot in the system co-simulation (the RTL and the firmware simulated together); tests/s1/wdog_tests.c's menu gate at 10 s and 20 s"
+  },
+  {
+   "id": "B8",
+   "name": "G9 random values",
+   "stage": "5",
+   "against": "cart runner",
+   "scope": {
+    "audio": "values drawn from the cart chip's random number"
+   },
+   "rule": "Lockstep tests inject the chip's values through a hook (strict); in play they are distribution-matched (not compared).",
+   "status": "the plan"
+  },
+  {
+   "id": "B9",
+   "name": "G10 reply and job timing ($1FE6 bit 14 window, busy windows, service latency)",
+   "stage": "1+",
+   "against": "chip (timed runner) vs ours (RTL timing)",
+   "scope": {
+    "ramdp_bits": {
+     "0x1FE6": "0x4000 (job running) held time"
+    },
+    "timing": "reply latency per command, frames with bit 14 set"
+   },
+   "rule": "Measured separately, never in the functional replay (the replay runners take no time). Census correction: the game spins on bit 14 after DA, C6 and DF, so reply-first does NOT end the DA load freeze (it does for 8C/F5); only a faster DA job does. The values of the bits are strict; how long they stay set is this entry. Stage 5 (test build 5, item 2 of its possible differences): an 8C's song start lands 0.6-2.8 ms after the chip's estimated job end (96 MHz, 1 IPC: the chip's speed is not known), because our 8C job step waits behind the burst's engine items (B39); at that estimated speed the cart's stale first YM packet of a song (a quirk ours keeps, as the chip has it) would be a silent frame in 64 YM starts, and 0 DT tracks, 0 DT scenarios and 0 of the 11 game sessions differ. No real YM song start in B Jam's captures shows a difference; the case needs an 8C landing late in a frame, not seen. Approved by B Jam 2026-10-26.",
+   "status": "measured: the census (docs/CENSUS.md section 5); ours DA 8-33 ms vs chip ~0.65 ms (the plan's decision 7); the stage-5 song start (rule, last sentences): approved by B Jam on 2026-10-26"
+  },
+  {
+   "id": "B10",
+   "name": "chip-referenced status words from stage 1 (D21 / D29 / D36)",
+   "stage": "1+",
+   "against": "chip (not test3)",
+   "scope": {
+    "ramdp_bits": {
+     "0x1FE6": "0x4000 job running, 0x8000 done, 0x0100 last job failed, 0x0200/0x0400 refusals, 0x2000 frame tick: the CLEAR at the 9494 head only (the set half is B12 until stage 5); bit 3 (music playing) is B12 until stage 5",
+     "0x1FE4": "rest value and bit 8 at AF/AE (the chip's 0x66F8; found with the test harness)",
+     "0x1FEC": "cleared after the tick on the chip"
+    },
+    "c6": "one-shot (second C6 refused)"
+   },
+   "rule": "From stage 1 these words are compared against the chip side of the audit harness, everything else stays strict against final026/test3 (the plan's stage-1 proof 2). Not an allow-list escape: a CHANGE OF REFERENCE, listed so a test3 comparison masks exactly these bits. Split at the allow-list review of 2026-10-13: $1FE6 bit 3 (written every chip main-loop pass by the sequencer) and the SET half of bit 13 (written by the synth) have no chip value before the song engine (stage 5); stage 1 sets neither, as 0.2.6, and they move to B12 until then. Keeping bit 3 clear matters: the game posts a queued song only while bit 3 is clear ($8006A). The $1FE6 check B Jam asked for on 2026-10-27 (stage 2): the stage-5 images (from test build 5 on) set bit 3 at the song engine's main-loop pass and bit 13's set half at its packet flush, as the chip does, and test build 5's music lockstep holds them to the chip (that build's firmware proofs, measured there and not run again: 238 / 238 runs of its corpus c0-c7 plus 33 + 8 checking runs, the register file $1FE4 / $1FE6 / $1FEA / $1FEC compared whole after every chip event, bit 3 at the chip's own main-loop pass; stage 2 changes no core/song, core/sched or audio fragment). The chip comparison's two masks (tests/equiv/s1_scope.json transforms 'T-S5 synth bit 13' and 'T-S5 main-loop bit 3') stay: its host build is the stage-1 interim build, which has no song engine and sets neither bit, as 0.2.6.",
+   "status": "the plan's stage 1; the bit 3 / bit 13 split approved by B Jam on 2026-10-27 (proposed for the stage-1 allow-list review, 2026-10-13)"
+  },
+  {
+   "id": "B11",
+   "name": "D30 saves: chip format + one-time 0.2.x import",
+   "stage": "3+",
+   "against": "chip",
+   "scope": {
+    "bram": "0x000-0xAE0 the chip's save format (stage 3); stages 1-2 keep the 0.2.x layout in 0x000-0x8FF",
+    "import": "first boot with a 0.2.x save only (stage 3); in stages 1-2 a 0.2.x 4 KB .sav loads into 0x000-0xFFF as it is"
+   },
+   "rule": "After a save from blank the BRAM bytes equal the chip's (strict, stage 3). The one-time import of a 0.2.x save is our addition: its result is checked against a converted chip-format reference, not the chip. The save RAM is 8 KB from stage 1 (B33); the TEST debug record is at 0x1000-0x1FFF and off in RELEASE (A1). Stage 3 (test build S3a, the stage-5 images; interim/s1/bodies_s1.c): the read and write jobs work as the chip's (its routines at 0x0801A734 / 0x0801A86C, the validator at 0x0801A69C): the copies, the trailer, the scramble, the choice of copy and sequence, the zero fill, $1FE4 bit 11 while a job runs and the chip's save scratch (its zoom stamps) as the chip leaves them; the slot table is read from the player's ROM at the boot (from the cart program's packed block), never typed in. Measured (tests/equiv/eeplock.py, 2026-10-29): 180 validator cases, a 60-job run and 300 random jobs equal the chip's save, cart RAM and scratch byte for byte; the import of synthetic 0.2.x saves and of a real save from test build S2 equals the chip's own records of the same bytes, every id reading back the chip's bytes. Still ours, the chip's EEPROM plumbing: its I2C timing (the battery save is written in place, so ours' jobs are shorter: estimated 0.3-1.9 ms against the cart's, which is not known), its three-try write with a read back and the event 0x1F (the battery save always reads back), and the import itself (ours only: a 0.2.x slot that is not blank becomes the copy the chip's first write of it would make).",
+   "status": "a locked decision; 8 KB from stage 1 (B Jam's question Q1, 2026-10-11); built in stage 3 (test build S3a)"
+  },
+  {
+   "id": "B12",
+   "name": "interim album and the audio rows not yet done as the chip does them (D05, D11-D17, D28, D32-D34; D31 as the chip's since 2026-10-17, the SFX channels since 2026-10-19)",
+   "stage": "0-4",
+   "against": "chip",
+   "scope": {
+    "audio": "all",
+    "ramdp_words": "0x1B90-0x1BFF (VU feed); 0x1C00-0x1C0F, the words the chip's main-loop pass writes after its Boom Box feed at every pass: a pass count and three of its own RAM addresses, where ours' feed writes zeros (corrected 2026-10-30: this scope said 0x1C00 words written by the chip at 8C/DF/F4/F5/B6/DA; stage 3's check of every command, tests/equiv/gatelock.py, measured that the pass writes them every time it runs, and the old reading came from a runner that let the pass run only after a job. They are leftover bytes of the chip's stack: its Boom Box feed copies 64 halfwords to $1B90-$1C0F but fills only 56. Measured 2026-10-30: the game never reads them (a scan of its code, an emulator's read watch, the chip program run on its own, the VDP DMA logs of the whole-system simulations) and behaves the same whatever they hold; not known for code a real cart serves from outside the ROM; approved by B Jam on 2026-10-30)",
+    "commands": "83 trim, D6, D0, 95/96, 8E, C9/CA level law",
+    "sfx": "since 2026-10-17 (B Jam's decision of 2026-10-16) the interim feeder follows D1 / D2 / D3's laws as the chip has them (the level, the loop byte from D1 flags bit 15: D31, kept out of the RTL's pitch bits; D2 and D3 on the lowest channel of the mask; the per-channel fade on the synth tick). Since 2026-10-19 (B Jam 2026-10-18 / 19, after the Block 888 cell alarm that never stopped: do as the chip does, the cart's behaviour) the rest of the SFX channels work as the chip's (interim/s1/sfx_s1.c, which replaces interim/album/sfx.c in stage 1): the channel a start takes (never one outside the mask; 0.2.6 took channel 0), the echo voice, the spread (0.2.6: one voice at half rate in the RTL), the retrigger, the start delay, the rate step and size trim, the mixer's position and end of each sound on a 300 Hz block count, no RTL flag bit (no RTL echo line, half rate or pitch), and D5 touching no channel (the chip's SFX echo switch; 0.2.6 stopped channels 6 / 7). We reverse engineered the STM32F4's commands as close as possible, with hardware verification: measured equal to the cart program on the solo, duo, attract, stage 04, Arcade 3P, w14 and first-boot corpora, the Block 888 captures and the six scenarios of 2026-10-17; the feeder pushes nothing on a channel the chip has freed and feeds every loop the chip plays. Still ours: the block count's phase (a 300 Hz grid on the board timer: estimated), the random numbers (ours from the board timer), the chip's low-pass on some voices, the pan law and gains (the spread's sides are the RTL pan's ends), D5's SFX echo bus (the RTL has none), the short last block of a looped pass (the RTL loops without a gap), a taken channel's queued FIFO samples (muted and drained at 48 kHz, at most 5.3 ms, before the new sound starts), the 91 / 92 forms without arguments (never posted; measured: 0.2.6's no effect), the RTL's output stage; where the chip's synth-tick counter starts against ours is not known (both from the first 9494 after C6: estimated); no longer ours since test build 4: the RTL's rate 5 is the chip's 4,800 Hz (the RTL of 2026-10-19; it was 5,333 Hz)",
+    "ramdp_bits": {
+     "0x1FE6": "0x0008 music playing and the SET half of 0x2000 (synth frame work done): no chip value before stage 5; stages 1-4 set neither (as 0.2.6)"
+    }
+   },
+   "rule": "Until stage 5 ours plays the CD album and the SFX feeder; against the chip these are masked and counted. Against test3/final026 they are strict. The $1FE6 check B Jam asked for on 2026-10-27 (stage 2): the stage-5 images (from test build 5 on) set bit 3 at the song engine's main-loop pass and bit 13's set half at its packet flush, as the chip does, and test build 5's music lockstep holds them to the chip (that build's firmware proofs, measured there and not run again: 238 / 238 runs of its corpus c0-c7 plus 33 + 8 checking runs, the register file $1FE4 / $1FE6 / $1FEA / $1FEC compared whole after every chip event, bit 3 at the chip's own main-loop pass; stage 2 changes no core/song, core/sched or audio fragment). The chip comparison's two masks (tests/equiv/s1_scope.json transforms 'T-S5 synth bit 13' and 'T-S5 main-loop bit 3') stay: its host build is the stage-1 interim build, which has no song engine and sets neither bit, as 0.2.6. Stage 3 (test build S3a, the stage-5 images): 83's frame-period check and its refusal 7 work as the chip's (core/dispatch/disp.c disp_83_check; tests/equiv/f83lock.py: 195 of 195 cases, every n 1-15, equal to the chip's routine at 0x080209B4, measured 2026-10-30; 104 of 104 with eight values of n on 2026-10-29); what this row keeps of 83 is the chip's trim of its own HSI oscillator toward the measured frame period and the delay it runs while trimming (ours runs on the console's clock: nothing to trim). The stage-1 images keep 0.2.6's 83 (accepted, nothing done).",
+   "status": "firmware audit rows open (audio group); the two $1FE6 bits from B10 approved by B Jam on 2026-10-27; the $1C00-$1C0F sentence approved by B Jam on 2026-10-30 (proposed for the stage-1 allow-list review, 2026-10-13)"
+  },
+  {
+   "id": "B13",
+   "name": "Console-side stubs and options: TeraDrive, Mega CD units (all-in-one TMSS), 32X, 3-Player Mode (EA 4-Way Play), 6-Button",
+   "stage": "1+",
+   "against": "chip (outside the firmware comparison) / final026 for the RTL",
+   "scope": {
+    "core": "detection stubs and pad logic answer the game's own checks in RTL, not firmware: Console = TeraDrive (docs/STAGE1_PLAN.md F3: a stub answers the 128 KB video-RAM test; the game reports code B, 9C0B with bit 15, region JP; a separate Mega CD unit allowed, B Jam's question Q5); every combined Mega CD unit reports TMSS (docs/STAGE1_PLAN.md F5: version nibble and TMSS stand-in per unit; the Boom Box E-codes of Aiwa, Wondermega, Wondermega M2 / X'Eye and LaserActive gain bit 13 against 0.2.6, the CDX already had it); 32X Mode; 3-Player Mode (B Jam's question Q3, revised: an EA 4-Way Play is presented when 3-Player Mode = On or Arcade Mode = Multiplayer, read at boot, default Off = 0.2.6's ports on every clock); 6-Button (with the 4-Way Play the pads are six-button pads, docs/STAGE1_PLAN.md F4b; test build 4, B Jam 2026-10-16: on the direct ports too, a real six-button pad read by the game's own probe (pad_io keeps the first TH rise; no B+forward-as-Z hybrid), an empty port reads as empty (no phantom P2 pad), and each 4-Way Play slot reports its own pad type, empty when no controller is there, so the Boom Box badges follow the controllers)",
+    "rom": "the Scum! substitutions are B31"
+   },
+   "rule": "Outside the firmware comparison: replays recorded with a patched ROM or a non-default option (for example our dev ROM with the Scum! stage select) are references only for the same ROM and options. A stub is proven by the game's own check ($BC944-style matrix over every Console x unit: 306 rows, 0 failures), not by the firmware replay. With every option at its default the RTL equals 0.2.6 here.",
+   "status": "locked decisions (TeraDrive code B 2026-10-10; Arcade Off/On/Multiplayer + EA 4-Way 2026-10-10; question Q3 revised \"3-Player Mode\" 2026-10-11; TMSS per combined unit 2026-10-11). Wording updated at the allow-list review of 2026-10-13"
+  },
+  {
+   "id": "B14",
+   "name": "sprite words against final 0.2.6 (a change of reference: the whole sprite engine is the chip's from stage 2)",
+   "stage": "1+",
+   "against": "final026 (the chip strict)",
+   "scope": {
+    "ramdp_words": "the sprite words the game reads as data (the SAT, the DMA list, the $1F20 stash, $1F10 / $1F16 / $1F18 / $1F1A / $1F1C): against final 0.2.6 they may start to differ at a post that writes them the chip's way (tests/equiv/s1_scope.json sprite_words diverge_at: AD, AF, C6, and from stage 2 B1, D47), counted; against the chip they are strict after every accepted AD / AF (no allowance since stage 2's repair)",
+    "vram": "sprite tiles, where the chip's cache puts a block in another VRAM id than 0.2.6's (D02 / D03 / D49)"
+   },
+   "rule": "Until stage 2 does them as the chip does, these rows differ from the chip by design (firmware audit); against test3 strict. The sprite-values update (B Jam 2026-10-15/16, from our sprite-values specification, not in this tree): D24 (the chip's clip), D10, D38 and the rest of D42 (the chip's AF frame end 0x080190B8, its open-frame gate and the multiplex parity H+$403) are the chip's; D18 ($1F1A) already was. The chip lockstep holds $1F10 / $1F16 / $1F18 / $1F1A after every accepted AD, and those plus $1F1C, the AF's DMA descriptors, SAT entries 0-129 and the $1F20 stash (every word; until test build 4 Y / link / X) after every accepted AF, to the chip (tests/equiv/s1_scope.json 'sprite' and 'sprite_words', tests/equiv/sprwords.py); against final 0.2.6 those words are a counted change of reference. Not done the chip's way: AF03 above 80 entries (the chip writes its second descriptor through a register that path never set; the game's sender posts AF02 or AF01 only). The picture changes on purpose in 80+ frames: the cart's multiplex flicker instead of 0.2.6's static first 80, no upload past the 80-entry table. Test build 4 (B Jam 2026-10-18, \"if cart is different color change to cart\"): D23 is the chip's too (PPM_CHIP_ATTR: the attribute word as one 16-bit ADD of the piece word, the object's attribute word and id x 16, the H-flip path's $800 moved between the words, pose bit 29 clearing the object's palette; 0.2.6's field-wise rule and its object-107 door fix gone), so the attribute word is held to the chip with the rest of the entry; the palette line changes on purpose where 0.2.6's differed (Dice's afterimage outline green as on the cart, the small one-piece effects). D49 (corrected 2026-10-27, stage 2's first commit; read in legacy/026/mame.c): the slot -> VRAM id table is already the chip's table at 0x08025DB8 (PPM_SLOT_ID under PPM_CHIP_CACHE_CLAIM = 1, the 0.2.6 cache fix of 2026-10-08: chip slots $32-$35 -> ids $7F, $7E, $7D, $7C), so D49 no longer differs by design; it stays in this entry's scope only until stage 2's proof (the aging at every slot count, EC $34 included: Arena and 3-player Arcade) shows the layout equal to the chip's. Stage 2's proof (351,839 draws equal the chip) removes this entry. Stage 2 (2026-10-27, core/sprite): the sprite engine works as the chip's, written by our team from our own study of how the cart behaves (the composer, the aging, AD, the AF frame end, EC, B0, B1, the flush's and F2's table read, C6's sprite init), and the rows this entry still held now follow the chip: D19 (only the record's +$A restarts), D39 (the 50 Hz skip; dormant at 60 Hz), D47 (B1 only flushes: SAT entry 0 is no longer cleared), D48 (an AD index above $3F is refused), D49 proven (the slot table at every slot count, EC $34 included), and AF03 above 80 entries too (the descriptor's stores go to the chip's flash alias: nothing the game can see changes; the counts and the stash as the chip). No sprite word differs from the chip on any input the game sends (B48 and B52 are the two it never sends); the entry stays only as the change of reference against final 0.2.6. Stage 2's repair (2026-10-28): the chip comparison's last sprite allowance (SAT entry 0 after an AF that leaves the table empty: the runner's boot page and 0.2.6's B1 clear, D47) is retired; with D47 done the chip's way it was used 0 times on every corpus.",
+   "status": "stage 2 (2026-10-27): no sprite row differs from the chip on any input the game sends (B48, B52); the SAT-entry-0 allowance retired 2026-10-28; the change of reference against final 0.2.6 stays (counted). Was: the plan's stage 2; shrunk by the sprite-values update (B Jam's yes 2026-10-15/16) and test build 4 (D23, B Jam 2026-10-18); D49's table found already the chip's (2026-10-27, stage 2's first commit)"
+  },
+  {
+   "id": "B15",
+   "name": "Every Pocket reset type equals a power cycle",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-01"
+   },
+   "rule": "Every Pocket reset type equals a power cycle. Why it stays: platform.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-01"
+  },
+  {
+   "id": "B16",
+   "name": "Console Reset (68000-only) does not exist on the Pocket; MiSTer's board layer follows B Jam's Reset test",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-02"
+   },
+   "rule": "Console Reset (68000-only) does not exist on the Pocket; MiSTer's board layer follows B Jam's Reset test. Why it stays: platform.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-02"
+  },
+  {
+   "id": "B17",
+   "name": "MCU self-reset paths (WE SUX, watchdog with 81 bit 4, update end) map to a firmware restart that keeps the RTL state; unreachable in play",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-03"
+   },
+   "rule": "MCU self-reset paths (WE SUX 0x08020C4C, the watchdog with 81 bit 4 0x08020EA4, the update end 0x08022BF4) map to brd_full_reset: hold the 68000, mask interrupts, restart the firmware from its reset vector. The RTL state (register file, window, FM view, mailbox latches) stays, as the cart keeps its FPGA state on an MCU-only reset (docs/MCU_INTERFACE.md section 8, docs/BOARD_IFACE.md). Was worded \"our full cart reset\" (docs/BOOT_SPEC.md AL-03). Why it stays: unreachable (no game code sends WE SUX; the game posts 810E, so the watchdog halts rather than resets).",
+   "status": "B Jam approved on 2026-10-11 (allow-list review); rule reworded to what the firmware does (firmware restart, RTL state kept) at the allow-list review (2026-10-13); the rewording approved by B Jam on 2026-10-27",
+   "source_row": "AL-03"
+  },
+  {
+   "id": "B18",
+   "name": "Warm path ($1FEA == $1234 at app init) and $1FE6 bit 12 never occur: both reset to 0 on every reset; the checks stay, as the chip's",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-04"
+   },
+   "rule": "Warm path ($1FEA == $1234 at app init) and $1FE6 bit 12 never occur: both reset to 0 on every reset; the checks stay, as the chip's. Why it stays: unreachable.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-04"
+  },
+  {
+   "id": "B19",
+   "name": "MegaWire update: NOR erase/program report failure and never write the ROM image; no app re-install",
+   "stage": "3+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-05"
+   },
+   "rule": "MegaWire update: NOR erase/program report failure and never write the ROM image; no app re-install. Why it stays: must never write the ROM.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-05"
+  },
+  {
+   "id": "B20",
+   "name": "Header $1E4 = $FF00 (cart-exact by two real sources) against the ROM file's $2020 and 0.2.6; the header letters are the ROM's own for every Console (BOOT-07 dropped 2026-10-16)",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-06"
+   },
+   "rule": "Header $1E4 = $FF00 (cart-exact by two real sources) against the ROM file's $2020 and 0.2.6; the hold-B line shows the ROM's own digits (ROM $1000A) and letters ($1E0-$1E2) for every Console setting: the letters belong to the cart (measured 2026-10-16: B Jam's pink US cart prints the ROM header's region letters unchanged in a US CDX and in a JP LaserActive), so the per-Console-region letter switch (BOOT-07) is gone. Why it stays: cart-exact; the digits and letters differ from cart to cart (three of three of B Jam's carts) and only those of the ROM image are known.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review); BOOT-07 dropped by B Jam 2026-10-16 (hold-B photos), in the firmware from 2026-10-17",
+   "source_row": "AL-06"
+  },
+  {
+   "id": "B21",
+   "name": "Window off from reset (cart) against 0.2.6's on: the splash DMA tail $C000-$C01F -> VRAM $13E0-$13FF differs from final026/test3",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-07"
+   },
+   "rule": "Window off from reset (cart) against 0.2.6's on: the splash DMA tail $C000-$C01F -> VRAM $13E0-$13FF differs from final026/test3. Why it stays: cart-exact.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-07"
+  },
+  {
+   "id": "B22",
+   "name": "The protection view (the cart's guard against reading its ROM out), the 'SE' answer and the $200000 stub are not served; the D45 patches stand in (extends B3)",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-08"
+   },
+   "rule": "The protection view (the cart's guard against reading its ROM out), the 'SE' answer and the $200000 stub are not served; the D45 patches stand in (extends B3). Why it stays: no source.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-08"
+  },
+  {
+   "id": "B23",
+   "name": "Hand-off block from the board, not a bootloader; RAMDP $0108 dummy read dropped; no game-visible effect",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-09"
+   },
+   "rule": "Hand-off block from the board, not a bootloader; RAMDP $0108 dummy read dropped; no game-visible effect. Why it stays: plumbing.",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-09"
+  },
+  {
+   "id": "B24",
+   "name": "FM game view (XOR 0xA8A2 on $2000-$7FFF, off after 84): the Z80's patch reads differ from final026/test3 by design",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/BOOT_SPEC.md section 8 row AL-10"
+   },
+   "rule": "FM game view (XOR 0xA8A2 on $2000-$7FFF, off after 84): the Z80's patch reads differ from final026/test3 by design. Why it stays: cart-exact (B Jam: core circuitry).",
+   "status": "B Jam approved on 2026-10-11 (allow-list review)",
+   "source_row": "AL-10"
+  },
+  {
+   "id": "B25",
+   "name": "Mega CD = None: the cart no longer answers $400000-$7FFFFF (0.2.6 served the ROM's upper half there); the console core's own open-bus behaviour applies, as on a real console with no Mega CD. Test R12: the game sees no CD on every Console setting",
+   "stage": "1+",
+   "against": "chip / final026 / test3 as noted",
+   "scope": {
+    "spec": "docs/CART_FPGA_SPEC.md section 13.1 F-D3"
+   },
+   "rule": "Mega CD = None: the cart no longer answers $400000-$7FFFFF (0.2.6 served the ROM's upper half there); the console core's own open-bus behaviour applies, as on a real console with no Mega CD. Test R12: the game sees no CD on every Console setting. Why it stays: cart-exact (B Jam: more cart accurate).",
+   "status": "B Jam approved on 2026-10-11 (allow-list review); confirmed 2026-10-11 ('Keep it like the cart')",
+   "source_row": "F-D3"
+  },
+  {
+   "id": "B26",
+   "name": "84 as the chip's from stage 1: the chip's writes after the blank-save first boot's 8400",
+   "stage": "1+",
+   "against": "final026 / test3 (a change of reference; strict against the chip)",
+   "scope": {
+    "ramdp_words": "0x0006 := $8200 (the 68000 reset vector's low word)",
+    "registers": "$1FEE := 0xAF5B, $1FE4 bits 0x18 cleared, $1FE8 := 0 (window off, FM game view off)",
+    "watchdog": "disarmed (G+0x190 / +0x192 / 81 bit 4 := 0)"
+   },
+   "rule": "Our 84 waits its 0.1 ms (clock-following) and then writes what the chip writes. 0.2.6 only cleared sdram_en. Strict against the chip (an oracle test and the chip lockstep); against final026 / test3 these words differ by design. Only the blank-save first boot posts 84 (the first-boot capture).",
+   "status": "approved by B Jam on 2026-10-26. Proposed for the stage-1 allow-list review (2026-10-13). Measured: the system co-simulation of a blank-save boot, window off 0.135 ms after the 8400 write (test R9 of docs/CART_FPGA_SPEC.md section 15.2 and test T-B11 of docs/BOOT_SPEC.md section 9 pass: 0.1-0.5 ms); T-B12 one pass (Soft Reset after it boots the game)"
+  },
+  {
+   "id": "B27",
+   "name": "Watchdog halt possible from stage 1 (0.2.6 never halts)",
+   "stage": "1+",
+   "against": "final026 / test3",
+   "scope": {
+    "mcu": "the watchdog, as the chip's (D35): with the Pocket menu closed, on the 39th TIM7 tick (3.88-3.98 s) after the last 9494 the MCU halts (fatal 0x400000FA: $1FEE := 0xAF5B, $1FE4 := 0x4200); with 81 bit 4 it resets the MCU instead (the game posts 810E: halt)"
+   },
+   "rule": "0.2.6 had no watchdog. From stage 1 a 68000 that stops its frame tick for about 4 s with the menu closed stops the cart MCU, as the cart's chip does. Strict against the chip (lockstep 2 x 262,434 events at both clocks, 0 differences); a listed difference against final026. Gated by the menu (B7); 84 and A858 switch it off. The TEST image writes its debug record at the halt, so a freeze log says which side stopped first.",
+   "status": "doing it the chip's way locked 2026-10-10; the row approved by B Jam on 2026-10-27 (proposed for the stage-1 allow-list review, 2026-10-13)"
+  },
+  {
+   "id": "B28",
+   "name": "Default refusal and mailbox A: unknown words set the chip's refusal bit",
+   "stage": "1+",
+   "against": "final026 / test3",
+   "scope": {
+    "ramdp_bits": {
+     "0x1FE6": "0x0200 (mailbox B) / 0x0400 (mailbox A) for a word whose index (bits 8-13) has no handler or is above 0x36, and every refusal form of the chip's gates"
+    },
+    "trace": "the chip's trace counter for the refusal code (2 = default)",
+    "mailbox_a": "mailbox A words other than 9494 go through the chip's A table (0.2.6 never served mailbox A)"
+   },
+   "rule": "0.2.6 printed \"unknown\" and changed nothing; the chip refuses and says so. Strict against the chip. In play this row is not reached: all 37 commands the game can send have handlers (the completeness check's command set), so only the never-posted forms (synth.py's list) show it.",
+   "status": "approved by B Jam on 2026-10-26. Proposed for the stage-1 allow-list review (2026-10-13)"
+  },
+  {
+   "id": "B29",
+   "name": "DA06 / DA07 with a 0x80 source as board work (no $1FE6 bit 14)",
+   "stage": "1+",
+   "against": "final026 / test3 (bits strict against the chip; times are B9)",
+   "scope": {
+    "ramdp_bits": {
+     "0x1FE6": "0x4000 not set for DA06 / DA07 with a type-0x80 source"
+    },
+    "order": "the reply comes first; from 2026-10-15 the RTL decoder (MCU interface v1.2) decodes behind the busy bit, loads SPTR and GOes (before that, the firmware's board work); the 68000 waits on the RTL busy bit meanwhile"
+   },
+   "rule": "On the cart these streams are decoded by the FPGA, so the chip runs them in place, not as a job, and replies at once. 0.2.6 held the mailbox while it decoded. Stage 1 keeps the chip's order; the bits are strict against the chip; how long busy stays up is B9. A DA07 with a 0x81 source stays a job (its chip stream GO is not known; 0.2.6's body kept). Where the decoded stream sits is B38.",
+   "status": "approved by B Jam on 2026-10-26. Proposed for the stage-1 allow-list review (2026-10-13). Measured (system co-simulation, 1,980 frames): 1,492 streams, none cut short, window-range reads against the ROM 0 mismatches (the boot check); test R10 found two 128-word over-reads of DA07 streams (docs/CART_FPGA_SPEC.md F-D5)"
+  },
+  {
+   "id": "B30",
+   "name": "Interim SFX feeder and Boom Box VU rows on the timer grid (no main loop)",
+   "stage": "1-4",
+   "against": "final026 / test3",
+   "scope": {
+    "audio": "when SFX samples are pushed (the L2a wheel every 133.5 us while a channel plays, and a fill at each start) and when a VU row runs (its due instant); FIFO levels",
+    "ramdp_words": "0x1B98-0x1BFF row times (the values per row are strict)"
+   },
+   "rule": "Stage 1 has no main loop: 0.2.6's per-pass push and VU poll run on the timer wheel instead. The call interface stays strict (A4: entry, argument, $1E10-$1E15); push times and FIFO levels are not compared. Leaves with the album path in stage 5.",
+   "status": "retired 2026-10-26 by B Jam: the path left with test build 5 (the stage-5 images carry no album path, no interim SFX feeder and no timer-grid VU rows). Was proposed for the stage-1 allow-list review (2026-10-13). Measured: FIFO model 0 underruns (82,417 starts); system co-sim 3 one-tick underrun events in 825 frames and 16 in 1,980 (longest gap < 0.1 ms)"
+  },
+  {
+   "id": "B31",
+   "name": "Scum! ROM substitutions: Little-Man, Arcade Mode Off / On / Multiplayer, stage select, 6-Button hook, the Hall of Fame fix and the coin path",
+   "stage": "1+",
+   "against": "chip (outside the firmware comparison) / final026",
+   "scope": {
+    "rom": "the words the cartridge serves in place of the game's while a switch is on (Game Genie style, in RTL): Little-Man, Arcade Mode (On; Multiplayer adds G_ARC3P and the Grand Stick III DIP bit), Arcade Stage Select pages 1-2, the 6-Button pad hook (test build 4: no X / Y / Z / Mode injected on the direct ports, where 6-Button is a real six-button pad; the Arcade Mode coin on Mode stays); the pad cave moved to 0x0BF040 (0.2.6 used 0x11C560-0x11C75F, which is the Hall of Fame bar's tile data); the coin path (a1/a2/a3 loaded before the coin routine: +1 credit and the game's coin sound per press, Q7); the flip guard"
+   },
+   "rule": "Outside the firmware comparison (as B13): replays with a switch on are references only for the same switches. With every switch off the served words are the ROM's. Proven by equiv.py (1,568 cases, 0 differences), the sentinel (no Scum! word in 0x11C560-0x11C75F), the GPGX Hall of Fame pixel compare (0 differing frames; 0.2.6: 298) and the coin capture (577 of 577 credits, 0 stray cart-RAM byte writes). Test build 4 (RTL constants, B Jam 2026-10-16): the coin stub jumps to the game's first-coin gate $0B5950 (the stub's last word $5960 -> $5950), so the first Mode press after power-on or reset only sets $FF98D7 (no credit, no sound) as the cart with a Grand Stick III does ($FF98D7 is cleared at every boot by $B5A32); until test build 4 the stub entered the credit path $0B5960 past the gate and credited the first press.",
+   "status": "decided (Scum! 0.2.6; Hall of Fame move 2026-10-09; Arcade Mode Off / On / Multiplayer 2026-10-10; B Jam's question Q7, coin sound, 2026-10-11; the first-coin gate 2026-10-16, test build 4); built as docs/STAGE1_PLAN.md F2 / F4 / F4b; listed here at the allow-list review of 2026-10-13 Stage 5 (B43, B Jam's decision 6, 2026-10-21): Arcade Mode and the Arcade coin move to the virtual Grand Stick III; the Arcade / Arc3P words, the pad hook, the cave, the coin stub and the press latches go, Little-Man, Stage Select and the flip point stay."
+  },
+  {
+   "id": "B32",
+   "name": "68000 byte writes into cart RAM: the whole word (B Jam's question Q2)",
+   "stage": "1+",
+   "against": "final026 (ignores byte writes, 2026-10-11) / 0.2.0-0.2.5 (per lane) / chip (not known)",
+   "scope": {
+    "ramdp": "a 68000 byte write stores the byte on both halves of its word (the 68000 drives it on both); the register page ($1FEA / $1FEC) takes the whole word too"
+   },
+   "rule": "Whole word and ignore both pass the game's cart-RAM self-test ($2B83E); per lane fails it and sets $FF9986. Whole word and ignore differ only in the value left behind ($0000 against $F2F0). What a real cart does is not known (only a bus capture of a food pickup would show it). The firmware replays see no game byte write (0 in 203,526 frames), so they stay strict; the RTL proof is docs/STAGE1_PLAN.md C7 (FX68K tb_sys: $2B83E reads 0000, $FF9986 stays 0; the coin writes 0 bytes in 577 coins).",
+   "status": "decided (B Jam's question Q2, 2026-10-11): \"if anything breaks, we learn we are not cart-accurate somewhere\""
+  },
+  {
+   "id": "B33",
+   "name": "Battery save RAM 8 KB (the cart's EEPROM size)",
+   "stage": "1+",
+   "against": "final026 (4 KB)",
+   "scope": {
+    "bram": "0x1000-0x1FFF exists (upper half); the .sav file is 8 KB; a 0.2.x 4 KB .sav loads into 0x000-0xFFF"
+   },
+   "rule": "The game cannot see the size. RELEASE writes nothing above 0x0FFF; TEST writes its debug record at 0x1000-0x1FFF (A1). An 8 KB .sav taken back to 0.2.6 (whose save slot is 4 KB): not known (the Pocket's APF behaviour), a release-note line.",
+   "status": "decided (B Jam's question Q1, 2026-10-11: \"replicate the cart\"). Measured: tb_backup 3 seeds PASS, 0 differences from 0.2.6 in 0x000-0xFFF; the co-sim boots a 0.2.x 4 KB save in the 8 KB RAM (SRAM OK)"
+  },
+  {
+   "id": "B34",
+   "name": "Boot length before C6 (the C6 time itself is the cart's: the game's random start = the cart's)",
+   "stage": "1+",
+   "against": "chip (timed) / final026",
+   "scope": {
+    "timing": "the 68000 is held until the MCU is ready (no bootloader, no 'SE' wait); the C6 set-up job time; stage 4: the first-boot bank-cache unpack (~26-30 s, the 68000 held)",
+    "game_state": "$FF9B38, the start index of the game's only random table: the number of frames the game waited on C6, from 14: the cart's since 2026-10-17 (94)",
+    "pocket_menu": "the VDP keeps running while the Pocket menu pauses the 68000: a menu opened during the 1.34 s hold costs the game its polls of those frames (docs/ALLOWLIST.md, row B7: the Pocket menu)",
+    "pal": "80 polls at 50 Hz too; the cart's PAL count is not known",
+    "firmware_file": "from 0.3.0 the firmware is its own file (Fafrium, docs/FAFRIUM.md): after the Pocket's data slots are complete, the core's boot stub checks the 256 KB file and copies it into IROM, WRAM and the Pocket SRAM before the firmware starts: measured in a simulation of the core's logic (no sound-cache file), 146.1 ms from the data slots' completion to the firmware's release, against 0.8 ms with the firmware built in; the file's transfer adds about 64 ms to the Pocket's loading bar (estimated at the simulated load rate; the Pocket's own rate is not known); after the start a Soft Reset reboots the firmware directly, at no extra cost",
+    "start_up": "test build S3a's start-up: the boot reads the save slot table and the note table's tail from the player's ROM (the cart program's packed block, decoded only as far as those bytes) while the 68000 is held: measured in a whole-system simulation of that build's core (power-on, no input) the 68000's first release after power-on comes 95.3 ms later than test build 5's (2,278.3 against 2,183.1 ms; every picture of the start-up the same, frame for frame, begun that much later) and a Soft Reset holds it 98.8 ms against 8.7 ms before the table read (+90.1 ms); the cart reads its own flash and spends no such time"
+   },
+   "rule": "Before C6 ours boots in a different time from the cart (the 68000 held until the MCU is ready). The C6 wait itself is the cart's (since 2026-10-17, B Jam 2026-10-16): the C6 job keeps $1FE6 bit 14 (the queue not empty, the chip's own bit) until the game has polled 80 times, at the C600 post and at VBlank starts 1-79, counted on the VDP's vertical syncs (VSCNT), and lets go mid-frame before VBlank start 80: the game keeps count byte 94, the cart's (measured from B Jam's three CDX power-ons, all 256 attract demos matched; 95 once). Proven on the RV32 board model (tests/equiv/c6count.py: the game's own loop, 8 C600 phases, TEST and RELEASE, 60 on TEST; two planted bugs caught; within a few tens of MCLK of a VBlank start or a VS start the game's first read (estimated at 96 68000 cycles after the write) decides, so a post there is a boundary). If our set-up ever took longer than 80 frames the count would be ours (higher).",
+   "status": "the cart's since 2026-10-17 (B Jam 2026-10-16: 80 polls = count 94); what stays different is the time before C600 and the Pocket-menu case; test build S3a's save-table read at the start-up (scope start_up: about +95 ms at power-on, +90 ms at a Soft Reset, no lever): approved by B Jam on 2026-10-30; the firmware file's start-up (scope firmware_file) comes with B Jam's decision of 2026-10-29 to ship the firmware as its own file. Was proposed (2026-10-13, found by the completeness check): measured then (system co-simulation) the 68000 left the C6 wait 54 frames after C600 (count 67-68)"
+  },
+  {
+   "id": "B35",
+   "name": "A 9494 that arrives while the song tick still runs",
+   "stage": "5+",
+   "against": "chip / cart runner",
+   "scope": {
+    "audio": "the frame after an overlap: the chip bails (PSG volumes and the packet, no sequencer step); ours runs the tick in L2b slices with an urgent finish rule"
+   },
+   "rule": "The chip's rule depends on its own CPU time; ours on the RV32 level design (design B, core/sched). Both keep the packet and the frame; the sequencer step differs on an overlap. Counted in the stage-5 lockstep, never silently masked.",
+   "status": "approved by B Jam on 2026-10-26. Proposed for the stage-1 allow-list review (2026-10-13; found by the completeness check); stage 5"
+  },
+  {
+   "id": "B36",
+   "name": "PAL paths not run on the Pocket",
+   "stage": "all (deferred)",
+   "against": "chip",
+   "scope": {
+    "paths": "the 50 Hz tick, the 88 configuration's 50 Hz branch, the D39 frame skip, 83's PAL window"
+   },
+   "rule": "There, as the chip has them, but every Pocket build is NTSC (option word bit 26 = 0), so they never run here; the cart runner checks them with --pal; MiSTer's PAL board runs them.",
+   "status": "approved by B Jam on 2026-10-26. Proposed for the stage-1 allow-list review (2026-10-13; found by the completeness check)"
+  },
+  {
+   "id": "B38",
+   "name": "The cart FPGA's sprite decoder in our FPGA (2026-10-15, MCU interface v1.2): where the decoded words sit, and when",
+   "stage": "1+",
+   "against": "chip / final026",
+   "scope": {
+    "sdram": "the decoded sprite blocks and DA06 / DA07 0x80 streams in the SDRAM workspace from the decoder's output base (0.2.6's layout: the frame's blocks at the MCU scratch 0x1E0000 + 0x200 x k, F2's two copies there, a DA's stream at its destination); written at the flush's START (AF / B1), not at the loading AD as 0.2.6 did (s1_equiv carries the reference's AD granules to the flush and compares them there, bytes included); a list an AE or B0 clears before its flush is never decoded (the chip's clear), counted",
+    "fpgaio": "DEC_BASE (FPGAIO register 17) written by the board before each START with an entry (checked by rule, allowed transform T4 of docs/CART_FPGA_SPEC.md section 15.1; the board oracle's tag S1_LOG_DECB); the RTL's own GO at its run's end; SPTR loaded by the RTL at the START; an empty START (a load-less AF / B1) leaves SPTR where it was, where 0.2.6 rewound it to the scratch (no window read follows: counted, carried until the pointers meet again)",
+    "timing": "the decode runs behind the reply: AF / B1 / F2 / DA06 / DA07 finish at once, as the chip's do; the game reads the words with its VBlank DMA (AF / B1 / F2) or after busy (DA)"
+   },
+   "rule": "The cart's chip lists the blocks in its FPGA's queue ($1FF4 / $1FF6, $1FF2 = 0x8000) and never waits for the decode; its FPGA decodes before the game's DMA reads the window. Ours does the same with the same writes (compared write for write with the chip); our FPGA decodes into the SDRAM workspace, where 0.2.6 put the same bytes, so the window serves the same words (where the cart keeps its own buffer is not known). Compare the bytes the 68000 reads through the window; the window must never serve a word before its block is decoded (the board model's LATE count, fuzz_s1 DEC; on hardware the TEST debug save's DEC_LATECNT).",
+   "status": "approved by B Jam on 2026-10-26. Proposed 2026-10-15 with MCU interface v1.2. Replaces B1 and the firmware decoder stand-in of the earlier stage-1 steps (and its block memo, never merged). Estimated: the board model's decoder at 140 ns an access, every corpus 0 late window words"
+  },
+  {
+   "id": "B39",
+   "name": "Stage 5: engine posts answered at once, their bodies run afterwards in arrival order with the tick (decision 3a)",
+   "stage": "5+",
+   "against": "chip / cart runner",
+   "scope": {
+    "ramdp_words": "0x1FEA (the finish) of the music and SFX posts (88, 8C, 8D, 8E, C9, CA, D0-D6): ours is written at once, the chip's after the post's body (and after a tick its mailbox interrupt is still running), up to ~0.1 ms later; the $1FE6 bits and the 8C job push those posts make are written at once on both",
+    "timing": "when a body's effect starts: on both, from the first synth block after the post's arrival (MCU interface v1.3 3.10.5), so the music is the same block for block; only the reply moment differs",
+    "audio": "none: every engine effect lands in arrival order (the music lockstep compares the engine state after every item)"
+   },
+   "rule": "The chip runs an engine post's body inside its mailbox interrupt and writes the finish after it; ours does the chip's gates, refusals and 68000-visible parts, writes the finish at once, and runs the body from the ordered engine queue in arrival order, each inside synth_begin / synth_end. Compare the engine state and every synth write in arrival order strictly; the reply time is measured (B9), not compared. A post whose body writes a 68000-visible place (the gameplay register-write census decides, handler by handler) is NOT covered by this row: it finishes after its body, as the chip's does. Test build 5 (item 3 of its possible differences): when the game posts several engine commands together, a later one can take effect one 2 ms step later than in the zero-time model of the cart; the song-engine comparison compares burst posts by their arrivals (a design decision: a busy-flag interface cannot match a zero-time burst, and the chip's own time per post is not modelled). Approved by B Jam 2026-10-26. Note (item 7 of the same list: not a difference): the command orders the game never sends are done as the chip does them, e.g. an 8D00 fade that arrives while an 8C's module start is still being set up, then C9: the fade is dropped and the new song plays.",
+   "status": "approved by B Jam on 2026-10-21 (his decision 3a: 'go with all 7 stage-5 recommendations'). Measured on the chip in the runner: these posts cost 159-755 Thumb instructions incl. the dispatcher, the tick up to 12,392; estimated: ~2-8 us a post, ~0.13 ms with a worst tick, at 96 MHz and 1 IPC; test build 5's burst sentence (rule): approved by B Jam on 2026-10-26"
+  },
+  {
+   "id": "B40",
+   "name": "Stage 5: synth blocks are atomic (decision 3b)",
+   "stage": "5+",
+   "against": "chip (the cart-engine runner is atomic too)",
+   "scope": {
+    "audio": "the 160 samples (3.33 ms) of a block during which a mailbox post arrives: on the cart the post's effect can begin inside that block; on ours, as in the runner, from the next block"
+   },
+   "rule": "The chip's mailbox interrupt (EXTI15_10, priority 1) can preempt its mixer (TIM6, priority 3) in the middle of a block, so a post can change a voice or a channel part-way through it. The cart-engine runner (zero-time posts) and our synth mix every block whole, after every post that arrived before the block's instant (the hold-off, MCU interface v1.3 3.10.5). The synth comparisons compare against the runner strictly (0 differences); against a cart capture the difference stays inside the block a post lands in. The chip's after-mix re-check of a channel's start serial (R+0x16) therefore always passes on ours. Test build 5 (items 4 and 5 of its possible differences): the main-loop pass and its Boom Box feed ($1B90) run whole between two blocks. On the cart TIM6 can cut the chip's pass between two voices' feed words, so one feed can mix two blocks' levels (at most one bar step, for one update), and a feed can fall between the two halves of a 9494's music work; ours runs the pass between blocks and each frame's music work in one piece (core/song/README.md lists what is still not done the chip's way). Approved by B Jam 2026-10-26.",
+   "status": "approved by B Jam on 2026-10-21 (decision 3b). Where in a block a post lands on the cart is not known (the chip's real timing); estimated: a post's effect starts at most one block (3.33 ms) later on ours; test build 5's Boom Box sentence (rule): approved by B Jam on 2026-10-26"
+  },
+  {
+   "id": "B41",
+   "name": "Stage 5: DT curve indexes past the table clamped to its ends (decision 3c)",
+   "stage": "5+",
+   "against": "chip",
+   "scope": {
+    "audio": "Datenmeister (DT) output samples whose curve index BGM/2 + SFX lies outside -8,192..+8,191: the chip reads its own flash past its 16,384-entry curve (up to +-98 KB, partly past its image), ours reads the table's end entry (curve[-8,192] or curve[+8,191], the plateau codes 96 / 3,998)",
+    "synth": "CONFIG.DTWIN = 0 (MCU interface v1.3 3.10.2); with DTWIN = 1 (the chip's curve window placed in CRAM) this row does not apply"
+   },
+   "rule": "Applies only if the gameplay measurement (heavy SFX over music, DT) finds that the game never reaches past the table: then no game sample is affected and the clamp only guards fabricated states. If the game does reach past it, this row is NOT approved and B Jam chooses between this clamp and the chip's curve window in CRAM (CURVE_WIN, MCU interface v1.3 3.8; its last 8,868 bytes lie past the chip image and stay not known). YM-DAC mode never needs it: the chip clamps its YM index at +-0x1FFE itself.",
+   "status": "approved by B Jam on 2026-10-21 (decision 3c), on the condition that the gameplay measurement shows the game never reads past the table; the condition is met (2026-10-22): the gameplay measurement found the largest gameplay DT curve index at 3,838 of 8,191 over 168.7 M samples per channel. Music alone: 18 DT runner renders, 256,645,224 samples, codes 193..3,839, none at the plateau"
+  },
+  {
+   "id": "B42",
+   "name": "Stage 5: the DT sample-and-hold at the I2S crossing (decision 3d)",
+   "stage": "5+",
+   "against": "chip / a DT capture at the console's jack",
+   "scope": {
+    "audio": "DT output after the crossing: our 48 kHz samples are made on the console clock (decision 4: the chip's exact ratio to the frame) and the Pocket's audio output takes them at its own rate, holding the last one: one sample repeated or dropped every 1 / (48,000 x e) seconds, e = the PLL ratio error"
+   },
+   "rule": "The cart's DAC is clocked by the chip's own timer; ours crosses into the Pocket's I2S clock through the existing sample-and-hold. Compare the synth's dac_buf stream and its 48 kHz samples before the crossing strictly (the synth comparison); after it a ppm-level slip is allowed and counted, never hidden.",
+   "status": "approved by B Jam on 2026-10-21 (decision 3d, with decision 4: the DT timebase from the console clock). e is not known (ppm-level, estimated)"
+  },
+  {
+   "id": "B43",
+   "name": "Stage 5: the virtual Grand Stick III on port 1 and its Pocket menu (decision 6)",
+   "stage": "5+",
+   "against": "the game's own code with a real Grand Stick III (the device modelled until the probes) / B31 (stage 1's Scum! Arcade path)",
+   "scope": {
+    "menu": "Arcade Mode Off / On / Multiplayer / Stick Only (the stick with every switch off, like B Jam's own); Arcade Coins 1 Coin 1 Credit / 2 Coins 1 Credit / Inf. Credits (0012) (the game's deliberate red 0012 stop: halts by design, as on B Jam's stick); Attract Only (the DEMO switch); NO HIT FX not offered (nothing to see on a Pocket); Select = the coin, only while Arcade Mode is On or Multiplayer",
+    "controllers": "with the stick on, its EXT socket is Dock controller 3 (Multiplayer and 3-Player Mode) and there is no 4-Way Play; in a 2-player game controller 3 then also drives P1, as on the cart",
+    "timing": "the per-frame read length (attract-demo timing) while the stick's wire values (ID, status A / B at rest, timeout) are not known; the stick's idle timer is held while the Pocket menu is open (a menu pause in the middle of a read would make a phantom credit)",
+    "rom": "the Scum! Arcade / Arc3P words, the pad hook, the cave, the coin stub and the press latches are gone (the Scum! table 122 -> 32 words); Little-Man, Stage Select and the flip point stay (B31)"
+   },
+   "rule": "The game runs its own arcade code (the $B1FC0 / $B210C reader, $B5A32's switch handling, its coin and credit code) on the unpatched ROM; the switches come from the Pocket menu and are read at power-on or reset as the cart's; the coin is taken on the ACK bit's 0 -> 1 edge, so the first coin is swallowed by the game's own gate. Compare the game's state against our emulator model of the game's own reader with the device (records, types, every switch reaction incl. the red 0012 stop, the coins); against a real stick only after the cheap probes (decision 6c: the Boom Box badges with the stick in port 1, B + forward with a 3-button pad in EXT, a power-on attract video), the analyser only if they are inconclusive. Nothing MCU-visible (MCU interface v1.3 21.4).",
+   "status": "decided by B Jam on 2026-10-21 (decision 6 a-c, with 'Stick Only' and 'Inf. Credits (0012)' added to the menu). The device is modelled; the game's reactions are verified in the emulator model. Built with stage 5's first FPGA build (the RTL and its benches)"
+  },
+  {
+   "id": "B44",
+   "name": "Stage 5: the DT analogue stand-in (decision 5)",
+   "stage": "5+",
+   "against": "a DT capture at the console's jack / B Jam's ear (his listening session A on test build 5)",
+   "scope": {
+    "audio": "the DT output after the synth's dac_buf codes: the cart's 12-bit DAC and its analogue path into the console's mix (its level next to the YM path, the coupling high-pass, the polarity, any band-limit) are not reproduced; ours is the plain stand-in of MCU interface v1.3 3.10.1 DTOUT, written at every boot (board/pocket/s1_board.c): GAIN 1410 Q8.8 (x 5.51), INVERT 0, DCK 11 (a one-pole DC blocker, 48,000 / (2 pi 2^11) = 3.7 Hz), no filter",
+    "synth": "the codes before the stand-in are compared strictly (SG2: dac_buf 0 differences); the synth's possible one-trigger DAC shift (about 21 us, uncertain, not known) is counted in this row too"
+   },
+   "rule": "Decision 5, plain first: one gain for every Console setting, a DC blocker, the polarity; a filter only if B Jam's ear asks. The values are estimated, none from a capture: GAIN = the DT / YM-DAC balance of the cart-engine renders B Jam heard as right in both modes (the renders' DT wave level = the YM mode's channel-6 DAC level x 269/256, itself an inferred assumption), put on this core's YM-DAC scale (48 output units a DAC step, read in the RTL): 1,274-1,485 over 18 tracks (1.33 dB), 1,410 the upper of the two middle values (track 0F; the median, 1,402, is 0.05 dB lower); the DT raw-capture regression gave no stable balance and no stable sign, so INVERT is 0 by default and the polarity is not known (decision 5 wanted it from a capture; none can give it yet); DCK 11 against the renders' 5 Hz console high-pass. The GAIN assumes test build 5's core_top sums the synth's DT pair into the mix 1:1, as it sums the cart SFX pair (target/pocket/core_top.sv mix_l), not through the album's 294/256 CDDA multiplier (+1.2 dB). These are the starting values: B Jam's listening session A on test build 5 checks the DT / YM balance by ear against his cart (his rule: Datenmeister at the same volume as YM, just fuller; one balance for every Console setting); a change is a firmware swap on test build 5 (a new firmware file with another level).",
+   "status": "approved by B Jam on 2026-10-21 (his decision 5: the DT stand-in plain first, 'go with all 7 stage-5 recommendations'); this row added under it on 2026-10-24. The values are estimated, checked by ear in session A on test build 5; the row also goes on that build's plain-words list of accepted differences. Confirmed by ear on hardware 2026-10-26 (test build 5, the bitstream of fit seed 3; B Jam: 'audio works great both ym and dt options'); kept as it is: approved by B Jam on 2026-10-26, item 8 of that build's possible differences"
+  },
+  {
+   "id": "B45",
+   "name": "Stage 5: a few samples of the old mode at a YM / DT switch, and after a DT CONFIG",
+   "stage": "5+",
+   "against": "chip / cart runner (SG2, G4)",
+   "scope": {
+    "audio": "the DT output from an 88's arrival to its CONFIG write (DT -> YM: DT goes on; YM -> DT: 0 until the write, where the chip already plays its held dac_buf), and, after a DT CONFIG (DT -> DT or YM -> DT) that finds the DT DMA in the upper half, the first entries of block 0 that the DMA takes before ours is written (they play the previous dac_buf content)",
+    "synth": "dac_buf codes outside the runner's capture windows at a mode switch: takes of the old DT after the runner stopped and captures with no take, counted apart in the song-engine and synth comparisons"
+   },
+   "rule": "The chip mixes block 0 of half 0 at the next TIM6 instant after the 88 configuration, in zero time in the runner; ours mixes it after the 88's DONE (B2's hold-off) plus the block's write time, and the old mode's DT output goes on for the firmware's latency of the 88. Not 68000-visible. Every other code is compared strictly (the synth and song-engine comparisons); the old-mode span is counted, never hidden, and more than about 1 ms of it is reported for a decision.",
+   "status": "approved by B Jam on 2026-10-26, item 1 of test build 5's possible differences ('up to about 0.25 ms (a few samples) of the old mode can play in the new one'). Measured (DT -> DT at the 88's 0-0.31 ms latency: 0 stale entries at DMA positions <= 1,904, 1-19 at 1,911-1,919, the longest run 10 entries = 0.21 ms; at 0-1 ms latency up to 49, 0.85 ms); the m88 mode-switch scenarios 13-17 takes of the old DT and 2-11 captures with no take; in test build 5's song-engine comparison m88 12 + 6 / 6 + 9 DT codes, 0.13-0.25 ms: the 2 of its 175 runs that are not exact"
+  },
+  {
+   "id": "B46",
+   "name": "Stage 5: the Boom Box feed's last 8 words ($1C00-$1C0F) are 0",
+   "stage": "5+",
+   "against": "chip / cart runner",
+   "scope": {
+    "ramdp_words": "0x1C00-0x1C0F: words 56-63 of the 64-word Boom Box feed at $1B90 (the chip builds 56 words on its stack and copies 64, so these 8 hold what its stack held there; ours writes 0)"
+   },
+   "rule": "Words 0-55 of the feed are compared strictly (the music lockstep compares words 0-55); words 56-63 are not compared (core/song/song_sfx.c, the Boom Box feed). No reader of them is known.",
+   "status": "approved by B Jam on 2026-10-26, item 6 of test build 5's possible differences ('we know of nothing that shows them'). Found while building the song engine (its allow-list candidate 5)"
+  },
+  {
+   "id": "B47",
+   "name": "The chip's MegaWire status writes (A6 / A9 bodies, the TIM7 task, the init inside C6, job 6's bit-14 steps) removed by transforms until stage 3",
+   "stage": "1-2",
+   "against": "chip (the chip lockstep, tests/equiv/chiplock_s1.py and s1_scope.json)",
+   "scope": {
+    "regwrites": "the transforms 'T-S3 MegaWire A6 / A9' ($1FE6 bits 5 / 4 cleared by the A6 / A9 bodies), 'T-S3 MegaWire task' (the TIM7-rate task's status block, 81 bit 3), 'T-S3 MegaWire init' (the init's status writes inside the C6 job: bit 14, bits 5 / 4 / 0 / 1 / 2) and 'T-S3 MegaWire job 6 bit 14' (the job-step bit-14 stores of the jobs that end while the init's job 6 is still queued, all but the last)"
+   },
+   "rule": "The chip's no-module MegaWire code (its init, the TIM7 task, the A6 / A9 bodies) is stage 3. Until then the chip lockstep removes those register writes by the four transforms named and counts them per transform; the stored register words stay equal after every event, so no word the 68000 reads differs. Leaves when stage 3 brings in the MegaWire code.",
+   "status": "the plan's stage 3. Measured by the chip lockstep (2026-10-13, tests/equiv/README.md): task 122,940, init 72, A6 / A9 16, job 6 bit 14 12 over all runs, the stored words equal after every event. Added 2026-10-27 (stage 2's first commit): the transforms had no row (they were a proposal of the chip lockstep's notes)"
+  },
+  {
+   "id": "B48",
+   "name": "EC counts above $35 kept to $35 (test build 5's cap)",
+   "stage": "2+ (test build 5 had the same rule)",
+   "against": "chip",
+   "scope": {
+    "commands": "EC ($EC, arg0 0) with a count $36..$80"
+   },
+   "rule": "The chip's EC gate takes counts up to $80 (0x0801B162-0x0801B176), but its slot -> VRAM id table (0x08025DB8) has 56 entries: above $35 its aging skips every AE (no chain, 0x08017FE0-0x08017FEE) and a later shrink walks past the table into the DMA command words (0x08025DF0: ids up to $81) and past its 128-entry arrays into other RAM: a shrink from above $37 reads and zeroes RAM past id -> block and the countdowns, the first SFX channel's record (0x20012BD4) and 0x20012A6C, and a later claim writes a block number and $20 there (measured, the chip's EC worker in the emulator); those are live RAM bytes, not ROM bytes, so they cannot be read from the player's ROM (the way B Jam allowed on 2026-10-28). Counts $36 / $37 only store the count (the slot table's entries $36 / $37 are 0). Measured equal to the chip for every count 0..$35 (stage 2's unit lockstep: the aging at every count and all 2,916 EC pairs). Ours keeps such a count to $35, as test build 5's engine did (legacy/026 mame.c ppm_chip_ec_count). Unreachable: the game's EC post routine ($3106E, 24 call sites) posts arg0 0 and a count $01..$35, and every captured EC is $EC00 with arg0 0 and a count $01..$35.",
+   "status": "approved by B Jam on 2026-10-28: EC above $35 kept to $35, test build 5's cap; the cart would alias onto the first SFX channel's record; unreachable in play. Was: for B Jam's review (stage 2, 2026-10-27); his earlier \"copy the cart for EC $36-$80\" was withdrawn by this decision"
+  },
+  {
+   "id": "B49",
+   "name": "The MegaWire's network text, not built yet: the request line, the HTTP request and its length",
+   "stage": "3+",
+   "against": "chip (tests/equiv/mw_oracle.py, the cart-engine runner)",
+   "scope": {
+    "mw_drv_bytes": "DRV+0x10B6-0x10D9 (36 B: the request line 0x08020EFC writes around the server name at the MegaWire init); the HTTP request 0x08020F8C writes for a game packet in task state 3 step 1 (0x08021AC6) and for the MegaWire menu's sign-in message in task state 6 step 0 (0x08021EBC; the same buffer and length word): L bytes from DRV+0x865, where L is the chip's own 16-bit length word, L = 167 + 2n for an n-byte packet (n = 1-251, so 169-669 B, never past DRV+0xB01), plus the tail an earlier, longer request left in that buffer (the chip does not clear it between requests: at most DRV+0x865-0xB01); and that length word itself, DRV+0x107A-0x107B (2 B). Measured (mw_oracle.py's length sweep, the cart-engine runner): types 0x00 / 0x01 / 0x21 / 0x22 / 0x24 / 0x25 / 0x27 / 0x28 / 0x3F at n = 1-251, L = 167 + 2n every time; a 669-B request then a 247-B one with no re-init leaves 421 B of tail. The game's attract-mode packet (13 B) gives 193 B"
+   },
+   "rule": "The oracle masks only these bytes and counts every step on which they differ, with the byte extent (mw_oracle.py prints it): the request's mask follows the chip's own length word (the largest L since the chip's request buffer DRV+0x865-0x1064 was last all zero), so every chip byte past it is compared. The mask is one-sided: the port writes no byte in these ranges (it builds no network text), and a byte it wrote there is a difference; two planted controls check both edges (run_all: --plan sweep --plant 1 / 2). They are read only by the module's AT stack, which is not built (it needs a module), so no word the 68000 reads depends on them. The text is the cart's own: it is never typed into the tree (no game bytes ship); when the module path is built it is read from the player's ROM at run time and this row leaves (B51 then covers the name's bytes in it).",
+   "status": "approved by B Jam on 2026-10-28 (his decisions of 2026-10-27 and 2026-10-28), incl. the sign-in request's server name"
+  },
+  {
+   "id": "B50",
+   "name": "The MegaWire driver's two reply-buffer pointers hold offsets into our MegaWire RAM, not the chip's addresses",
+   "stage": "3+",
+   "against": "chip (tests/equiv/mw_oracle.py)",
+   "scope": {
+    "mw_drv_bytes": "DRV+0x106C-0x106F and DRV+0x1070-0x1073 (two u32 words)"
+   },
+   "rule": "The chip keeps two pointers into its reply buffer there (its own STM32 addresses, e.g. DRV+0x65 = 0x20010111); ours keep the same object's offset into mw_ram (MW_PTR_OF / MW_PTR, core/mw/mw.h), 32 bits on every target, the host harness included. The oracle masks the two words; the bytes they point to are compared. Only MCU code reads them; the 68000 cannot.",
+   "status": "approved by B Jam on 2026-10-28. Checked in core/mw: every read and write of the two words goes through MW_PTR / MW_PTR_OF; measured: the oracle's 0-differ runs compare everything they point to"
+  },
+  {
+   "id": "B51",
+   "name": "The MegaWire server name: ours (www.koalakoa.com) where the cart names its own server",
+   "stage": "3+",
+   "against": "chip (tests/equiv/mw_oracle.py, the cart-engine runner)",
+   "scope": {
+    "mw_drv_bytes": "DRV+0x1086-0x109E (chip RAM 0x20011132-0x2001114A): the server name the MegaWire init's 0x08020EFC stores; ours is 16 characters and a NUL, the cart's 25 characters (measured: 22 of these 25 bytes differ). Read by the module's AT stack only"
+   },
+   "rule": "Only these bytes. The MegaWire comparison's other two masks have their own rows: B49 (the network text not built) and B50 (the driver's two pointer words); every other MegaWire byte is compared strictly. When the request line (DRV+0x10B6) and the HTTP request (DRV+0x865) are built, this row covers the name's bytes in them and nothing else. The 12 bytes the song engine's note lookup reads past index 107 (core/song/song_tables.c song_note_tail) are not covered by this row: they are the cart chip's own, read from the player's ROM at the boot, and compared strictly (tests/equiv/eeplock.py).",
+   "status": "approved by B Jam on 2026-10-27; narrowed 2026-10-31 to the server name the MegaWire init stores (stricter: the note table's tail holds the chip's bytes)"
+  },
+  {
+   "id": "B52",
+   "name": "the anims-per-object read for an objID of 268 or more gives 0 (the chip reads its live RAM there); objIDs 256-267 as the chip",
+   "stage": "2+ (256-267 copied in stage 3)",
+   "against": "chip",
+   "scope": {
+    "commands": "AD ($AD, index 0..$3F) on a record with no restart pending (+$A = 0), a queued anim (nextAnim not 0 and not $FFFF) and an objID of 256 or more: the queue's anims check (0x080194EC-0x08019522)",
+    "record_words": "the record's anim (+0) after such an AD, the handle's queued frame and what is drawn from it"
+   },
+   "rule": "The chip's AD checks a queued anim against the object's anims count, the byte at H+$404 + objID (0x2000FF20: the 256-byte table C6's anim set-up fills), with the record's whole objID. For an objID of 256 or more that byte is the chip's own live RAM after the table (H+$504 the block directory's long, the load count, then up to 64 KB of other working RAM); when it is larger than the queued anim the chip takes the queue (record anim := the queued anim, the queued frame read at the objID's directory long), else it cancels. Until stage 3 ours (core/sprite spr_frame.c spr_frames) read 0 there and always cancelled (the record's anim unchanged, nextAnim := 0, no queued frame); what stage 3 does is below. The bytes are live RAM, not ROM bytes, so the player's ROM cannot supply them (the same kind as B48). The restart path masks the objID to 14 bits and refuses one at or past the object count before any table read; objIDs 241..255 read 0 on both sides (the table's bytes there are 0). Measured (the chip's AD in the emulator, its state after C6, every objID 256..$FFFF with nextAnim 1): it read past its table for all 65,280 and took the queue for 1,341 (it depends on what the RAM holds at that moment); with nextAnim 0 or $FFFF it reads no table byte, as ours. Unreachable in play: the game has 241 objects (0..240, the anim container's count), and at every one of the 1,148,167 ADs the cart chip ran in the chip lockstep's corpora (solo, duo and attract whole, stage 04 x 3, the synthetic list with the AF unit and the tail, first boot, 3-player Arcade; RELEASE and TEST), its record's objID was 256 or more 2,352 times, every time with bit 15 and the restart flag +$A set together (the restart path, which masks it first), and the queue check read the table past its end 0 times (2,914 queue checks inside the table, 21,274 $FFFF cancels). STAGE 3 (test build S3a; B Jam's decision of 2026-10-28: do what the chip does): core/sprite spr_frame.c spr_frames gives the chip's bytes for objIDs 256-267 from ours' own state, which spr.h keeps right after frames[] in the chip's order: H+$504 the directory as the chip's 16-bit flash view address (0x6C000000 + the ROM offset, 0x080196EA), H+$508 the directory long (0x080196EE), 0x20010028 the load count, 0x2001002A-2B (no writer: 0). From objID 268 on the chip reads other live state (0x2001002C, a byte its audio init and module start clear and its audio code keeps, then the rest of its RAM), which ours does not hold in the chip's layout: ours reads 0 there and never reads past its own state. Measured (stage 3, the unit lockstep on the chip's post-C6 state, objIDs 256..65535 x 8 queued anims, 515,910 ADs): 514,546 equal, 1,364 differ, all at objID 268 or above (the chip takes the queue there when its live byte is above the queued anim); 0 of the 96 cases at 256-267 differ (stage 2's engine: 32 did). Still unreachable in play.",
+   "status": "approved by B Jam on 2026-10-29: objIDs 268 and above read 0 where the chip reads its own live RAM; objIDs 256-267 as the chip from stage 3; unreachable in play. Was: decided by B Jam on 2026-10-28: do what the chip does, the remainder proposed for B Jam"
+  },
+  {
+   "id": "B53",
+   "name": "the zoom page $0200-$09FF: the chip's zoom from stage 3 (a change of reference from final 0.2.6), and F5 past the chip's zoom block",
+   "stage": "3+",
+   "against": "final026 (the chip strict)",
+   "scope": {
+    "ramdp_words": "cart RAM $0200-$09FF: against final 0.2.6 it may start to differ only at an F5 (the chip's integer rescale and copy-out) or a B6 (the chip restores the page job 8 saved; 0.2.6 never did, D26), counted until both sides agree again (tests/equiv/s1_equiv.py, chiplock_s1.py compare_ref); against the chip it is strict after every mailbox-B post (chiplock_s1.py 'zoom_chip') and after every call / post of tests/equiv/zoomlock.py",
+    "f5_past_the_block": "an F5 whose rows reach past the chip's zoom block (more than 4 KB past the start of the F4 source) or whose stamp writes reach more than 6 KB past the stamps' start: the chip reads / writes its sprite engine's working RAM there; ours reads 0 and leaves the write out"
+   },
+   "rule": "Stage 3 (test build S3a) makes the zoom work as the cart chip's (core/zoom; the chip's routines at the addresses given): F4's source in the chip's layout, job 8's save of RAMDP $0200-$09FF (0x08022CD0) and the stamps' set-up (0x08022D34), F5's integer rescale (0x08022D84) and its copy-out (0x08022D48), B6's restore (0x08022D04). The page then follows the chip, not 0.2.6 (whose float rescale and muted B6 were the old reference). The chip keeps its stamps, F4 source and save as one 6 KB block (0x200111EC-0x200129EB); ours keeps the stamps apart and maps any read past the source into the save and any write past the stamps into the source and the save, so everything inside the chip's block is exact. Past it the chip uses live sprite-engine RAM (its countdowns at 0x200129EC and what follows), which the ROM does not hold. Measured (tests/equiv/zoomlock.py, the s5release / s5test / stage-1 images, 2026-10-28): the game's 860 F5 posts in the four rig corpora (attract 541, solo 137, duo 137, 3-player Arcade 45; with their 29 F4 and 103 B6) read at most source byte 2,047 and write at most stamp byte 2,046, inside the source and the stamps; every post, and 11,654 random cases inside the chip's block, equal the chip byte for byte; of 7,662 random cases reaching past the block, 7,653 equal the chip inside the block and 9 differ there (a byte read past the block and then copied back into the block); ours never accesses memory outside its own.",
+   "status": "approved by B Jam on 2026-10-29: the part past the chip's block, where ours reads 0 / drops the write (the chip's own live working RAM, which the ROM does not hold); the page itself is the chip's (stage 3); unreachable in play. Was: proposed for B Jam (2026-10-28)"
+  },
+  {
+   "id": "B54",
+   "name": "an unpack job on a 0x82 stream: the chip swaps a count of bytes left over in a register; ours writes nothing",
+   "stage": "3+",
+   "against": "chip",
+   "scope": {
+    "commands": "DA02 / DA07 (job type 3) on a stream whose type byte is 0x82 (the DA gate takes 0x80-0x82); the F4 gate takes 0x80 / 0x81 only",
+    "sdram": "the workspace at the DA's destination after the job"
+   },
+   "rule": "The chip's job step calls its 0x82 routine (0x080251C0) with a length of 0, so it writes nothing, and keeps no length: its type-3 tail (0x0801A49C) then swaps the halfwords of as many bytes as the register r7 holds, which is the last decode's length or 0, plus one for every main-loop pass since (0x0801A3B0). Ours writes nothing and swaps nothing (stage 3, test build S3a: interim/s1/bodies_s1.c s5_unpack). Measured (2026-10-28): no stream the game names is 0x82 - every DA / F4 source of the four rig corpora (526 DA02, 168 DA07, 29 F4), the 53 BGM entries, the three set-up containers and the 12,326 sprite blocks are 0x80 / 0x81; so this path is not reached in play. The chip's count depends on its main loop's pass count, which ours (a different scheduler) does not have.",
+   "status": "approved by B Jam on 2026-10-29: ours writes nothing; unreachable in play. Was: proposed for B Jam (stage 3, 2026-10-28)"
+  },
+  {
+   "id": "B55",
+   "name": "the black screen after a Console Reset early in the boot: 120-126 frames here (presses at f234 / f240 after power-on), 392 on the cart (its press 3.9-4.0 s into the fake licence)",
+   "stage": "3+ (the Console Reset, test builds S3c / S3a)",
+   "against": "cart (a capture of a real cart)",
+   "scope": {
+    "video": "the number of black frames between a Console Reset pressed during the boot, before the NX terminal, and the NX terminal; this row covers nothing else: where the Reset locks and where it restarts stay the cart's (the plan's item S3-20)"
+   },
+   "rule": "Measured on the cart (B Jam's video capture F3): a Console Reset 3.9-4.0 s after the fake licence appeared (about 235 frames after it) cuts the picture to black in one frame, stays black 392 frames, then shows the NX terminal, 32.5 frames before a normal boot's. Measured here (the system co-simulation on test build S3c's RTL with the default console options; the S3c firmware and the S3a firmware before and after its word-wide swap give the same pictures frame for frame over f233-f460, where the runs of the firmware after the swap end): presses at f234 and f240 after power-on, about 202-208 frames after the fake licence fades in (f32): the picture freezes 1 frame, then 126 / 120 frames are black by the level rule (121 / 115 exactly black), and the NX terminal fades in from f357, 32 frames before the normal boot's (f389); after it (the press at f234; the S3c firmware and the S3a firmware before the swap, whose runs go to f680) the pictures differ from the normal boot's 32 frames later in f367-f484 and equal them from f485 to f680; the firmware after the swap was not run past f460, so f461-f680 is not measured on it. Not measured: a press at the cart's own point after the licence (about f266-f272 here), so the black length there is not known, and the frames after the terminal were not compared with the cart's capture. Why ours is shorter is our reading, not a measurement: the cart's chip is still in its start-up work when the press comes, while ours has the sound bank from the boot cache. The Reset mechanism itself stays the cart's (the plan's item S3-20: the warm vector page; where it locks and where it restarts follow the game's own guards); only the black length is not matched.",
+   "status": "approved by B Jam on 2026-10-29"
+  },
+  {
+   "id": "B56",
+   "name": "C6's anim container sits at workspace offset 0x11800, where the cart chip decodes it at its SDRAM's start",
+   "stage": "3+",
+   "against": "chip",
+   "scope": {
+    "sdram": "where the anim container (C6's long 5, 512 KB swapped) lies in the workspace: ours from 0x11800, the chip's from offset 0 of its SDRAM; its bytes, the anims table and the block directory are the chip's (tests/equiv/c6sprite.py)"
+   },
+   "rule": "Stage 3 (test build S3a) makes C6's sprite part the chip's: the anims-per-object table, the block directory and the container's 518,174 bytes equal the chip's after C6 (measured, tests/equiv/c6sprite.py). The place is ours: the container stays where 0.2.6's set-up put it (interim/s1/bodies_s1.c C6_ANIM_WS), so the sprite engine and the stream window keep the workspace map test build 5 was built and measured on; the 68000 reads the workspace only through the window, at the offsets the game's own posts name. Not a difference: the decode's length (the chip's call passes 0x80000 to its 0x80 routine, which never reads it: both decode the whole stream, then the same 0x19 test).",
+   "status": "approved by B Jam on 2026-10-30"
+  },
+  {
+   "id": "B57",
+   "name": "an F4 whose stream decodes past the cart chip's zoom block: the chip writes on into its own working RAM; ours stops at the block's end",
+   "stage": "3+",
+   "against": "chip",
+   "scope": {
+    "commands": "F4 ($F4, the argument flag set) on a 0x80 / 0x81 stream (the gate takes both) that decodes to more than 4 KB: the F4 source and the save (core/zoom zoom_ss), the chip's 0x200119EC-0x200129EB",
+    "chip_ram": "what the chip's decode writes past 0x200129EB (its sprite engine's working RAM)"
+   },
+   "rule": "The chip's F4 job (type 4) decodes the stream into its F4 source at 0x200119EC with no bound, so a stream longer than the 4 KB to its zoom block's end goes on over its own live RAM (its sprite engine's, then the rest). Inside the block ours writes the chip's bytes (core/zoom zoom_f4_decode: decoders that work as the chip's, stopped at the block's end); past it ours writes nothing, where before stage 3's sweep of every command it wrote over its own working RAM and could fault (measured, tests/equiv/gatelock.py: an F4 on a sprite stream faulted the image). Live RAM, not ROM bytes: the player's ROM cannot supply them (the kind of B48 / B52 / B53). Measured: every F4 the game posts in the four rig corpora (29 posts, 4 sources, all 0x80) decodes to exactly 2,048 B, inside the block; so the stop is never reached in play.",
+   "status": "approved by B Jam on 2026-10-30"
+  },
+  {
+   "id": "B58",
+   "name": "a sprite DMA list the 68000 never clears: past the register page $1FE0 the cart chip writes its descriptors on through its FPGA window; ours stores none there",
+   "stage": "3+ (the stage-5 images)",
+   "against": "chip",
+   "scope": {
+    "commands": "AF (the frame end's first and second DMA descriptor) and AD (the composer's block-load descriptors) when the descriptor number $1F16 is 190 or more, so that its 16 bytes would not fit below $1FE0",
+    "chip_ram": "whatever the chip's stores to 0x68060000 + 0x1400 + 16 n (n >= 190) reach through its FPGA window"
+   },
+   "rule": "The chip lists each DMA descriptor at cart RAM $1400 + 16 n, n = $1F16, and the game clears $1F10 / $1F16 after its VBlank DMA, so a frame lists at most 17 (the composer's 15 loads, AF's two; verified). A list nobody clears grows on: from n = 177 the descriptors cover $1F10-$1F1F themselves (on the chip and here alike, so $1F16 takes a descriptor word), and from n = 190 they would reach the register page $1FE0-$1FFF and past cart RAM, which the chip writes through its FPGA window (0x68060000 + the offset; what the cart's FPGA does with such writes is not known) and where ours faulted on an unmapped store (measured, tests/equiv/gatelock.py with --no-clear before this row: post-C6 form 771, AF00, in spr_af_close). Ours now stores no descriptor that does not fit below $1FE0 (core/sprite SPR_DMA_FITS); the counts $1F10 / $1F16, the load list and the stash stay the chip's. The stage-1 images, which no hardware test build carries, are unchanged. Unreachable in play: the four test corpora's runs never come near (no fault, measured) and the game clears the list every frame.",
+   "status": "approved by B Jam on 2026-10-30"
+  },
+  {
+   "id": "B59",
+   "name": "AA58, the MegaWire menu's restart: the cart chip restarts its MegaWire code inside the command and saves the MegaWire record to the EEPROM's slot 9; ours restarts it at the MegaWire task's next run and saves no record",
+   "stage": "3+ (the images that run our MegaWire port from the SRAM image)",
+   "against": "chip",
+   "scope": {
+    "commands": "AA58 on mailbox B, the only AA form the chip accepts (no argument flag, low byte 0x58), and the forms whose state follows it",
+    "save": "the EEPROM's slot 9, its two 96-byte copies at 0xA00 and 0xA80: the record the chip's save (0x080215C0) writes there and ours does not",
+    "timing": "when the MegaWire reset (0x0802171C) and start-up (0x080218FC) run: inside the command on the chip, at the MegaWire task's next run on ours, up to about 0.1 s later"
+   },
+   "rule": "The cart chip's AA58 body (0x0801CCD0) calls the MegaWire reset 0x0802171C, which first saves the MegaWire record to the EEPROM's slot 9 (0x080215C0), then the MegaWire start-up 0x080218FC, both inside its mailbox interrupt. Ours accepts AA58 with the chip's gate and runs the reset and the start-up at the MegaWire task's next run, in the thread, because the start-up writes about 12.8 KB of SRAM, far more than a mailbox reply may take; the record save is not built. Measured on 2026-10-31 with tests/equiv/gatelock.py (aligned sampling) on the images with the MegaWire code merged: before and after C6 the AA58 form differs from the chip only in the save bytes of slot 9 that the chip writes (82 bytes); the forms after it are equal. The game posts AA58 only from its MegaWire menu, which needs a module plugged into the cart; the Pocket never has one, so the game never posts it there.",
+   "status": "approved by B Jam on 2026-10-31"
+  }
+ ],
+ "not_allowed_examples": [
+  "any RAMDP word outside the scopes above, any FPGAIO slot other than time in board mode",
+  "a different audio call, argument or $1E10-$1E15 at the call",
+  "different SDRAM contents in any granule either side changed (68000 stream bytes)",
+  "BRAM 0x000-0x8FF (saves) between the same variants",
+  "a WRAM access past 48 KB or any unmapped access in the RV32 runner (fault)",
+  "any SRAM / XLINK access by a 0.2.6-equivalent build with the default options"
+ ],
+ "review": "2026-10-13 (the stage-1 allow-list review): rows whose status starts with 'proposed' wait for B Jam's yes before his hardware test; every other row is approved or a locked decision. How a status is known: see \"labels\". 2026-10-26 (B Jam's decisions of that day): no row's status starts with 'proposed'. 2026-10-28: B49 / B50 approved; again no row's status starts with 'proposed'. 2026-10-30 (stage 3, test build S3a): B56 and B57 approved by B Jam; B12's 0x1C00-0x1C0F scope text corrected (what the chip writes there and when); B58 approved by B Jam. 2026-10-31: with the MegaWire port merged, B51 covers only the server name the MegaWire init stores; the 12 bytes after the note table are the cart chip's own, read from the player's ROM at the boot. 2026-10-31 (B Jam): B59 approved, AA58's MegaWire restart and record save (the MegaWire menu, which needs a module)."
+}

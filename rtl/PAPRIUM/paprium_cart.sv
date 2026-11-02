@@ -1,5 +1,17 @@
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
+// pocket: words used in the pocket comments of this file. "new core" = the first step of the 0.3.0 work, which built
+// the new cart register file and MCU interface v1.0 (the firmware's docs/STAGE1_PLAN.md); "sprite decoder" = the cart
+// FPGA's sprite decoder (paprium_hwdec), added in that step; "synth step" = the 0.3.0 step that moved the cart chip's
+// audio work into logic (paprium_synth). "Test build N" = a 0.3.0 hardware test build that B Jam ran on the Pocket:
+// 4 = the MCU fast path, 4a = the first sound-cache build, 5 = the synth build, S3c = a test build of the MegaWire
+// step. "xram step 1 / 2" = the two steps of our Pocket SRAM / CRAM work (paprium_xlink.sv). FPGAIO = the MCU's
+// register block in the FPGA (fpgio.sv); RAMDP = the cart RAM that both the 68000 and the MCU see; MCU_INTERFACE /
+// MCU interface vN = the firmware's docs/MCU_INTERFACE.md.
 module paprium_cart
-#(parameter SFX = 1'b1, parameter CMDLOG = 1'b0)
+#(parameter SFX = 1'b1, parameter CMDLOG = 1'b0,
+  parameter SYNTH = 1'b0,          // pocket: synth step - region 0x06 is the synth (paprium_synth, FEAT.SYNTH) instead of audio_sfx
+  parameter integer CLK_HZ = 0,   // pocket: new core - clk's frequency in Hz, from core_top
+  parameter [31:0] FEAT = 32'd0)  // pocket: synth step (MCU interface v1.3) - FPGAIO FEAT (slot 23), from core_top
 (
 	input             clk,
 	input             reset,
@@ -19,6 +31,10 @@ module paprium_cart
 	output            stream_cs,
 	output     [24:1] stream_addr,
 	output            md_reset,
+	output            mini_view,   // pocket: new core - the 84 view switch (paprium_regfile), this clock; cartridge.sv synchronises it
+	output            opt_at_reset_en,   // new core: fpgio CTRL bit 5 (this clock), the dormant option latch
+	input             console_reset,     // pocket: test build S3c - core_top's Console Reset, a one-clock pulse: sets CAUSE.V
+	output            cause_v,           // pocket: test build S3c - CAUSE.V pending (this clock): core_top holds the 68000 meanwhile
 
 	// MD+ adapter: Paprium MCU BGM requests -> core's native MD+ engine
 	output            mdp_track_request,
@@ -36,6 +52,9 @@ module paprium_cart
 	// Paprium MCU-driven cart SFX PCM engine
 	output signed [15:0] sfx_l,
 	output signed [15:0] sfx_r,
+	// pocket: new core, the Pocket-menu music mute - FPGAIO CTRL bit 4 (MENU_MUTE_EN), this clock; core_top pauses the
+	// album and zeroes sfx_l/sfx_r while the Pocket menu is open and this bit is set
+	output            menu_mute_en,
 
 	// MCU -> RAMDP debug taps
 	output            dbg_ramdp_write,
@@ -61,7 +80,7 @@ module paprium_cart
 	output            mem_req,
 	input             mem_ack,
 
-	// pocket: xram stage 1 - the MCU's windows on the Pocket SRAM (0x08), CRAM (0x09) and
+	// pocket: xram step 1 - the MCU's windows on the Pocket SRAM (0x08), CRAM (0x09) and
 	// their register block (0x0A). Served in core_top on this clock (no crossing); the ack
 	// is held until the request drops, like paprium_mcu_mem's
 	output            xb_req,
@@ -73,12 +92,19 @@ module paprium_cart
 	input      [31:0] xb_rdata,
 	input             xb_ack,
 
-	// pocket: 0.2.6 - OSD options for the firmware: {MegaWire, $1FE4 bit 10, 9, 8, 6}
-	input       [4:0] mcu_opts,
+	// pocket: 0.2.6 - OSD options for the firmware: {MegaWire, $1FE4 bit 10, 9, 8, 6}; new core:
+	// {PAL build, Console region is Japan, Pocket menu open, MegaWire, $1FE4 bit 10, 9, 8, 6}
+	input       [7:0] mcu_opts,
 
-	// pocket: xram stage 2 - option-D status (paprium_xlink LSTAT[7:0] less 'armed'); read back
+	// pocket: xram step 2 - option-D status (paprium_xlink LSTAT[7:0] less 'armed'); read back
 	// with the mailbox interrupt latch in the FPGAIO ctrl word [15:8]
 	input       [6:0] link_status,
+	// pocket: new core - bit 0 of XLINK's synchronised buddy post count (posts_s[0], this clock): every
+	// change is one post, FPGAIO CAUSE.S
+	input             link_post,
+	// pocket: new core (MCU interface v1.1) - core_top's paprium_vs_tap, this clock: flips once per VDP vertical sync,
+	// FPGAIO VSCNT (slot 16)
+	input             vs_tog,
 
 	// pocket: the SFX echo line's CRAM port (paprium_cram port E in core_top, this clock)
 	input             echo_ready,
@@ -88,7 +114,26 @@ module paprium_cart
 	output            echo_rd,
 	output     [12:0] echo_rslot,
 	input             echo_rd_done,
-	input      [31:0] echo_rdata
+	input      [31:0] echo_rdata,
+
+	// pocket: synth step (SYNTH) - the synth's CRAM clients on paprium_cram ports C and E (core_top, this clock); 0 /
+	// unused without it
+	output            syn_c_rd,
+	output     [20:0] syn_c_raddr,
+	input             syn_c_rd_done,
+	input      [15:0] syn_c_rdata,
+	output            syn_e_wr,
+	output     [21:0] syn_e_waddr,
+	output            syn_e_wpair,
+	output     [31:0] syn_e_wdata,
+	output            syn_e_rd,
+	output     [21:0] syn_e_raddr,
+	output            syn_e_rpair,
+	input             syn_e_rd_done,
+	input      [31:0] syn_e_rdata,
+	input             syn_e_wbusy,
+	output            fw_go,         // Fafrium: the boot stub's GO (mcu_core, a power-on flag) -> core_top
+	input             fw_done        // Fafrium: core_top's power-on flag (the cart reset after GO seen): boot view off
 );
 
 	McuBus mcu;
@@ -114,7 +159,8 @@ module paprium_cart
 	// (The MegaCD core used cpu.addr[23:13]==3, but there cpu.addr was a WORD address;
 	// porting that expression verbatim wrongly selected byte 0x6000-0x7FFF, redirecting
 	// real flash reads to the empty workspace -> garbage/crash once flash is touched.)
-	assign stream_cs = enable & cart_cs & cart_oe & sdram_en &
+	// pocket: new core - the window follows the register file ($1FE8 / $1FEE: window_en & ~mini_view), not ctrl[2]
+	assign stream_cs = enable & cart_cs & cart_oe & reg_stream_win &
 	                   (cpu.addr[23:14] == 10'd3);
 
 	// Advance the stream pointer once per DELIVERED word, not per raw bus strobe.
@@ -126,6 +172,9 @@ module paprium_cart
 	// sdram_io.sv, which increments on a registered read-completion.
 	reg [20:0] stream_ptr;
 	reg        stream_ack_d = 0;
+	wire       fpgio_sptr_wr;   // pocket: new core - FPGAIO slot 2 written (first bus clock only)
+	wire       dec_sptr_load;   // pocket: sprite decoder - paprium_hwdec's START: the window points at the decoder's base
+	wire [20:0] dec_sptr_val;
 	always @(posedge clk) begin
 		stream_ack_d <= stream_read_ack_toggle;
 
@@ -133,42 +182,79 @@ module paprium_cart
 			stream_ptr <= 0;
 			stream_ack_d <= 0;
 		end
-		else if(mcu.ce && (mcu.we != 0) && mcu.map.fpgio_sptr)
+		else if(fpgio_sptr_wr)   // pocket: new core - FPGAIO slot 2, once per store (the slot acks in 2 clocks)
 			stream_ptr <= mcu.dato[20:0];
+		else if(dec_sptr_load)   // pocket: sprite decoder - a firmware SPTR write wins a same-clock decoder load
+			stream_ptr <= dec_sptr_val;
 		else if(stream_read_ack_toggle != stream_ack_d)
 			stream_ptr <= stream_ptr + 2'd2;
 	end
 
 	assign stream_addr = 24'h400000 + {{4{1'b0}}, stream_ptr[20:1]};
+	wire word_delivered = stream_read_ack_toggle != stream_ack_d;   // pocket: new core - the pointer's step, for remaining
 
 	wire [31:0] mcu_dati_fpgio;
 	wire [31:0] mcu_dati_ramdp;
 	wire [31:0] mcu_dati_mem;
-	wire [31:0] mcu_dati_mdp;
 	wire [31:0] mcu_dati_sfx;
 	wire [31:0] mcu_dati_bram;
 	wire [15:0] cpu_dati_ramdp;
 	wire mcu_ack_mem;
 	wire mcu_ack_bram;
-	wire sdram_en;
+	wire mcu_ack_ramdp;   // pocket: test build 4 - RAMDP's registered ack (was the constant 1)
+	// pocket: new core - FPGAIO v1.0: registered ack, the three IRQ lines, the WRAM lock mask. ctrl[2] (0.2.6's
+	// sdram_en) no longer opens the window (the register file's window does), so its wire is gone
+	wire mcu_ack_fpgio;
+	wire irq_ext, irq_tmr, irq_sw;
+	wire [20:0] wlock;
+	// pocket: new core - the cart register file (paprium_regfile)
+	wire [31:0] mcu_dati_regs;
+	wire        mcu_ack_regs;
+	wire        mcu_ack_sfx;     // pocket: synth step - the synth's registered ack (SYNTH); 1 (at once) for the interim FIFOs
+	wire        syn_post_blk;    // pocket: synth step - the synth's BUSY fell (FPGAIO CAUSE.BLK); 0 without it
+	wire [15:0] reg_cpu_dati;
+	wire        reg_cpu_page;
+	wire        reg_stream_win;
+	wire        cpu_we_strobe;
+	wire        reg_post_a;          // a 68000 write to $1FEC: mailbox A (FPGAIO CAUSE.A)
+	wire        reg_post_b;          // a 68000 write to $1FEA: mailbox B (FPGAIO CAUSE.B, STAMP_B)
+	wire [31:0] reg_stream_status;   // {valid, 10'd0, remaining}: the STREAM_GO read-back (FPGAIO slot 7)
+	// pocket: sprite decoder - the cart FPGA's decoder (paprium_hwdec)
+	wire        dec_f2, dec_f4, dec_f6;
+	wire [15:0] dec_f2_v, dec_f4_v, dec_f6_v;
+	wire        dec_go;
+	wire [20:0] dec_go_len;
+	wire        fio_dec_wr;
+	wire  [2:0] fio_dec_wslot, fio_dec_rslot;
+	wire [31:0] fio_dec_rdata;
+	wire        p2d_valid, p2d_we, p2d_take, p2d_flush, p2d_rd_done, p2d_wr_done, p2d_busy;
+	wire  [1:0] p2d_lanes;
+	wire [24:1] p2d_addr;
+	wire [15:0] p2d_wdata, p2d_rdata;
 
 	wire [31:0] mcu_dati =
 		mcu.map.fpgio ? mcu_dati_fpgio :
 		mcu.map.ramdp ? mcu_dati_ramdp :
+		mcu.map.regs  ? mcu_dati_regs :   // pocket: new core
 		(mcu.map.flash | mcu.map.sdram) ? mcu_dati_mem :
 		mcu.map.bram  ? mcu_dati_bram :
-		mcu.map.mdp   ? mcu_dati_mdp :
+		// pocket: synth step (test build 5) - region 0x07 (the MD+ block) is gone: unassigned, it reads 0xFFFF_FFFF (FEAT.MDP
+		// = 0)
 		mcu.map.sfx   ? mcu_dati_sfx :
-		(mcu.map.xram | mcu.map.xcram | mcu.map.xlink) ? xb_rdata :   // pocket: xram stage 1
+		(mcu.map.xram | mcu.map.xcram | mcu.map.xlink) ? xb_rdata :   // pocket: xram step 1
 		32'hffffffff;
 
 	wire mcu_ack =
+		mcu.map.fpgio                   ? mcu_ack_fpgio :   // pocket: new core - registered ack
+		mcu.map.ramdp                   ? mcu_ack_ramdp :   // pocket: test build 4 - registered ack (ramdp_io)
 		(mcu.map.flash | mcu.map.sdram) ? mcu_ack_mem :
 		mcu.map.bram                    ? mcu_ack_bram :
-		(mcu.map.xram | mcu.map.xcram | mcu.map.xlink) ? xb_ack :   // pocket: xram stage 1
+		mcu.map.regs                    ? mcu_ack_regs :   // pocket: new core - registered ack
+		mcu.map.sfx                     ? mcu_ack_sfx :    // pocket: synth step - the synth's registered ack (1 without it)
+		(mcu.map.xram | mcu.map.xcram | mcu.map.xlink) ? xb_ack :   // pocket: xram step 1
 		1'b1;
 
-	// pocket: xram stage 1
+	// pocket: xram step 1
 	assign xb_req    = mcu.ce & (mcu.map.xram | mcu.map.xcram | mcu.map.xlink);
 	assign xb_region = mcu.map.xcram ? 2'd1 : mcu.map.xlink ? 2'd2 : 2'd0;
 	assign xb_addr   = mcu.addr[23:0];
@@ -177,65 +263,70 @@ module paprium_cart
 	assign xb_wdata  = mcu.dato;
 	// pocket-end
 
-	wire [15:0] wram_dato;
-	wire [15:0] wram_dati;
-	wire [18:0] wram_addr;
-	wire [1:0] wram_we;
-	MemBus wram;
+	// pocket: test build 4 - the WRAM (paprium_wram) is inside mcu_core now, tightly coupled to the NEORV32
 
-	assign wram_dati = wram.dati;
-	assign wram_addr = wram.addr[18:0];
-	assign wram_we = wram.we;
+	// pocket: new core - the mailbox posts, FPGAIO CAUSE.B and CAUSE.A. xram step 2's mailbox latch (mbx_irq)
+	// moved into fpgio as CAUSE.B with the same set term: ramdp_io's filtered 68000 write pulse at $1FEA. Mailbox A
+	// copies it at $1FEC. The integration takes both from the cart register file (reg_post_b / reg_post_a): there
+	// they are cpu_we_ck & (either strobe) & the address, the same pulse as cpu_wr_pulse & the address
+	wire cpu_wr_pulse;
 
-	// pocket: xram stage 2 - interrupt on the 68000's mailbox post (gate_report item 10). Set by
-	// ramdp_io's write pulse to RAMDP $1FEA (reg_cmd), cleared by an MCU write of bit 0 = 1 to
-	// FPGAIO slot 6 (0x01000018; slot 5 is a diagnostic build's stream_cnt). A level into the
-	// NEORV32's mext_irq_i: 1.4.8.1 buffers it only while MEIE is set, and the shipping firmware
-	// never sets MEIE, so it is unaffected. A set and a clear in the same clock: the set wins.
-	reg  mbx_irq = 1'b0;   // set and cleared below, after cpu_wr_pulse is declared
-
-	mcu_core mcu_inst
+	mcu_core #(.CLK_HZ(CLK_HZ), .IROM_KB({24'd0, FEAT[23:16]})) mcu_inst   // pocket: synth step - the IROM size FEAT reports (test build 5: 88)
 	(
 		.clk(clk),
 		.rst(reset | ~enable),
 		.mcu(mcu),
 		.mcu_dati(mcu_dati),
 		.mcu_ack(mcu_ack),
-		.irq_ext(mbx_irq),
-		.wram(wram),
-		.wram_dato(wram_dato),
+		.irq_ext(irq_ext),     // pocket: new core - FPGAIO CAUSE OR
+		.irq_tmr(irq_tmr),     // pocket: new core - FPGAIO timer level
+		.irq_sw(irq_sw),       // pocket: new core - FPGAIO MSIP
+		.wlock(wlock),         // pocket: new core - FPGAIO WLOCK
 		.gpio_o(),
 		// pocket: 0.2.6 - GPIO_INPUT ($FFFFFF80): [18:16] the $1FE6 MegaWire status (7 = plugged
 		// and signed in, 0 = none), [10:8] and [6] the console's $1FE4 model bits. ppm_reset copies
 		// the low half into $1FE4 (with busy) and the high half into $1FE6.
-		.gpio_i({13'd0, {3{mcu_opts[4]}}, 5'd0, mcu_opts[3:1], 1'b0, mcu_opts[0], 6'd0}),
-		.uart_tx(),
-		.uart_rx(1'b1),
+		// pocket: new core (MCU_INTERFACE v1.0 section 5) - [24] MENU (the Pocket menu is open), [25] JAP
+		// (the Console region is Japan), [26] PAL (a PAL build); live, no latch
+		.gpio_i({5'd0, mcu_opts[7:5], 5'd0, {3{mcu_opts[4]}}, 5'd0, mcu_opts[3:1], 1'b0, mcu_opts[0], 6'd0}),
 		.debug_bus_ack(),
 		.debug_bus_addr(),
 		.debug_bus_wdata(),
 		.debug_bus_we(),
-		.debug_bus_target()
+		.debug_bus_target(),
+		.fw_go(fw_go)         // Fafrium
 	);
 
-	paprium_wram wram_inst
-	(
-		.clk(clk),
-		.addr(wram_addr[14:1]),
-		.dati(wram_dati),
-		.we(wram_we),
-		.dato(wram_dato)
-	);
-
-	fpgio fpgio_inst
+	fpgio #(.FEAT(FEAT)) fpgio_inst   // pocket: new core - FPGAIO v1.0; synth step - v1.3 (STAMP_A, FEAT, CAUSE.BLK)
 	(
 		.mcu(mcu),
 		.md_srst(reset),
-		.link_status({mbx_irq, link_status}),
+		.link_status(link_status),
+		.post_b(reg_post_b),
+		.post_a(reg_post_a),
+		.post_s(link_post),
+		.post_v(console_reset),   // pocket: test build S3c - console reset (EXTI 13): core_top's Console Reset
+		.post_blk(syn_post_blk),  // pocket: synth step (v1.3) - CAUSE.BLK: the synth's BUSY fall (0 without the synth, FEAT.SYNTH 0)
+		.vs_tog(vs_tog),          // pocket: new core (v1.1) - VSCNT
+		.sptr(stream_ptr),
+		.stream_status(reg_stream_status),   // pocket: new core - the register file's GO read-back
+		.dec_rdata(fio_dec_rdata),           // pocket: sprite decoder - v1.2 slots 17-22
 		.mcu_dati(mcu_dati_fpgio),
+		.mcu_ack(mcu_ack_fpgio),
+		.sptr_wr(fpgio_sptr_wr),
+		.dec_wr(fio_dec_wr),
+		.dec_wslot(fio_dec_wslot),
+		.dec_rslot(fio_dec_rslot),
 		.md_rst(md_reset),
 		.exit(),
-		.sdram_en(sdram_en),
+		.sdram_en(),              // pocket: new core - ctrl[2] no longer opens the window
+		.menu_mute_en(menu_mute_en),   // pocket: new core - the Pocket-menu music mute, CTRL bit 4, out to core_top
+		.opt_at_reset_en(opt_at_reset_en),   // pocket: new core - CTRL bit 5 (the dormant option latch)
+		.irq_ext(irq_ext),
+		.cause_v(cause_v),        // pocket: test build S3c
+		.irq_tmr(irq_tmr),
+		.irq_sw(irq_sw),
+		.wlock(wlock),
 		.debug_ctrl_write(),
 		.debug_ctrl_value()
 	);
@@ -245,26 +336,92 @@ module paprium_cart
 		.mcu(mcu),
 		.cpu(cpu),
 		.mcu_dati(mcu_dati_ramdp),
+		.mcu_ack(mcu_ack_ramdp),   // pocket: test build 4
 		.cpu_dati(cpu_dati_ramdp),
 		.debug_ramdp_write(dbg_ramdp_write),
 		.debug_ramdp_vector_write(),
 		.debug_ramdp_addr(dbg_ramdp_addr),
 		.debug_ramdp_data(dbg_ramdp_data),
 		.debug_cpu_we_act(),
-		.debug_cpu_write(cpu_wr_pulse)
+		.debug_cpu_write(cpu_wr_pulse),
+		.reg_cpu_dati(reg_cpu_dati),
+		.reg_cpu_page(reg_cpu_page),
+		.cpu_we_strobe(cpu_we_strobe)
+	);
+
+	// pocket: new core - the cart register file $1FE0-$1FFF: storage, both views, the busy bit, the window and
+	// the 84 view switch (the firmware's docs/CART_FPGA_SPEC.md sections 3-7)
+	paprium_regfile regfile_inst
+	(
+		.clk(clk),
+		.reset(reset | ~enable),
+		.mcu(mcu),
+		.cpu(cpu),
+		.cpu_we_ck(cpu_we_strobe),
+		.model(mcu_opts[3:0]),
+		.word_delivered(word_delivered),
+		.dec_go(dec_go),                 // pocket: sprite decoder
+		.dec_go_len(dec_go_len),
+		.mcu_dati(mcu_dati_regs),
+		.mcu_ack(mcu_ack_regs),
+		.cpu_dati(reg_cpu_dati),
+		.cpu_page(reg_cpu_page),
+		.stream_win(reg_stream_win),
+		.window_en(),
+		.mini_view(mini_view),
+		.busy(),
+		.stream_status(reg_stream_status),
+		.post_a(reg_post_a),
+		.post_b(reg_post_b),
+		.dec_f2(dec_f2),                 // pocket: sprite decoder
+		.dec_f4(dec_f4),
+		.dec_f6(dec_f6),
+		.dec_f2_v(dec_f2_v),
+		.dec_f4_v(dec_f4_v),
+		.dec_f6_v(dec_f6_v)
+	);
+
+	// pocket: sprite decoder - the cart FPGA's sprite decoder and load-list queue: the chip's +12 / +14 / +16
+	// writes queue a frame's blocks, a START decodes them from the ROM image into the workspace at DEC_BASE (where
+	// 0.2.6's firmware decoder put them) through port 2, and its GO makes the stream valid. The window is unchanged
+	paprium_hwdec hwdec_inst
+	(
+		.clk(clk),
+		.reset(reset | ~enable),
+		.fr_f2(dec_f2),
+		.fr_f4(dec_f4),
+		.fr_f6(dec_f6),
+		.fr_f2_v(dec_f2_v),
+		.fr_f4_v(dec_f4_v),
+		.fr_f6_v(dec_f6_v),
+		.fio_wr(fio_dec_wr),
+		.fio_wslot(fio_dec_wslot),
+		.fio_wdata(mcu.dato),
+		.fio_rslot(fio_dec_rslot),
+		.fio_rdata(fio_dec_rdata),
+		.sptr(stream_ptr),
+		.word_delivered(word_delivered),
+		.fw_sptr_wr(fpgio_sptr_wr),
+		.sptr_load(dec_sptr_load),
+		.sptr_val(dec_sptr_val),
+		.go(dec_go),
+		.go_len(dec_go_len),
+		.p2_valid(p2d_valid),
+		.p2_we(p2d_we),
+		.p2_lanes(p2d_lanes),
+		.p2_addr(p2d_addr),
+		.p2_wdata(p2d_wdata),
+		.p2_take(p2d_take),
+		.p2_flush(p2d_flush),
+		.p2_rd_done(p2d_rd_done),
+		.p2_rdata(p2d_rdata),
+		.p2_wr_done(p2d_wr_done),
+		.p2_busy(p2d_busy)
 	);
 
 	// paprium: snoop the 68k's writes to the command mailbox. CMDLOG is a
 	// localparam at the top level, so this whole block folds away in shipping.
-	wire cpu_wr_pulse;
-
-	// pocket: xram stage 2 - the mailbox interrupt latch (see mbx_irq above)
-	wire mbx_irq_clr = mcu.ce & mcu.map.fpgio & (mcu.addr[5:2] == 4'd6) & mcu.we[0] & mcu.dato[0];
-	always @(posedge clk) begin
-		if (reset | ~enable) mbx_irq <= 1'b0;
-		else if (cpu_wr_pulse & (cpu.addr[12:1] == 12'hFF5)) mbx_irq <= 1'b1;
-		else if (mbx_irq_clr) mbx_irq <= 1'b0;
-	end
+	// (cpu_wr_pulse is declared above the mcu_core instance. xram step 2's mbx_irq latch is FPGAIO CAUSE.B now.)
 
 	// Channel-7 taps from audio_sfx, declared here because the logger below is
 	// elaborated before the sfx instance that drives them.
@@ -299,6 +456,7 @@ module paprium_cart
 	(
 		.clk(clk),
 		.reset(reset | ~enable),
+		.boot(~fw_done),                 // Fafrium
 		.mcu(mcu),
 		.mcu_ack(mcu_ack_mem),
 		.mcu_dati(mcu_dati_mem),
@@ -308,7 +466,18 @@ module paprium_cart
 		.mem_wrl(mem_wrl),
 		.mem_wrh(mem_wrh),
 		.mem_req(mem_req),
-		.mem_ack(mem_ack)
+		.mem_ack(mem_ack),
+		.dec_valid(p2d_valid),           // pocket: sprite decoder - paprium_hwdec, port 2's second client
+		.dec_we(p2d_we),
+		.dec_lanes(p2d_lanes),
+		.dec_addr(p2d_addr),
+		.dec_wdata(p2d_wdata),
+		.dec_take(p2d_take),
+		.dec_flush(p2d_flush),
+		.dec_rd_done(p2d_rd_done),
+		.dec_rdata(p2d_rdata),
+		.dec_wr_done(p2d_wr_done),
+		.dec_busy(p2d_busy)
 	);
 
 	paprium_backup backup_inst
@@ -330,7 +499,54 @@ module paprium_cart
 // PCM engine has nothing to do with the stream window, so dropping it changes nothing
 // about what such a build proves. SFX=1 is the shipping configuration.
 generate
-if(SFX) begin : sfx_on
+// pocket: synth step (SYNTH) - the synth takes region 0x06 (MCU_INTERFACE v1.3 3.10); the interim FIFOs are not built
+if(SYNTH) begin : synth_on
+	wire signed [15:0] dt_l, dt_r;
+
+	paprium_synth #(.CLK_HZ(CLK_HZ)) synth_inst
+	(
+		.clk(clk),
+		.reset(reset | ~enable),
+		.m_req(mcu.ce & mcu.map.sfx),
+		.m_addr(mcu.addr[11:0]),
+		.m_we(mcu.we),
+		.m_wdata(mcu.dato),
+		.m_rdata(mcu_dati_sfx),
+		.m_ack(mcu_ack_sfx),
+		.post_b(reg_post_b),
+		.post_a(reg_post_a),
+		.post_blk(syn_post_blk),
+		.freeze(mcu_opts[5] & menu_mute_en),   // pocket: synth step - the menu freeze (MCU_INTERFACE 3.10.6): menu open, CTRL bit 4
+		.dt_l(dt_l),
+		.dt_r(dt_r),
+		.c_rd(syn_c_rd),
+		.c_raddr(syn_c_raddr),
+		.c_rd_done(syn_c_rd_done),
+		.c_rdata(syn_c_rdata),
+		.e_wr(syn_e_wr),
+		.e_waddr(syn_e_waddr),
+		.e_wpair(syn_e_wpair),
+		.e_wdata(syn_e_wdata),
+		.e_rd(syn_e_rd),
+		.e_raddr(syn_e_raddr),
+		.e_rpair(syn_e_rpair),
+		.e_rd_done(syn_e_rd_done),
+		.e_rdata(syn_e_rdata),
+		.e_wbusy(syn_e_wbusy)
+	);
+
+	assign sfx_l = enable ? dt_l : 16'sd0;
+	assign sfx_r = enable ? dt_r : 16'sd0;
+	assign ch7_vol    = 11'd0;
+	assign ch7_empty  = 1'b1;
+	assign ch7_wr     = 1'b0;
+	assign echo_wr    = 1'b0;   // no echo line: audio_sfx is not built
+	assign echo_wslot = 13'd0;
+	assign echo_wdata = 32'd0;
+	assign echo_rd    = 1'b0;
+	assign echo_rslot = 13'd0;
+end
+else if(SFX) begin : sfx_on
 	SndCk snd;
 	wire signed [15:0] sfx_l_raw;
 	wire signed [15:0] sfx_r_raw;
@@ -342,7 +558,7 @@ if(SFX) begin : sfx_on
 		.clk(clk),
 		.rst(reset | ~enable),
 		.rate(16'd48000),
-		.ck_base(`CLK_FREQ),
+		.ck_base(CLK_HZ),
 		.dac_clk(snd.clk),
 		.next_sample(snd.next_sample),
 		.phase(snd.phase)
@@ -395,26 +611,39 @@ else begin : sfx_off
 	assign echo_rd      = 1'b0;
 	assign echo_rslot   = 13'd0;
 end
+// pocket: synth step - without the synth: its ack is the interim region's (at once), no CAUSE.BLK, no CRAM client
+if(!SYNTH) begin : synth_off
+	assign mcu_ack_sfx  = 1'b1;
+	assign syn_post_blk = 1'b0;
+	assign syn_c_rd     = 1'b0;
+	assign syn_c_raddr  = 21'd0;
+	assign syn_e_wr     = 1'b0;
+	assign syn_e_waddr  = 22'd0;
+	assign syn_e_wpair  = 1'b0;
+	assign syn_e_wdata  = 32'd0;
+	assign syn_e_rd     = 1'b0;
+	assign syn_e_raddr  = 22'd0;
+	assign syn_e_rpair  = 1'b0;
+end
 endgenerate
 // paprium-end
 
-	paprium_mdp_adapter mdp_adapter_inst
-	(
-		.clk(clk),
-		.reset(reset | ~enable),
-		.mcu(mcu),
-		.mcu_dati(mcu_dati_mdp),
-		.mdp_playing(mdp_playing),
-		.mdp_current_track(mdp_current_track),
-		.mdp_track_request(mdp_track_request),
-		.mdp_track_num(mdp_track_num),
-		.mdp_track_loop(mdp_track_loop),
-		.mdp_stop_request(mdp_stop_request),
-		.mdp_fade_sectors(mdp_fade_sectors),
-		.mdp_resume_request(mdp_resume_request),
-		.mdp_volume(mdp_volume),
-		.mdp_volume_request(mdp_volume_request),
-		.mdp_active(mdp_active)
-	);
+	// pocket: synth step (test build 5; MCU interface v1.3 21.5) - the interim MD+ block (paprium_mdp_adapter,
+	// region 0x07: the album's command channel) is out of the build: test build 5 plays the cart's own music on the synth
+	// and FEAT.MDP = 0, so region 0x07 is unassigned (the mcu_dati / mcu_ack muxes above: 0xFFFF_FFFF, ack at once) and no
+	// MD+ command goes out (nothing consumes one: the album path went with test build 4a). The module file stays listed,
+	// unreachable
+	assign mdp_track_request  = 1'b0;
+	assign mdp_track_num      = 8'd0;
+	assign mdp_track_loop     = 1'b0;
+	assign mdp_stop_request   = 1'b0;
+	assign mdp_fade_sectors   = 8'd0;
+	assign mdp_resume_request = 1'b0;
+	assign mdp_volume         = 8'd0;
+	assign mdp_volume_request = 1'b0;
+	assign mdp_active         = 1'b0;
+	/* verilator lint_off UNUSEDSIGNAL */
+	wire   mdp_unused         = &{1'b0, mdp_playing, mdp_current_track};   // the MD+ status inputs: nothing reads them now
+	/* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

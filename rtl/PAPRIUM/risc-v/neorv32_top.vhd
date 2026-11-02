@@ -37,6 +37,7 @@
 -- # ********************************************************************************************* #
 -- # The NEORV32 Processor - https://github.com/stnolting/neorv32              (c) Stephan Nolting #
 -- #################################################################################################
+-- Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -76,6 +77,12 @@ entity neorv32_top is
     MEM_INT_DMEM_SIZE            : natural := 8*1024; -- size of processor-internal data memory in bytes
     -- External memory interface --
     MEM_EXT_USE                  : boolean := false;  -- implement external memory bus interface?
+    -- pocket: card 4 (0.3.0 stage 1, the MCU fast path) - tightly coupled memories outside this entity, on the
+    -- tcm_* ports: the processor-internal bus with the one-clock registered ack of neorv32_imem / neorv32_dmem.
+    -- The size is the window the Wishbone gateway leaves to them (bytes, a power of 2, at ispace_base_c /
+    -- dspace_base_c); 0 = none. SYSINFO still reports MEM_INT_* (it describes the internal IMEM / DMEM only).
+    MEM_TCM_IMEM_SIZE            : natural := 0;      -- pocket: instruction-space window on tcm_* (0 = none)
+    MEM_TCM_DMEM_SIZE            : natural := 0;      -- pocket: data-space window on tcm_* (0 = none)
     -- Processor peripherals --
     IO_GPIO_USE                  : boolean := true;   -- implement general purpose input/output port unit (GPIO)?
     IO_MTIME_USE                 : boolean := true;   -- implement machine system timer (MTIME)?
@@ -126,7 +133,17 @@ entity neorv32_top is
     -- Interrupts --
     mtime_irq_i : in  std_ulogic := '0'; -- machine timer interrupt, available if IO_MTIME_USE = false
     msw_irq_i   : in  std_ulogic := '0'; -- machine software interrupt
-    mext_irq_i  : in  std_ulogic := '0'  -- machine external interrupt
+    mext_irq_i  : in  std_ulogic := '0'; -- machine external interrupt
+    -- pocket: card 4 - the processor-internal bus to the tightly coupled memories (MEM_TCM_*_SIZE > 0) --
+    tcm_re_o      : out std_ulogic; -- read enable (one clock), p_bus.re
+    tcm_we_o      : out std_ulogic; -- write enable (one clock), p_bus.we
+    tcm_ben_o     : out std_ulogic_vector(03 downto 0); -- byte enables, p_bus.ben (loads too: by size)
+    tcm_addr_o    : out std_ulogic_vector(31 downto 0); -- address, p_bus.addr
+    tcm_wdata_o   : out std_ulogic_vector(31 downto 0); -- write data, p_bus.wdata
+    tcm_i_rdata_i : in  std_ulogic_vector(31 downto 0) := (others => '0'); -- IMEM read data, 0 when not reading
+    tcm_i_ack_i   : in  std_ulogic := '0'; -- IMEM transfer acknowledge
+    tcm_d_rdata_i : in  std_ulogic_vector(31 downto 0) := (others => '0'); -- DMEM read data, 0 when not reading
+    tcm_d_ack_i   : in  std_ulogic := '0'  -- DMEM transfer acknowledge
   );
 end neorv32_top;
 
@@ -138,6 +155,14 @@ architecture neorv32_top_rtl of neorv32_top is
   -- alignment check for internal memories --
   constant imem_align_check_c : std_ulogic_vector(index_size_f(MEM_INT_IMEM_SIZE)-1 downto 0) := (others => '0');
   constant dmem_align_check_c : std_ulogic_vector(index_size_f(MEM_INT_DMEM_SIZE)-1 downto 0) := (others => '0');
+
+  -- pocket: card 4 - the windows the Wishbone gateway leaves to the tightly coupled memories --
+  constant tcm_imem_c     : boolean := (MEM_TCM_IMEM_SIZE > 0);
+  constant tcm_dmem_c     : boolean := (MEM_TCM_DMEM_SIZE > 0);
+  constant xb_imem_use_c  : boolean := MEM_INT_IMEM_USE or tcm_imem_c;
+  constant xb_imem_size_c : natural := cond_sel_natural_f(tcm_imem_c, MEM_TCM_IMEM_SIZE, MEM_INT_IMEM_SIZE);
+  constant xb_dmem_use_c  : boolean := MEM_INT_DMEM_USE or tcm_dmem_c;
+  constant xb_dmem_size_c : natural := cond_sel_natural_f(tcm_dmem_c, MEM_TCM_DMEM_SIZE, MEM_INT_DMEM_SIZE);
 
   -- reset generator --
   signal rstn_i_sync0 : std_ulogic;
@@ -232,6 +257,11 @@ begin
 
   -- Sanity Checks --------------------------------------------------------------------------
   -- -------------------------------------------------------------------------------------------
+  -- pocket: card 4 - a tightly coupled memory replaces the internal one of its space, never both --
+  assert not (tcm_imem_c and (MEM_INT_IMEM_USE = true)) report "NEORV32 PROCESSOR CONFIG ERROR! MEM_TCM_IMEM_SIZE > 0 needs MEM_INT_IMEM_USE = false." severity error;
+  assert not (tcm_dmem_c and (MEM_INT_DMEM_USE = true)) report "NEORV32 PROCESSOR CONFIG ERROR! MEM_TCM_DMEM_SIZE > 0 needs MEM_INT_DMEM_USE = false." severity error;
+  assert not (tcm_imem_c and (is_power_of_two_f(MEM_TCM_IMEM_SIZE) = false)) report "NEORV32 PROCESSOR CONFIG ERROR! MEM_TCM_IMEM_SIZE must be a power of 2." severity error;
+  assert not (tcm_dmem_c and (is_power_of_two_f(MEM_TCM_DMEM_SIZE) = false)) report "NEORV32 PROCESSOR CONFIG ERROR! MEM_TCM_DMEM_SIZE must be a power of 2." severity error;
   -- clock --
   assert not (CLOCK_FREQUENCY = 0) report "NEORV32 PROCESSOR CONFIG ERROR! Core clock frequency (CLOCK_FREQUENCY) not specified." severity error;
   -- internal bootloader ROM --
@@ -476,8 +506,8 @@ begin
 
   neorv32_int_imem_inst_false:
   if (MEM_INT_IMEM_USE = false) generate
-    imem_rdata <= (others => '0');
-    imem_ack   <= '0';
+    imem_rdata <= tcm_i_rdata_i when tcm_imem_c else (others => '0'); -- pocket: card 4
+    imem_ack   <= tcm_i_ack_i   when tcm_imem_c else '0';             -- pocket: card 4
   end generate;
 
 
@@ -504,9 +534,17 @@ begin
 
   neorv32_int_dmem_inst_false:
   if (MEM_INT_DMEM_USE = false) generate
-    dmem_rdata <= (others => '0');
-    dmem_ack   <= '0';
+    dmem_rdata <= tcm_d_rdata_i when tcm_dmem_c else (others => '0'); -- pocket: card 4
+    dmem_ack   <= tcm_d_ack_i   when tcm_dmem_c else '0';             -- pocket: card 4
   end generate;
+
+  -- pocket: card 4 - the processor-internal bus out to the tightly coupled memories (they decode their own window,
+  -- as neorv32_imem / neorv32_dmem do, and gate their read data to 0 outside a read) --
+  tcm_re_o    <= p_bus.re    when (tcm_imem_c or tcm_dmem_c) else '0';
+  tcm_we_o    <= p_bus.we    when (tcm_imem_c or tcm_dmem_c) else '0';
+  tcm_ben_o   <= p_bus.ben   when (tcm_imem_c or tcm_dmem_c) else (others => '0');
+  tcm_addr_o  <= p_bus.addr  when (tcm_imem_c or tcm_dmem_c) else (others => '0');
+  tcm_wdata_o <= p_bus.wdata when (tcm_imem_c or tcm_dmem_c) else (others => '0');
 
 
   -- Processor-Internal Bootloader ROM (BOOTROM) --------------------------------------------
@@ -541,12 +579,12 @@ begin
     neorv32_wishbone_inst: neorv32_wishbone
     generic map (
       WB_PIPELINED_MODE => wb_pipe_mode_c,     -- false: classic/standard wishbone mode, true: pipelined wishbone mode
-      -- Internal instruction memory --
-      MEM_INT_IMEM_USE  => MEM_INT_IMEM_USE,   -- implement processor-internal instruction memory
-      MEM_INT_IMEM_SIZE => MEM_INT_IMEM_SIZE,  -- size of processor-internal instruction memory in bytes
-      -- Internal data memory --
-      MEM_INT_DMEM_USE  => MEM_INT_DMEM_USE,   -- implement processor-internal data memory
-      MEM_INT_DMEM_SIZE => MEM_INT_DMEM_SIZE   -- size of processor-internal data memory in bytes
+      -- Internal instruction memory (pocket: card 4 - or the tightly coupled one's window) --
+      MEM_INT_IMEM_USE  => xb_imem_use_c,      -- implement processor-internal instruction memory
+      MEM_INT_IMEM_SIZE => xb_imem_size_c,     -- size of processor-internal instruction memory in bytes
+      -- Internal data memory (pocket: card 4 - or the tightly coupled one's window) --
+      MEM_INT_DMEM_USE  => xb_dmem_use_c,      -- implement processor-internal data memory
+      MEM_INT_DMEM_SIZE => xb_dmem_size_c      -- size of processor-internal data memory in bytes
     )
     port map (
       -- global control --

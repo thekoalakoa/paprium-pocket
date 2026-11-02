@@ -40,7 +40,7 @@ projects/output_files/
 # Never commit game data. Belt and braces: none of this is in the tree today and
 # these patterns are here to keep it that way.
 #
-# The cartridge dump is WaterMelon's work. They have ceased trading and the game
+# The cartridge's ROM image is WaterMelon's work. They have ceased trading and the game
 # is no longer sold, which does not make it ours to redistribute. The music blob
 # is encoded from the released soundtrack - an album, not a game asset. Users
 # supply both themselves; scripts/build_cdda.sh plus build_cdda_adpcm.py rebuild
@@ -51,7 +51,7 @@ wave-bank*.wv
 music-modules/
 wave-bank*.wav
 Paprium.md
-# ROM dumps only. Deliberately NOT a bare `paprium.bin`: that also excluded
+# ROM images only. Deliberately NOT a bare `paprium.bin`: that also excluded
 # pkg/pocket/Platforms/_images/paprium.bin, the core's own platform artwork, so
 # the repo shipped no artwork while a clone silently lost it.
 **/Assets/**/paprium.bin

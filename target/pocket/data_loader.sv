@@ -28,6 +28,7 @@
 //
 // This takes the 32 bit words from APF, and splits it into four / OUTPUT_WORD_SIZE words (4 separate bytes, or 2 16-bit words).
 // You can configure the cycle delay by setting WRITE_MEM_CLOCK_DELAY
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 module data_loader #(
     // Upper 4 bits of address
     parameter ADDRESS_MASK_UPPER_4 = 0,
@@ -44,7 +45,22 @@ module data_loader #(
 
     // Word size in number of bytes. Can either be 1 (output 8 bits), or 2 (output 16 bits)
     // Component will assert this value is within the valid range
-    parameter OUTPUT_WORD_SIZE = 1
+    parameter OUTPUT_WORD_SIZE = 1,
+
+    // pocket: a second bridge region on the same loader (default 0: the stock loader, bit for bit). With 1, writes to
+    // ADDRESS_MASK_UPPER_4_B are taken too and write_b tells them apart (one more FIFO bit); the two regions' words
+    // go through the one FIFO in arrival order, so a region's writes come out as its own loader's would whenever the
+    // other region is not loading in the same ~1 us (the APF loads one data slot at a time)
+    parameter SECOND_REGION = 0,
+    parameter ADDRESS_MASK_UPPER_4_B = 0,
+
+    // pocket: a third bridge region with its OWN output registers write_en_r / write_addr_r / write_data_r (default
+    // 0: none, the loader bit for bit as before). Its words go through the same FIFO with one more bit and load only
+    // the _r registers, which hold between its words as that region's own stock loader's write_* would; the other
+    // regions' write_* never move on its words (core_top's ROM region 0x1 served by the sound-cache slot's loader)
+    parameter ROM_REGION = 0,
+    parameter ADDRESS_MASK_UPPER_4_R = 0,
+    parameter ADDRESS_SIZE_R = 28
 ) (
     input wire clk_74a,
     input wire clk_memory,
@@ -57,15 +73,22 @@ module data_loader #(
     // These outputs are synced to the memory clock
     output reg write_en = 0,
     output reg [ADDRESS_SIZE-1:0] write_addr = 0,
-    output reg [8 * OUTPUT_WORD_SIZE - 1:0] write_data = 0
+    output reg [8 * OUTPUT_WORD_SIZE - 1:0] write_data = 0,
+    output reg write_b = 0,                  // pocket: this write is region B's (SECOND_REGION only, else 0)
+
+    // pocket: the ROM_REGION's writes (synced to the memory clock like write_*; constant 0 without ROM_REGION)
+    output wire write_en_r,
+    output wire [ADDRESS_SIZE_R-1:0] write_addr_r,
+    output wire [8 * OUTPUT_WORD_SIZE - 1:0] write_data_r
 );
 
   `define MAX(x, y) ((x > y) ? x : y)
 
   localparam WORD_SIZE = 8 * OUTPUT_WORD_SIZE;
 
-  // Only use the lower 28 bits of the address
-  localparam FIFO_SIZE = WORD_SIZE + 28;
+  // Only use the lower 28 bits of the address (pocket: plus the region bit with SECOND_REGION, and the ROM_REGION
+  // bit on top with ROM_REGION)
+  localparam FIFO_SIZE = WORD_SIZE + 28 + ((SECOND_REGION != 0) ? 1 : 0) + ((ROM_REGION != 0) ? 1 : 0);
 
   wire mem_empty;
 
@@ -75,8 +98,30 @@ module data_loader #(
   reg write_req = 0;
   reg [31:0] shift_data;
   reg [27:0] buff_bridge_addr;
+  reg buff_b = 0;
 
-  wire [FIFO_SIZE - 1:0] fifo_in = {shift_data[WORD_SIZE-1:0], buff_bridge_addr[27:0]};
+  wire hit_a = (bridge_addr[31:28] == ADDRESS_MASK_UPPER_4);
+  wire hit_b = (SECOND_REGION != 0) && (bridge_addr[31:28] == ADDRESS_MASK_UPPER_4_B);
+  wire hit_r = (ROM_REGION != 0) && (bridge_addr[31:28] == ADDRESS_MASK_UPPER_4_R);   // pocket
+  wire buff_r;                               // pocket: the ROM_REGION bit of the word being written (rom_region)
+  wire word_r;                               // pocket: the word read from the FIFO is the ROM_REGION's (rom_region)
+  localparam B_BIT = FIFO_SIZE - 1 - ((ROM_REGION != 0) ? 1 : 0);   // pocket: region B's FIFO bit (SECOND_REGION)
+
+  wire [FIFO_SIZE - 1:0] fifo_in;
+  generate
+    if (ROM_REGION != 0 && SECOND_REGION != 0) begin : three_regions   // pocket
+      assign fifo_in = {buff_r, buff_b, shift_data[WORD_SIZE-1:0], buff_bridge_addr[27:0]};
+    end
+    else if (ROM_REGION != 0) begin : rom_and_a                        // pocket
+      assign fifo_in = {buff_r, shift_data[WORD_SIZE-1:0], buff_bridge_addr[27:0]};
+    end
+    else if (SECOND_REGION != 0) begin : two_regions
+      assign fifo_in = {buff_b, shift_data[WORD_SIZE-1:0], buff_bridge_addr[27:0]};
+    end
+    else begin : one_region
+      assign fifo_in = {shift_data[WORD_SIZE-1:0], buff_bridge_addr[27:0]};
+    end
+  endgenerate
 
   dcfifo dcfifo_component (
       .data(fifo_in),
@@ -116,7 +161,7 @@ module data_loader #(
   always @(posedge clk_74a) begin
     prev_bridge_wr <= bridge_wr;
 
-    if (~prev_bridge_wr && bridge_wr && bridge_addr[31:28] == ADDRESS_MASK_UPPER_4) begin
+    if (~prev_bridge_wr && bridge_wr && (hit_a || hit_b || hit_r)) begin
       // Beginning APF write to core
       write_state <= WRITE_REQ_SHIFT;
       write_req <= 1;
@@ -127,6 +172,7 @@ module data_loader #(
       };
 
       buff_bridge_addr <= bridge_addr[27:0];
+      buff_b <= hit_b;
     end
 
     case (write_state)
@@ -183,12 +229,16 @@ module data_loader #(
       end
       READ_WRITE: begin
         //  Read data is available
+        if (!word_r) begin                   // pocket: a ROM_REGION word loads write_*_r instead (rom_region)
         write_en   <= 1;
 
         // Lowest 28 bits are the address
         write_addr <= fifo_out[27:0];
 
         write_data <= fifo_out[WORD_SIZE+27:28];
+
+        if (SECOND_REGION != 0) write_b <= fifo_out[B_BIT];
+        end
 
         read_req   <= 0;
       end
@@ -205,6 +255,44 @@ module data_loader #(
       end
     endcase
   end
+
+  // pocket: the ROM_REGION. Its bit is taken with buff_b's own strobe and kept for both halves; its output registers
+  // step exactly as write_* do above (on in READ_WRITE, off in READ_DELAY and READ_WRITE_EN_CYCLE_OFF) but only on its
+  // words, so between its words they hold, as that region's own loader's would
+  generate
+    if (ROM_REGION != 0) begin : rom_region
+      reg buff_r_q = 0;
+      reg write_en_q = 0;
+      reg [ADDRESS_SIZE_R-1:0] write_addr_q = 0;
+      reg [WORD_SIZE-1:0] write_data_q = 0;
+
+      always @(posedge clk_74a) begin
+        if (~prev_bridge_wr && bridge_wr && (hit_a || hit_b || hit_r)) buff_r_q <= hit_r;
+      end
+
+      always @(posedge clk_memory) begin
+        if (read_state == READ_DELAY || read_state == READ_WRITE_EN_CYCLE_OFF) write_en_q <= 0;
+        if (read_state == READ_WRITE && word_r) begin
+          write_en_q   <= 1;
+          write_addr_q <= fifo_out[ADDRESS_SIZE_R-1:0];
+          write_data_q <= fifo_out[WORD_SIZE+27:28];
+        end
+      end
+
+      assign buff_r       = buff_r_q;
+      assign word_r       = fifo_out[FIFO_SIZE-1];
+      assign write_en_r   = write_en_q;
+      assign write_addr_r = write_addr_q;
+      assign write_data_r = write_data_q;
+    end
+    else begin : no_rom_region
+      assign buff_r       = 1'b0;
+      assign word_r       = 1'b0;
+      assign write_en_r   = 1'b0;
+      assign write_addr_r = {ADDRESS_SIZE_R{1'b0}};
+      assign write_data_r = {WORD_SIZE{1'b0}};
+    end
+  endgenerate
 
   initial begin
     // Verify parameters

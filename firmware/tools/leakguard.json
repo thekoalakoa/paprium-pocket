@@ -1,0 +1,27 @@
+{
+ "note": "Config of tools/leakguard.py (the numeric-literal leak guard). The reference files are read in place from paths.local.json \"refs\" (rom, cart_program, sub_program) and \"brain_dir\" (the three brain files, md5s in fwbuild.json \"brain\"); a reference whose md5 differs stops the guard (exit 2). The allow-list is tools/leak_allow.json.",
+ "references": {
+  "rom": {"md5": "91ccdc0b20af85a16bfe0b1a698c19d0", "swap16": true, "rv32": false, "what": "the game ROM (68000, big-endian words)"},
+  "cart_program": {"md5": "818a6b5fbb943b7d65cd3d30ef250951", "swap16": false, "rv32": false, "what": "the cart program image (Thumb)"},
+  "sub_program": {"md5": "beb6f69b5a642009de2a0c4716ed56ce", "swap16": true, "rv32": false, "what": "the sub-CPU (CPU MATE) program"}
+ },
+ "brain_rv32": true,
+ "sources": {
+  "extensions": {".c": "c", ".h": "c", ".S": "asm", ".s": "asm", ".ld": "c", ".py": "py", ".json": "json"},
+  "why": "C/H/S/py are the languages a table can be typed in; .ld and .json are scanned too (a table in a config is still a table). Docs (.md) are prose: their thousands separators make number runs of our own sizes; they are not scanned."
+ },
+ "window": {
+  "values": 8,
+  "values_u8": 12,
+  "min_distinct_values": 5,
+  "min_distinct_steps": 3,
+  "min_distinct_bytes_u8": 5,
+  "min_distinct_bytes_wide": 6,
+  "why": "8 consecutive values = 16 B as u16, 32 B as u32; as u8, 12 values = 12 B (measured: 8 u8 values of our own generated sfx8 curve equal 9 bytes of 8-bit PCM in the ROM by coincidence; smooth 8-byte stretches are common in 8 MB of samples). Windows with fewer than 5 different values, or whose steps take at most 2 values (ramps, staircases, a hex-digit string after a NUL pad), match any counter table and are skipped; so are windows of mostly zero bytes."
+ },
+ "sections": {
+  "data_window_bytes": 12,
+  "code_window_bytes": 16,
+  "why": "Built ELF sections of every Pocket build: data sections (.rodata/.data/.sdata/.srodata) in 12-byte windows against every reference; code sections in 16-byte windows against the non-RV32 references only (the brain files are RV32 code too, and GCC's prologue/epilogue idioms match them by construction; a table typed into an assembler file is caught at the source). The brain's own bytes (.brain_irom, cf.bin and the image tables at the start of .wram_text) are linked from outside the tree and excluded after an exact byte check."
+ }
+}

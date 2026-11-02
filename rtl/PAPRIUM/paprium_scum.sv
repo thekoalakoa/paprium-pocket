@@ -1,19 +1,32 @@
-// pocket: Scum! - the Pocket menu's cheat and arcade switches for Paprium (0.2.6).
+// Copyright (C) 2026 Marsupial Solutions LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+// pocket: Scum! - the Pocket menu's cheat and arcade switches for Paprium (0.2.6, moved in 0.3.0).
 //
 // Every switch is a ROM-read substitution: while it is on, the 68000 reads a few
 // replacement words in place of the game's own code, and the ROM file in SDRAM is
 // never written. Off means the original bytes, so a switch can be flipped at any time;
 // the arcade stage is read at boot, so it needs a reset.
 //
-//   en_health   players take no damage and specials cost no health   (Little-Man)
+//   en_health   players take no damage; their throws do no damage to enemies   (Little-Man)
 //   en_pills    using a Blu pill (Down+A) no longer spends it         (Little-Man)
 //   en_lives    dying no longer spends a life                         (Little-Man)
-//   en_arcade   the hidden ARCADE PAPRIUM mode (adroxe); Select inserts a coin;
-//               on whenever a stage is chosen                         (Arcade Stage Select 1/2)
-//   stage       the stage arcade mode starts on (krikzz)
-//   en_6btn     X/Y/Z/Mode reach the game, which cannot read them on this core
+//   stage       the stage arcade mode starts on (krikzz); 0.3.0: only with Arcade Mode on
 //
-// xram stage 2: Mega CD Mode is no longer a Scum! switch. The CPU MATE
+// 0.3.0 synth step (B Jam's decisions of 2026-10-19 / 2026-10-21): Arcade Mode is now a virtual Grand Stick III in port
+// 1 (paprium_pads / paprium_gs3). The game reads the stick's switches and coin itself and runs its own arcade code on
+// the unpatched ROM, so the arcade patch (adroxe's two nops at 0x0B5AB8 / 0x0B5ACC), the Multiplayer nop
+// (0x0B5B1A), the pad hook (0x0B2392), the pad cave and its registers (0x0BF040-0x0BF0CB), the coin stub (0x0BF100)
+// and the just-pressed latches are gone: 122 table words became 32. en_arcade, en_arc3p, en_tap, en_6btn, pad1 and
+// pad2 are no longer read (the ports stay, so cartridge.sv and core_top's scum_sync are unchanged). With Arcade Mode
+// off, hit and (where hit is 1) data are those of test build 4 (the 0.3.0 hardware test build of the MCU fast path) on
+// every clock: none of the removed words could be served while Arcade Mode was off (checked on our Scum! bench).
+//   en_arcade   test build 4: the hidden ARCADE PAPRIUM mode (adroxe), Select inserting a coin; synth step: not read
+//   en_arc3p    test build 4: Arcade Mode Multiplayer (the stick's DIP bit 0 as a nop); synth step: not read
+//   en_6btn     test build 4: only gated the hook's Mode injection; synth step: not read (the game reads X/Y/Z/Mode
+//   itself)
+//   en_tap      test build 4 and the synth step: not read
+//
+// xram step 2 (the second step of our Pocket SRAM / CRAM work): Mega CD Mode is no longer a Scum! switch. The CPU MATE
 // partner is the cart MCU's (paprium_mcd_link, option D), so the 68000 buddy page and
 // RAM (G_BUDDY, $16C000/$16FF00) and the pad hook in Mega CD Mode (G_HOOK) are gone:
 // with Little-Man, Arcade, Stage and 6-Button off, the 68000 runs the unpatched ROM
@@ -27,16 +40,29 @@
 // Timing: rom_addr is latched when an SDRAM read starts and holds for the whole
 // access, so the table is looked up one clock later into registers and the result is
 // ready long before the read returns. The cartridge applies it to every console read of
-// the ROM, 68000 and VDP DMA alike, so a DMA copies a substituted word too (known issue
-// in 0.2.6: the pad cave and its registers, 0x11C560-0x11C60B, lie inside the Hall of Fame
-// name-entry bar tiles, which show garbage while Arcade Stage Select or 6-Button is on).
-// The MCU's decompression stream never sees a substituted word.
+// the ROM, 68000 and VDP DMA alike, so a DMA copies a substituted word too. That is why
+// nothing may sit in game data: 0.2.6 served the pad cave and its registers at
+// 0x11C560-0x11C60B, inside the Hall of Fame name-entry bar's tiles, which then showed
+// garbage. 0.3.0 serves the health cave in the zero padding the game never reads
+// (0x0BF000; scripts/scum_table.py --check refuses any word in 0x11C560-0x11C75F; the synth
+// step has no pad cave at all). The MCU's decompression stream never sees a substituted word.
+//
+// Flip guard (0.3.0): the switches the table uses are latched copies, taken only on a
+// served read of the flip point 0x0B238C, the pad read's last instruction (before the
+// hook, while there was one). No cave can be running there (the health cave is a leaf;
+// the VBlank handlers are leaves), so a switch change can never split a patched
+// instruction or pull a cave from under the 68000, not even when the Pocket menu froze
+// the 68000 inside one and an interrupt is pending on resume. A change takes effect at
+// the game's next pad read (every frame in play; twice in the boot routine before its
+// arcade test, so a stage chosen before a reset still applies).
 // pocket-end
 
 module paprium_scum
 (
 	input             clk,
-	input             reset,
+	/* verilator lint_off UNUSEDSIGNAL */
+	input             reset,        // synth step: not read (it cleared the just-pressed latches)
+	/* verilator lint_on UNUSEDSIGNAL */
 
 	input      [24:1] rom_addr,     // word address of the SDRAM read in flight
 	input             served,       // a 68000 ROM read is being latched into cart_data
@@ -44,40 +70,48 @@ module paprium_scum
 	input             en_health,
 	input             en_pills,
 	input             en_lives,
-	input             en_arcade,
-	input             en_6btn,
+	/* verilator lint_off UNUSEDSIGNAL */
+	input             en_arcade,    // synth step: not read (the Grand Stick III, see above)
+	input             en_arc3p,     // synth step: not read
+	input             en_tap,       // 0.3.0: the EA 4-Way Play present; test build 4: not read (see above)
+	input             en_6btn,      // synth step: not read
+	/* verilator lint_on UNUSEDSIGNAL */
 	input       [4:0] stage,        // 0 = off, 1-24 = stage 0x01-0x18, 25 = 0x1E
 
-	input       [3:0] pad1,         // {MODE,X,Y,Z} held, already in this clock domain
+	/* verilator lint_off UNUSEDSIGNAL */
+	input       [3:0] pad1,         // {MODE,X,Y,Z} held; synth step: not read (no pad hook)
 	input       [3:0] pad2,
+	/* verilator lint_on UNUSEDSIGNAL */
 
 	output reg        hit,
 	output reg [15:0] data
 );
 
 localparam [3:0] G_NONE = 4'd0, G_HEALTH = 4'd1, G_PILLS = 4'd2, G_LIVES = 4'd3,
-                 G_ARCADE = 4'd4, G_HOOK = 4'd5, G_REG = 4'd6, G_STAGE = 4'd7;
+                 G_STAGE = 4'd7,
+                 G_FLIP = 4'd8;     // the flip point: never substituted
 
-localparam [24:1] A_P1_PRESS = 24'h08E304, A_P2_PRESS = 24'h08E305;
+// the switches in use: taken from the inputs only on a served read of the flip point;
+// all off at configuration (the game boots with no switch until its first pad read)
+reg        q_health, q_pills, q_lives;
+reg  [4:0] q_stage;
+reg        flip_q;              // rom_addr is the flip point (registered lookup)
+initial begin
+	{q_health, q_pills, q_lives} = 3'b000;
+	q_stage = 5'd0;
+	flip_q  = 1'b0;
+end
 
-wire       hook_on    = en_arcade | en_6btn;
-// Mode is the coin in Arcade Mode, so it is injected whenever the hook is on; X/Y/Z only
-// with 6-Button. Mega CD Mode no longer turns the hook on (xram stage 2, gate item 1)
-wire [3:0] pad_mask   = {hook_on, {3{en_6btn}}};
-wire [7:0] stage_byte = (stage == 5'd25) ? 8'h1E : {3'b000, stage};
+always @(posedge clk) begin
+	if (served & flip_q) begin
+		q_health <= en_health;
+		q_pills  <= en_pills;
+		q_lives  <= en_lives;
+		q_stage  <= stage;
+	end
+end
 
-// just-pressed latches: set on a press edge, cleared by the 68000 reading them
-reg  [3:0] pad1_d, pad2_d, p1_press, p2_press;
-
-wire [15:0] arcade_w   = {14'd0, 1'b0, en_arcade};       // flags: bit 0 Arcade, bit 1 (Mega CD) now 0
-wire [15:0] p1_held_w  = {4'd0, pad1     & pad_mask, 8'd0};
-wire [15:0] p2_held_w  = {4'd0, pad2     & pad_mask, 8'd0};
-wire [15:0] p1_press_w = {4'd0, p1_press & pad_mask, 8'd0};
-wire [15:0] p2_press_w = {4'd0, p2_press & pad_mask, 8'd0};
-
-// what the last lookup returned for the press words, so a press that lands between
-// the lookup and the read is kept for the next frame instead of being cleared unseen
-reg  [3:0] p1_sent, p2_sent;
+wire [7:0] stage_byte = (q_stage == 5'd25) ? 8'h1E : {3'b000, q_stage};
 
 always @(posedge clk) begin
 	reg  [3:0] g;
@@ -87,7 +121,7 @@ always @(posedge clk) begin
 	w = 16'h0000;
 	case (rom_addr)
 		// @@scum-table-begin  (generated by scripts/scum_table.py --write; do not edit by hand)
-		// players take no damage (jsr to the slot test); specials cost no health
+		// players take no damage (jsr to the slot test); a player's throws do no damage to enemies (two nops)
 		24'h017D62: begin g = G_HEALTH; w = 16'h4EB9; end   // 0x02FAC4
 		24'h017D63: begin g = G_HEALTH; w = 16'h000B; end   // 0x02FAC6
 		24'h017D64: begin g = G_HEALTH; w = 16'hF000; end   // 0x02FAC8
@@ -121,108 +155,19 @@ always @(posedge clk) begin
 		24'h00D4FE: begin g = G_PILLS;  w = 16'h4E71; end   // 0x01A9FC
 		// lives are never spent: the decrement becomes nop
 		24'h015277: begin g = G_LIVES;  w = 16'h4E71; end   // 0x02A4EE
-		// arcade mode (adroxe): the two branches that skip the 0x810F arcade command become nop
-		24'h05AD5C: begin g = G_ARCADE; w = 16'h4E71; end   // 0x0B5AB8
-		24'h05AD66: begin g = G_ARCADE; w = 16'h4E71; end   // 0x0B5ACC
-		// pad hook: 0x0B2392 jmp to the pad cave at 0x11C560
-		24'h0591C9: begin g = G_HOOK;   w = 16'h4EF9; end   // 0x0B2392
-		24'h0591CA: begin g = G_HOOK;   w = 16'h0011; end   // 0x0B2394
-		24'h0591CB: begin g = G_HOOK;   w = 16'hC560; end   // 0x0B2396
-		24'h08E2B0: begin g = G_HOOK;   w = 16'h4E5E; end   // 0x11C560
-		24'h08E2B1: begin g = G_HOOK;   w = 16'h3039; end   // 0x11C562
-		24'h08E2B2: begin g = G_HOOK;   w = 16'h0011; end   // 0x11C564
-		24'h08E2B3: begin g = G_HOOK;   w = 16'hC604; end   // 0x11C566
-		24'h08E2B4: begin g = G_HOOK;   w = 16'h8179; end   // 0x11C568
-		24'h08E2B5: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C56A
-		24'h08E2B6: begin g = G_HOOK;   w = 16'h7028; end   // 0x11C56C
-		24'h08E2B7: begin g = G_HOOK;   w = 16'h3039; end   // 0x11C56E
-		24'h08E2B8: begin g = G_HOOK;   w = 16'h0011; end   // 0x11C570
-		24'h08E2B9: begin g = G_HOOK;   w = 16'hC608; end   // 0x11C572
-		24'h08E2BA: begin g = G_HOOK;   w = 16'h8179; end   // 0x11C574
-		24'h08E2BB: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C576
-		24'h08E2BC: begin g = G_HOOK;   w = 16'h702A; end   // 0x11C578
-		24'h08E2BD: begin g = G_HOOK;   w = 16'h3039; end   // 0x11C57A
-		24'h08E2BE: begin g = G_HOOK;   w = 16'h0011; end   // 0x11C57C
-		24'h08E2BF: begin g = G_HOOK;   w = 16'hC606; end   // 0x11C57E
-		24'h08E2C0: begin g = G_HOOK;   w = 16'h8179; end   // 0x11C580
-		24'h08E2C1: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C582
-		24'h08E2C2: begin g = G_HOOK;   w = 16'h7038; end   // 0x11C584
-		24'h08E2C3: begin g = G_HOOK;   w = 16'h3039; end   // 0x11C586
-		24'h08E2C4: begin g = G_HOOK;   w = 16'h0011; end   // 0x11C588
-		24'h08E2C5: begin g = G_HOOK;   w = 16'hC60A; end   // 0x11C58A
-		24'h08E2C6: begin g = G_HOOK;   w = 16'h8179; end   // 0x11C58C
-		24'h08E2C7: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C58E
-		24'h08E2C8: begin g = G_HOOK;   w = 16'h703A; end   // 0x11C590
-		24'h08E2C9: begin g = G_HOOK;   w = 16'h0839; end   // 0x11C592
-		24'h08E2CA: begin g = G_HOOK;   w = 16'h0000; end   // 0x11C594
-		24'h08E2CB: begin g = G_HOOK;   w = 16'h0011; end   // 0x11C596
-		24'h08E2CC: begin g = G_HOOK;   w = 16'hC601; end   // 0x11C598
-		24'h08E2CD: begin g = G_HOOK;   w = 16'h6712; end   // 0x11C59A
-		24'h08E2CE: begin g = G_HOOK;   w = 16'h3039; end   // 0x11C59C
-		24'h08E2CF: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C59E
-		24'h08E2D0: begin g = G_HOOK;   w = 16'h702A; end   // 0x11C5A0
-		24'h08E2D1: begin g = G_HOOK;   w = 16'h0240; end   // 0x11C5A2
-		24'h08E2D2: begin g = G_HOOK;   w = 16'h0800; end   // 0x11C5A4
-		24'h08E2D3: begin g = G_HOOK;   w = 16'h6706; end   // 0x11C5A6
-		24'h08E2D4: begin g = G_HOOK;   w = 16'h4EB9; end   // 0x11C5A8
-		24'h08E2D5: begin g = G_HOOK;   w = 16'h000B; end   // 0x11C5AA
-		24'h08E2D6: begin g = G_HOOK;   w = 16'h5960; end   // 0x11C5AC
-		24'h08E2D7: begin g = G_HOOK;   w = 16'h0839; end   // 0x11C5AE
-		24'h08E2D8: begin g = G_HOOK;   w = 16'h0001; end   // 0x11C5B0
-		24'h08E2D9: begin g = G_HOOK;   w = 16'h0011; end   // 0x11C5B2
-		24'h08E2DA: begin g = G_HOOK;   w = 16'hC601; end   // 0x11C5B4
-		24'h08E2DB: begin g = G_HOOK;   w = 16'h6724; end   // 0x11C5B6
-		24'h08E2DC: begin g = G_HOOK;   w = 16'h3039; end   // 0x11C5B8
-		24'h08E2DD: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C5BA
-		24'h08E2DE: begin g = G_HOOK;   w = 16'h702A; end   // 0x11C5BC
-		24'h08E2DF: begin g = G_HOOK;   w = 16'h0240; end   // 0x11C5BE
-		24'h08E2E0: begin g = G_HOOK;   w = 16'h0800; end   // 0x11C5C0
-		24'h08E2E1: begin g = G_HOOK;   w = 16'h6718; end   // 0x11C5C2
-		24'h08E2E2: begin g = G_HOOK;   w = 16'h4A79; end   // 0x11C5C4
-		24'h08E2E3: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C5C6
-		24'h08E2E4: begin g = G_HOOK;   w = 16'h8810; end   // 0x11C5C8
-		24'h08E2E5: begin g = G_HOOK;   w = 16'h6610; end   // 0x11C5CA
-		24'h08E2E6: begin g = G_HOOK;   w = 16'h0079; end   // 0x11C5CC
-		24'h08E2E7: begin g = G_HOOK;   w = 16'h0080; end   // 0x11C5CE
-		24'h08E2E8: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C5D0
-		24'h08E2E9: begin g = G_HOOK;   w = 16'h7038; end   // 0x11C5D2
-		24'h08E2EA: begin g = G_HOOK;   w = 16'h0079; end   // 0x11C5D4
-		24'h08E2EB: begin g = G_HOOK;   w = 16'h0080; end   // 0x11C5D6
-		24'h08E2EC: begin g = G_HOOK;   w = 16'h00FF; end   // 0x11C5D8
-		24'h08E2ED: begin g = G_HOOK;   w = 16'h703A; end   // 0x11C5DA
-		24'h08E2EE: begin g = G_HOOK;   w = 16'h4E75; end   // 0x11C5DC
-		// registers the pad cave reads (also inside the Hall of Fame bar tiles)
-		24'h08E300: begin g = G_REG;    w = arcade_w; end   // 0x11C600
-		24'h08E302: begin g = G_REG;    w = p1_held_w; end   // 0x11C604
-		24'h08E303: begin g = G_REG;    w = p2_held_w; end   // 0x11C606
-		24'h08E304: begin g = G_REG;    w = p1_press_w; end   // 0x11C608
-		24'h08E305: begin g = G_REG;    w = p2_press_w; end   // 0x11C60A
 		// arcade start stage (krikzz): 0x0001 = Block 888
 		24'h05850A: begin g = G_STAGE;  w = {8'h00, stage_byte}; end   // 0x0B0A14
+		// the flip point (never substituted): new switches are taken on a served read here
+		24'h0591C6: begin g = G_FLIP;   w = 16'h0000; end   // 0x0B238C
 		// @@scum-table-end
 		default: ;
 	endcase
 
-	hit <= ((g == G_HEALTH) & en_health) | ((g == G_PILLS) & en_pills) |
-	       ((g == G_LIVES)  & en_lives)  | ((g == G_ARCADE) & en_arcade) |
-	       (((g == G_HOOK) | (g == G_REG)) & hook_on) |
-	       ((g == G_STAGE) & (stage != 5'd0));
+	hit <= ((g == G_HEALTH) & q_health) | ((g == G_PILLS) & q_pills) |
+	       ((g == G_LIVES)  & q_lives)  |
+	       ((g == G_STAGE) & (q_stage != 5'd0));
 	data <= w;
-	p1_sent <= p1_press & pad_mask;
-	p2_sent <= p2_press & pad_mask;
-end
-
-always @(posedge clk) begin
-	pad1_d <= pad1;
-	pad2_d <= pad2;
-	if (reset | ~hook_on) begin
-		p1_press <= 4'd0;
-		p2_press <= 4'd0;
-	end
-	else begin
-		p1_press <= (p1_press & ~((served & (rom_addr == A_P1_PRESS)) ? p1_sent : 4'd0)) | (pad1 & ~pad1_d);
-		p2_press <= (p2_press & ~((served & (rom_addr == A_P2_PRESS)) ? p2_sent : 4'd0)) | (pad2 & ~pad2_d);
-	end
+	flip_q <= (g == G_FLIP);
 end
 
 endmodule

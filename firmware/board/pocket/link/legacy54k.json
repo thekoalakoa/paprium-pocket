@@ -1,0 +1,18 @@
+{
+  "name": "legacy54k",
+  "note": "The final 0.2.6 layout (the placement and the build of the shipped 0.2.6 firmware), described for tools/fwsize.py and docs/LAYOUT.md. The linker script itself is legacy54k.ld: the script the 0.2.6 build generated with its own generator scripts, which are not in this tree (md5 33532367 as generated). Only its comments and the text of its six ASSERT messages have changed since (a copyright line, reworded comments, and the prefix legacy54k on the messages); the linker commands and their conditions are the same. Hi bounds are exclusive.",
+
+  "irom": {"rom0_kb": 32, "ext_kb": 22},
+  "wram": {"base": "0x80000000", "kb": 32},
+
+  "regions": [
+    {"name": "rom0_fw",    "lo": "0x00000000", "hi": "0x00005360", "kind": "rom",   "what": "firmware: .text, .rodata, .data load image"},
+    {"name": "brain",      "lo": "0x00005360", "hi": "0x0000D2EC", "kind": "fixed", "what": "CPU MATE brain"},
+    {"name": "ext_tail",   "lo": "0x0000D2EC", "hi": "0x0000D800", "kind": "rom",   "what": ".ext_text: ppm_reset, ppm_init_cmd_ptr, ppm_chip_preload, mdp_init"},
+    {"name": "wram_data",  "lo": "0x80000000", "hi": "0x80001820", "kind": "ram",   "what": ".data, .bss, .noinit"},
+    {"name": "brain_data", "lo": "0x80001820", "hi": "0x80002AC0", "kind": "fixed", "what": "buddy data"},
+    {"name": "wram_gap",   "lo": "0x80002AC0", "hi": "0x80002C00", "kind": "ram",   "what": ".bss_gap (not cleared by crt0)"},
+    {"name": "wcode",      "lo": "0x80002C00", "hi": "0x80006C00", "kind": "fixed", "what": "code window: cf.bin, pad, image tables, glue"},
+    {"name": "stack",      "lo": "0x80006C00", "hi": "0x80008000", "kind": "stack", "what": "stack (crt0 starts at 0x8003FFFC, which the 32 KB WRAM aliases onto 0x80007FFC)"}
+  ]
+}

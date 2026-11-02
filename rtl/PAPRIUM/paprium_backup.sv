@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Paprium battery-backup (SRAM save) RAM.
 //
-// Paprium's save is the MCU-managed backup RAM (4 KB). On real hardware the
+// Paprium's save is the MCU-managed backup RAM (8 KB). On real hardware the
 // EverDrive/ASIC persists it; here we back it with an on-chip true-dual-port
 // RAM whose second port is the cartridge save interface, so the host
 // load/save (.sav) path persists it like any normal Mega Drive SRAM.
@@ -14,9 +14,15 @@
 // infers it into M10K block RAM (byte-enabled partial writes do not infer and
 // blow up into thousands of registers - hence the read-modify-write here).
 //
-// 4 KB = 2048 x 16. The MCU 32-bit word index is mcu.addr[11:2]. bram_change
-// pulses on an MCU write to drive autosave.
+// 8 KB = 4096 x 16 (0.3.0 new core; B Jam's decision of 2026-10-11 on the save size: "replicate the
+// cart", whose save EEPROM is 8 KB; 0.2.x had 4 KB = 2048 x 16). The MCU 32-bit
+// word index is mcu.addr[12:2], so MCU 0x0500_0000-0x0500_1FFF is the whole array
+// and the region repeats above it (the firmware's docs/MCU_INTERFACE.md sections 3 and 3.6). The low 4 KB sit at the
+// same MCU and file addresses as in 0.2.x, so a 0.2.x 4 KB .sav loads into
+// 0x000-0xFFF unchanged and 0x1000-0x1FFF keep their power-up 0 until written.
+// bram_change pulses on an MCU write to drive autosave.
 // ---------------------------------------------------------------------------
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 module paprium_backup
 (
@@ -31,8 +37,8 @@ module paprium_backup
 // pocket: MiSTer's cartridge save interface is 16-bit (save_addr[14:0],
 // save_di/save_do[15:0]); APF's is byte-wide (cartridge.sv drives its normal MD
 // SRAM as dpram #(16,8) off save_addr[15:0]). Port B is widened to a byte port
-// against the same 2048 x 16 array via dpram_dif's mixed-width support, so the
-// .sav is a flat 4096-byte file and the APF save slot needs no adapter.
+// against the same 4096 x 16 array via dpram_dif's mixed-width support, so the
+// .sav is a flat 8192-byte file (0.2.x: 4096) and the APF save slot needs no adapter.
 	input      [15:0] save_addr,
 	input       [7:0] save_di,
 	output      [7:0] save_do,
@@ -40,7 +46,7 @@ module paprium_backup
 // pocket-end
 );
 
-	localparam AW = 11;   // 2048 x 16 = 4 KB
+	localparam AW = 12;   // 4096 x 16 = 8 KB (0.3.0 new core; 0.2.x: 11, 4 KB)
 
 // pocket: which half of the 16-bit word byte address 0 lands on is set by
 // altsyncram's mixed-width byte ordering, which is little-endian: port B address
@@ -48,7 +54,7 @@ module paprium_backup
 // address bit is inverted to put the high byte first and keep the file
 // byte-for-byte interchangeable with the MiSTer build's save.
 //
-// UNVERIFIED ON HARDWARE. If a MiSTer Paprium .sav loads byte-swapped on the
+// This is not checked on hardware. If a MiSTer Paprium .sav loads byte-swapped on the
 // Pocket (or vice versa), clear this to 0 - that is the whole fix.
 	localparam SAVE_BIG_ENDIAN = 1'b1;
 
@@ -83,8 +89,8 @@ module paprium_backup
 	assign save_do = b_q;
 
 	// ---- MCU 32-bit access FSM (read-modify-write per 16-bit half) ----
-	wire [AW-1:0] a0 = {mcu.addr[11:2], 1'b0};
-	wire [AW-1:0] a1 = {mcu.addr[11:2], 1'b1};
+	wire [AW-1:0] a0 = {mcu.addr[AW:2], 1'b0};
+	wire [AW-1:0] a1 = {mcu.addr[AW:2], 1'b1};
 
 	localparam IDLE=0, RD0=1, WR0=2, RD1=3, WR1=4, ACK=5, DONE=6;
 

@@ -40,7 +40,7 @@ frame — is in the winlog, and the animation data is in the ROM, which is
 everything `ppm_obj_render` reads:
 
 ```bash
-python scripts/sim_anim_firmware.py ../vdp-capture/*.bin
+python scripts/sim_anim_firmware.py <your winlog captures>/*.bin
 ```
 
 It reports which objects chained and whether any chain escaped the character
@@ -55,8 +55,8 @@ walks characters in. Build the instrumented core, launch it, and leave it:
 
 ```bash
 ./scripts/gpgx_winlog_build.sh
-# then RetroArch with -L gpgx-build/genesis_plus_gx_libretro.dll,
-# working directory vdp-capture/ (the core writes paprium_winlog.bin there)
+# then RetroArch with -L <the folder gpgx_winlog_build.sh builds in>/genesis_plus_gx_libretro.dll,
+# working directory: a capture folder of your own (the core writes paprium_winlog.bin there)
 ```
 
 Each launch **overwrites** that file, so copy it aside first. It grows ~7 MB a
@@ -72,7 +72,7 @@ still needs a person at the controls.
 ## The music renderer and its two measured FM tables
 
 `render_wave.py` renders a music module with the cartridge's own samples and, for
-the six FM voices, additive profiles MEASURED from hardware captures (the cart
+the six FM voices, additive profiles measured from hardware captures (the cart
 renders FM in its own firmware; a YM2612 model of the decoded patch bytes does not
 reproduce it). The profiles are derived numbers only and live in `scripts/data/`:
 

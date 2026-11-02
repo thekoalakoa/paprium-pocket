@@ -25,16 +25,17 @@ change is a measured correction of the *data*, not yet a verified fidelity claim
 
 ---
 
-Adjudicator's synthesis, 2026-09-16. Inputs: two matchers (`sfxbank/`, `musicbank/`), two SFX-bank
-verifiers (`verify_sfxbank/v2/` - complete, all 88 claimed pairs, fresh code, 87 CONFIRMED + 1
-PLAUSIBLE; `verify_sfxbank2/` - forced to stop at 21 of 88 pairs, all 21 agreeing), and two
-music-bank verifiers (`verify_musicbank/`, `verify_xcorr/`, both complete). Every number below is
-from those directories; nothing was re-measured here except the decoder-law arithmetic in
-`synthesis/build_identity.py` (normalisation of the published tables). The originals were read
-in place by every workflow and no audio was written by this synthesis.
+How this page was put together, 2026-09-16. It sums up six runs, each in its own local folder: two matchers
+(matching runs that looked for each cart entry's original: one on the SFX bank, one on the music bank); two SFX-bank checking runs, which
+re-did the matches independently with their own code ("v2" below - complete, all 88 claimed
+pairs, fresh code, 87 confirmed + 1 plausible; "the partial checking run" below - forced to stop at
+21 of 88 pairs, all 21 agreeing); and two music-bank checking runs ("the sweep check" and "the cross-correlation check" below, both
+complete). Every number below is from those folders; nothing was re-measured for this page except the decoder-law
+arithmetic in a local script (normalisation of the published tables). Every run read the originals in
+place, and no audio was written for this page.
 
-Machine-readable result: `match/identity.json` (127 entries; `verified` is true only where an
-independent verifier reproduced the pair with its own code).
+Machine-readable result: a local `identity.json` (127 entries; `verified` is true only where an
+independent checking run reproduced the pair with its own code).
 
 Conventions: "corr" is a normalised cross-correlation with the lag free; "null" is the best
 correlation the same cart entry reaches against every OTHER original at the matched rate;
@@ -48,7 +49,7 @@ steps). "ROM Hz" is what `dump_sfx.py` / GPGX / mega-ppm read from the ROM's own
   four originals appear twice (ATK KICK, PICKUP FOOD, ATK PUNCH, COMP TRANS), the second copy
   being a pitched variant in three of the four. One claimed pair (0x14 HIT1 FLESH) is downgraded
   to "related, not a copy". One further pair (0x11 HIT0 BAG) passes the criterion only with the
-  companded decoder and only in one verifier's candidate scan: PLAUSIBLE, not verified.
+  companded decoder and only in one checking run's candidate scan: plausible, not verified.
 - **The ROM's SFX rate table is measured, entry by entry, and one of its six rates is wrong as
   read:** divisor index 5 is 48000/10 = **4800 Hz**, not 48000/9 = 5333 Hz. Six entries
   (0x22, 0x2C, 0x2F, 0x48, 0x4C, 0x71) currently play 11.1 % fast (+1.8 semitones) in this port,
@@ -61,7 +62,7 @@ steps). "ROM Hz" is what `dump_sfx.py` / GPGX / mega-ppm read from the ROM's own
   kind of law around 128 (mu-law-like, mu ~ 28-40; code 0 never occurs). The linear decode in
   `dump_sfx.py`, in mega-ppm's `sfx.c`, and in GPGX compresses the dynamics of every effect by
   about 3.3x. Decoding with the companded table raises the correlation against the originals
-  in 55 of 56 4-bit pairs and 31 of 32 8-bit pairs (v2 verifier).
+  in 55 of 56 4-bit pairs and 31 of 32 8-bit pairs (the v2 checking run).
 - **The music wave bank contains no composer original** (140 originals x 94 programs, two
   decimation hypotheses, continuous rate sweep 4-48 kHz, four independent runs). Its 8-bit
   programs are linear PCM (shown by the one cross-bank pair). Its type->rate mapping is only
@@ -74,13 +75,13 @@ steps). "ROM Hz" is what `dump_sfx.py` / GPGX / mega-ppm read from the ROM's own
 
 ## 2. Identity table - verified pairs only (87)
 
-Columns: matcher's corr and null; v2 verifier's corr / null (local-mean NCC, fresh code); the
-partial verifier's corr / null where it completed; and the playback speed relative to the
+Columns: matcher's corr and null; the v2 checking run's corr / null (local-mean NCC, fresh code); the
+partial checking run's corr / null where it completed; and the playback speed relative to the
 original when the cart plays the entry at its measured class rate (1.000x unless the copy was
 pitched when it was authored). Implied Hz is the matcher's continuous-sweep value; the v2
-verifier agrees within 0.1 % on all 88 and within 0.02 % on 85.
+checking run agrees within 0.1 % on all 88 and within 0.02 % on 85.
 
-| entry | bits | ROM Hz | original | ratio | implied Hz | corr | null | v2 corr / null | partial verifier corr / null | speed at ROM rate |
+| entry | bits | ROM Hz | original | ratio | implied Hz | corr | null | v2 corr / null | partial checking run corr / null | speed at ROM rate |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 0x01 | 8 | 9600 | projecty_sfx0 016 ATK KICK | 2.75735 | 15993.6 | 0.904 | 0.445 | 0.904 / 0.444 | 0.904 / 0.444 | 0.600x |
 | 0x02 | 8 | 12000 | projecty_sfx0 002 MENU CANCEL | 3.67500 | 12000.0 | 0.827 | 0.314 | 0.828 / 0.314 | 0.828 / 0.314 | 1.000x |
@@ -179,7 +180,7 @@ rate-step flag; 0x4B "subway trains ambience" = AMBIANT WINDOUT0 (0.943).
 
 ### 2a. Downgraded (identity plausible, copy refuted)
 
-| entry | bits | ROM Hz | original | ratio | implied Hz | corr | null | v2 corr / null | partial verifier corr / null | speed at ROM rate |
+| entry | bits | ROM Hz | original | ratio | implied Hz | corr | null | v2 corr / null | partial checking run corr / null | speed at ROM rate |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 0x14 | 8 | 12000 | projecty_sfx0 021 HIT1 FLESH | 3.76835 | 11702.8 | 0.663 | 0.406 | 0.664 / 0.406 | 0.663 / 0.420 | 1.025x |
 
@@ -196,10 +197,10 @@ HIT1 FLESH/BAG/METAL = 0x14/0x15/0x16, which supports the identity.
 |---|---|---|---|---|---|---|---|
 | 0x06 | 8 | 12000 | projecty_sfx0 077 AMBIANT KITCHEN0 | 0.216 | 8820.0 | - | UNMATCHED |
 | 0x0D | 4 | 12000 | Y Voices 074 BISHOP_MOVE2 | 0.314 | 11025.0 | - | UNMATCHED |
-| 0x11 | 8 | 12000 | projecty_sfx0 018 HIT0 BAG | 0.733 | 11997.6 | 0.422 | PLAUSIBLE-UNVERIFIED |
+| 0x11 | 8 | 12000 | projecty_sfx0 018 HIT0 BAG | 0.733 | 11997.6 | 0.422 | plausible, not verified |
 | 0x13 | 8 | 12000 | projecty_sfx0 020 HIT0 CONCERTE | 0.661 | 12135.9 | 0.567 | UNMATCHED |
 | 0x17 | 8 | 12000 | projecty_sfx0 024 HIT1 CONCRETE | 0.583 | 11737.1 | 0.503 | UNMATCHED |
-| 0x19 | 8 | 12000 | projecty_sfx0 045 ELEVATOR STOP | 0.607 | 6261.2 | 0.389 | PLAUSIBLE-UNVERIFIED |
+| 0x19 | 8 | 12000 | projecty_sfx0 045 ELEVATOR STOP | 0.607 | 6261.2 | 0.389 | plausible, not verified |
 | 0x1B | 8 | 12000 | Y Voices 006 UDEAD | 0.299 | 7350.0 | - | UNMATCHED |
 | 0x1D | 4 | 12000 | Y Voices 029 X16 | 0.091 | 8000.0 | - | UNMATCHED |
 | 0x1E | 4 | 12000 | Y Voices 006 UDEAD | 0.153 | 48000.0 | - | UNMATCHED |
@@ -207,7 +208,7 @@ HIT1 FLESH/BAG/METAL = 0x14/0x15/0x16, which supports the identity.
 | 0x25 | 8 | 12000 | Y Voices 001 OUF | 0.238 | 24000.0 | - | UNMATCHED |
 | 0x26 | 4 | 12000 | projecty_sfx0 040 EXPLODE 1 | 0.252 | 9600.0 | - | UNMATCHED |
 | 0x28 | 4 | 6000 | Y Voices 077 NONE_MOVE0 | 0.204 | 48000.0 | - | UNMATCHED |
-| 0x30 | 8 | 12000 | projecty_sfx0 017 HIT0 FLESH | 0.66 | 11016.2 | 0.463 | PLAUSIBLE-UNVERIFIED |
+| 0x30 | 8 | 12000 | projecty_sfx0 017 HIT0 FLESH | 0.66 | 11016.2 | 0.463 | plausible, not verified |
 | 0x49 | 4 | 6000 | Y Voices 007 IIIIIIII (citizens scream) | 0.284 | 5512.5 | - | UNMATCHED |
 | 0x4E | 4 | 12000 | Y Voices 071 MONALISA_MOVE0 | 0.161 | 9600.0 | - | UNMATCHED |
 | 0x4F | 4 | 9600 | Y Voices 002 HAHAKR c | 0.17 | 9600.0 | - | UNMATCHED |
@@ -215,9 +216,9 @@ HIT1 FLESH/BAG/METAL = 0x14/0x15/0x16, which supports the identity.
 | 0x51 | 4 | 12000 | Y Voices 002 HAHAKR c | 0.133 | 8000.0 | - | UNMATCHED |
 | 0x54 | 4 | 12000 | Y Voices 071 MONALISA_MOVE0 | 0.142 | 7350.0 | - | UNMATCHED |
 | 0x59 | 4 | 24000 | Y Voices 059 ALEX_START | 0.504 | 14839.5 | 0.232 | UNMATCHED |
-| 0x61 | 8 | 12000 | Y Voices 062 88_START | 0.659 | 13037.8 | 0.444 | PLAUSIBLE-UNVERIFIED |
+| 0x61 | 8 | 12000 | Y Voices 062 88_START | 0.659 | 13037.8 | 0.444 | plausible, not verified |
 | 0x62 | 8 | 12000 | Y Voices 054 DICE_MOVE1 | 0.486 | 7486.2 | 0.417 | UNMATCHED |
-| 0x63 | 4 | 24000 | music program 0x5F (wave bank) | 0.913 | 12000.0 | 0.365 | CROSS-BANK-VERIFIED |
+| 0x63 | 4 | 24000 | music program 0x5F (wave bank) | 0.913 | 12000.0 | 0.365 | verified across banks |
 | 0x64 | 8 | 6000 | Y Voices 005 NONONO b | 0.375 | 5899.7 | 0.346 | UNMATCHED |
 | 0x68 | 8 | 12000 | Y Voices 052 TUG_START | 0.518 | 5387.2 | 0.321 | UNMATCHED |
 | 0x69 | 8 | 12000 | Y Voices 067 PANG_MOVE0 | 0.384 | 6300.0 | - | UNMATCHED |
@@ -234,10 +235,10 @@ HIT1 FLESH/BAG/METAL = 0x14/0x15/0x16, which supports the identity.
 | 0x7D | 8 | 9600 | projecty_sfx0 048 ELEVATOR CHUNKLE 1 | 0.552 | 9654.1 | 0.526 | UNMATCHED |
 | 0x7E | 4 | 9600 | projecty_sfx0 036 COMP TRANS | 0.506 | 15945.8 | 0.242 | UNMATCHED |
 
-Notes on the four PLAUSIBLE-UNVERIFIED rows: each passes the match criterion in the v2
-verifier's candidate scan with the companded (mu-law) template but not with the linear one,
-and none was run by a second verifier. 0x11/HIT0 BAG is the strongest (0.733 vs 0.422 at
-11997.6 Hz, in bank order 0x10..0x13 = HIT0 FLESH/BAG/METAL/CONCRETE; verify_xcorr's companded
+Notes on the four rows marked "plausible, not verified": each passes the match criterion in the v2
+checking run's candidate scan with the companded (mu-law) template but not with the linear one,
+and none was run by a second checking run. 0x11/HIT0 BAG is the strongest (0.733 vs 0.422 at
+11997.6 Hz, in bank order 0x10..0x13 = HIT0 FLESH/BAG/METAL/CONCRETE; the cross-correlation check's companded
 decode gives 0.722 at 12000 with residual 0.69 - the same residual band as the accepted
 noise-burst pairs 0x10/0x1F/0x29/0x4D, 0.78-0.89). The others need the implied rate off the
 named class by 8-48 % (0x61 13038, 0x30 11016, 0x19 6261 Hz), which only 0x01/0x6A/0x7B/0x7F
@@ -248,7 +249,7 @@ The 25 rows at the null floor (best 0.03-0.39, none above 1.3x its runner-up ove
 in three independent scans) have no original among the originals. The one cross-bank identity: SFX
 0x63 (4-bit, "24000") is wave-bank program 0x5F (8-bit) with every second sample kept,
 sfx[k] = prog[2k+4], r 0.913 with the linear nibble decode and 0.955 with the companded one,
-reproduced by both music-bank verifiers (nulls 0.27-0.56 depending on the length rule).
+reproduced by both music-bank checking runs (nulls 0.27-0.56 depending on the length rule).
 
 ### 2c. Originals with no cart copy (56 of 140)
 
@@ -260,18 +261,18 @@ FUCKU, NONONO b, HANDCLAP, SFX_DEATH_BOSSF, SFX_DEATH_ENEF; and the effects MENU
 ERROR, PICKUP EXTRA LIFE, JUMP START, ATK TASER, HIT0 BAG (see 0x11), HIT0 CONCRETE, HIT1
 CONCRETE, COMP CALL, COMP BLEEP, EXPLODE 0/1, CRUMBLE, ELEVATOR STOP (see 0x19), HOOVER
 CHUNKLE 0, AMBIANT CHICHAT0/KITCHEN0/WALKWAY0, ELECTRIC ENGINE. Best failed candidates and
-scores are listed per original in `sfxbank/RESULT.md` section C and `verify_sfxbank/v2/analyse1.txt`
+scores are listed per original in the local run files (the SFX matcher's result, section C, and v2's first analysis)
 (best 0.16-0.65 at the named rates; the 0.6+ ones are the HIT thumps against the wrong HIT
 entry, and three spurious high-rate hits of short tonal templates). They are not in the music
 wave bank either (section 4). Bank versus drop: 48 8-bit and 79 4-bit entries; the originals cover
 31 of the 8-bit and 56 of the 4-bit.
 
-Six of these 56 were flagged "PASS" by the v2 verifier's discrete 20-rate scan against the wave
+Six of these 56 were flagged "PASS" by the v2 checking run's discrete 20-rate scan against the wave
 bank (SHEEVA_MOVE0 vs 0x41 0.735, NONE_MOVE0 vs 0x48 0.705, CRUMBLE vs 0x00 0.750, ALEX_START vs
-0x40 0.600, SFX_DEATH_ENEF vs 0x40 0.628). Adjudicated NOT matches: the null that scan used
+0x40 0.600, SFX_DEATH_ENEF vs 0x40 0.628). Judged not to be matches: the null that scan used
 (best OTHER program for the same original) is the wrong one for a 0.05-0.1 s tonal program;
-the program-side nulls are 0x41 0.808, 0x48 0.801, 0x00 0.699, 0x40 0.618 (`musicbank/nulls_orig.txt`),
-every flag is within 1.07x of them, and verify_musicbank's continuous sweep with residual
+the program-side nulls are 0x41 0.808, 0x48 0.801, 0x00 0.699, 0x40 0.618 (the music-bank matcher's local null file),
+every flag is within 1.07x of them, and the sweep check's continuous sweep with residual
 (real copies refine to residual 0.05-0.12; these stay at 0.6-0.9) found nothing for any of the 56.
 
 ## 3. The rate law, as measured
@@ -289,7 +290,7 @@ SFX bank (`type >> 4` = divisor index into a six-entry table; rate = 48000 / div
 
 So the divisor table is {1, 2, 4, 5, 8, 10}. The six index-5 entries correlate 0.54-0.98
 against their originals at 4800 and 0.03-0.34 at 5333 (pass 1 of both the matcher and the v2
-verifier found none of them at 5333); the partial verifier reproduced 0x22 at 4801.0 Hz
+checking run found none of them at 5333); the partial checking run reproduced 0x22 at 4801.0 Hz
 (0.977 vs null 0.377). The result does not depend on the decoder: the mu-law template gives the
 same class means (11999.8 / 9599.5 / 6000.2 / 4800.2). The verified pairs whose implied rate
 is NOT the class rate are exactly four, and each is a second copy of an original that also has
@@ -311,13 +312,13 @@ Music wave bank (`program_table`: nominal = 48000 / {1,2,4,5,8,9}[type + 1], i.e
   within-type pairs 0.87-0.92). This is a RATE ratio only if the five takes were meant at one
   pitch; the bank itself stores one sound at 4:1 sample counts within one type for pitch
   (0x2A = 0x1F held 4x, byte-identical for 95 %; 0x29/0x20 rendered at 4:1, r 0.994), so the
-  assumption is stated, not free. Both verifiers reproduced every number.
+  assumption is stated, not free. Both checking runs reproduced every number.
 - Absolute rate: **unmeasured**. No original is in the bank, so no ratio to 44.1 kHz exists.
   The only lever is SFX 0x63 == program 0x5F at exactly 2:1 with both tables naming 24000:
   the SFX class is measured at 24000.0 against two originals (0x20, 0x52), so if the two copies
   were meant at one pitch, program 0x5F runs at 48000 and wave-bank type 0 = 48000, type 1 =
   24000 (index [type], not [type + 1]). If they were meant an octave apart, the 24000 reading
-  stands. Nothing among the originals decides it; both music-bank verifiers note that the emulators'
+  stands. Nothing among the originals decides it; both music-bank checking runs note that the emulators'
   [type + 1] reading is the only support for 24000.
 - Type 2 (0x5B, 0x5D, 0x5E, "9600"): no duplicate involves them; untested.
 
@@ -360,9 +361,9 @@ Code 0 never occurs (0 of 191,887 samples); the last sample of every 8-bit entry
 = code 128 (+0.008). Bin means over 16-code bins (matcher, 28 entries): -2.35 -1.59 -0.99
 -0.61 -0.36 -0.21 -0.13 -0.064 | +0.077 +0.119 +0.223 +0.361 +0.605 +0.972 +1.538 +2.344;
 code 255 = +2.86. Mu-law mu=40 scores 0.972 / 0.204 against linear 0.902 / 0.426 (mu 28-64 all
->= 0.970; the empirical 256-entry table, in `sfxbank/codec.json`, 0.971). At the bin centres
+>= 0.970; the empirical 256-entry table, kept with the SFX matcher's local files, 0.971). At the bin centres
 mu=28 fits the bin means to 0.033 rms, mu=40 to 0.069. Sub-claim "4-bit code = 8-bit code >> 4"
-is REFUTED by v2: on the negative side 4-bit code k aligns with 8-bit bin k-1 (ratios 0.87-1.02
+is refuted by v2: on the negative side 4-bit code k aligns with 8-bit bin k-1 (ratios 0.87-1.02
 to bin k-1 vs 1.46-1.81 to bin k), and truncation would put 3 % of the 8-bit samples (codes
 1-15) into nibble 0, which never occurs. Correct statement: the two banks share one magnitude
 law (4-bit magnitude m <-> 8-bit magnitudes 16m..16m+15 on both sides); the 4-bit code is
@@ -370,7 +371,7 @@ law (4-bit magnitude m <-> 8-bit magnitudes 16m..16m+15 on both sides); the 4-bi
 
 ### Music wave bank (94 programs, 8-bit)
 
-Linear unsigned PCM. Evidence (verify_musicbank, verify_xcorr): decoding program 0x5F with the
+Linear unsigned PCM. Evidence (the sweep check, the cross-correlation check): decoding program 0x5F with the
 SFX 8-bit companded table lowers its correlation with SFX 0x63 from 0.955 to 0.800 (residual
 0.30 -> 0.60), and the wave bank uses code 0 (12,616 samples) which the companded SFX 8-bit
 bank never emits. (The music-bank matcher's stated evidence - in-bank duplicates correlate
@@ -390,7 +391,7 @@ bank never emits. (The music-bank matcher's stated evidence - in-bank duplicates
 
 ## 6. Consequences for the port
 
-### SFX playback (mega-ppm firmware `repos/mega-ppm/mcu/sfx.c` + `rtl/PAPRIUM/audio_sfx.sv`)
+### SFX playback (mega-ppm firmware `mcu/sfx.c` + `rtl/PAPRIUM/audio_sfx.sv`)
 
 1. **Rate index 5 is 4800 Hz, not 5333.** `aclk_bank` in `audio_sfx.sv` divides the 48 kHz tick
    by {1,2,4,5,8,9}; the comment "5333 -> 48000/9 = 5333.33 Hz, 0.006 % fast and inaudible" is
@@ -402,6 +403,11 @@ bank never emits. (The music-bank matcher's stated evidence - in-bank duplicates
    table. Upstream mega-ppm (`fpga/audio_sfx.sv`, `dac_clocker ... .rate(5333)`) and GPGX carry the
    same error; this is the first place it is measured. Note GPGX's separate music-bank table
    `_rates[] = {2,4,5,8,9,10}` does contain a 10.
+   **Done in test build 4 (0.3.0, 2026-10-19; a test build is a build B Jam tested on his own Pocket):**
+   `aclk_bank` divides index 5 by 10. An RTL bench of the whole
+   `audio_sfx` measured 4800.0 Hz on all eight channels, and the six entries above played for exactly the
+   chip's length (the stage-1 firmware, the first stage of 0.3.0's new firmware, already counted it so); the other rates are
+   unchanged.
 2. **The nibble/byte unpack in `sfx_player_update()` is the wrong decoder.** It does
    `(nibble * 65536) / 16 - 32768` and `(byte * 65536) / 256 - 32768` (linear). Measured, the
    codes are companded: replacing them with a 16-entry LUT (4-bit) and a 256-entry LUT or a
@@ -416,7 +422,7 @@ bank never emits. (The music-bank matcher's stated evidence - in-bank duplicates
    3.2x (10 dB) too loud relative to its peaks - tails, room and breath are exaggerated,
    transients are flat. Which of the two decodes matches the CARTRIDGE's own DAC is not
    proven by the originals: the originals fix what the bytes ENCODE, and a cart that played them
-   linearly would sound as the port does now. The isolated-evidence rule applies: confirm with
+   linearly would sound as the port does now. As for every audio claim here, only isolated evidence decides: confirm with
    one isolated hardware SFX capture (a companded-shaped effect such as 0x1C or 0x3D, level vs
    time against the original) before shipping the LUT as a fidelity claim. The identity work
    makes that capture cheap: the original is now known for 87 entries.
@@ -438,7 +444,7 @@ bank never emits. (The music-bank matcher's stated evidence - in-bank duplicates
   the sample roots were fitted at the nominal rate, so a factor-2 rate error cancels in the
   transposition (the GPGX audit already notes this). It would show as BANDWIDTH (a 48000-rate
   program carries content to 24 kHz where the renderer band-limits at 12 kHz) and in the
-  0xE0 "sample clock" reading still open in the synth state. Decidable from a hardware capture
+  0xE0 "sample clock" reading, which is still open in the synth work. Decidable from a hardware capture
   of a single program (0x5F or the 0x4A family) at a known note: spectrum above 12 kHz.
 - The `{1,2,4,5,8,9}` list the renderer indexes into is the same list whose last entry the
   SFX measurement just corrected to 10; types 0-2 touch indices 1-3 only, so the correction does
@@ -453,14 +459,14 @@ bank never emits. (The music-bank matcher's stated evidence - in-bank duplicates
 - The absolute wave-bank rate (48000 vs 24000 for type 0) - needs a program capture (bandwidth).
 - Type 2 of the wave bank - no duplicate, no original, untested.
 - SFX index 0 (48000) - no entry uses it.
-- 0x11/HIT0 BAG and the three other PLAUSIBLE-UNVERIFIED rows - a second verifier run of the
-  v2 candidate scan (`verify_sfxbank2/missed.py` is written, not run).
+- 0x11/HIT0 BAG and the three other rows marked "plausible, not verified" - a second checking run of the
+  v2 candidate scan (its script is written, not run).
 - The 39 cart entries and 56 originals without a partner: every scan reports them at the null
   floor; nothing among the originals identifies them.
 
 ## 7. Where the numbers live
 
-The matching runs, their intermediate tables and the verifiers' re-runs are kept locally with
+The matching runs, their intermediate tables and the checking runs' re-runs are kept locally with
 the originals; they are not in this repository because they sit beside game-derived audio.
 Everything a reader needs to check a row is in the tables above: the entry, the named original,
 the fitted ratio, the implied rate, the correlation and its null. `scripts/dump_sfx.py` extracts

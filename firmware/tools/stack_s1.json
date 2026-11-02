@@ -1,0 +1,342 @@
+{
+ "note": "Config of tools/fwstack.py for the s1 images (the new 0.3.0 firmware, built with FW_S1: fwbuild.json s1.pocket; build/s1/<layout>/<variant>). Same format as tools/stack.json, plus 'stand_in': a call to one of these functions counts at least the listed opaque depths, because in the new firmware's skeleton they are weak defaults (core/sched/sched_stubs.c) for code not written yet; the bound must not shrink because a body is missing. When the code lands, its stand-in goes and the real body is measured. The report labels numbers as stack.json's do: MEASURED, PROXY, MODELLED. Since 2026-10-11 the dispatcher, the job step and the board work are real code (their stand-ins went); the probe images keep the probe's own hook bodies. fatal_halt and audio_tick_begin (the song engine's hook) are weak defaults in core/dispatch/disp_stubs.c with stand-ins.",
+ "skip_ranges": [
+  [
+   "0x00005360",
+   "0x0000D2EC",
+   "brain blob (.brain_irom): not walked; its depth is the MEASURED @brain"
+  ],
+  [
+   "0x80002C00",
+   "0x80004648",
+   "cf.bin + pad + rodata.bin (.wram_cf): brain helpers and tables, counted in @brain"
+  ]
+ ],
+ "opaque": {
+  "@c4b_overlay": {
+   "bytes": 1024,
+   "label": "MEASURED",
+   "basis": "Measured 572 B (check B1 of tests/equiv/cache4b.py: the deepest store the stub and the overlay make below the stack top over a whole first boot), kept at 1,024 B as the bound. Test build 4b's WRAM boot overlay (board/pocket/boot/c4b_ovl.c + core/wavpack, linked apart, so this tool does not walk it) is entered by boot_cache_boot from crt0 with MIE = 0 before any level exists: the -fstack-usage chain c4b_ovl_main 144 + wvbank_unpack 144 + WavpackUnpackSamples 48 + unpack_samples 112 + get_words 80 + bs_read 16 + the read callback = 560 B (measured frames, -Os; c4b_ovl_main was 128 before a later fix to the overlay), a 1.8x margin; the overlay itself refuses to start unless sp is 512 B clear of its stack-floor scratch (c4b_ovl.ld)"
+  },
+  "@brain": {
+   "bytes": 224,
+   "mie_open": true,
+   "label": "MEASURED",
+   "basis": "measured in the Unicorn emulator: the deepest stack of the brain (its own frames + the cf.bin helpers it calls) over 5,971 calls in two fight scenarios (224 B in both). The brain runs with MIE = 1 (zz_buddy.c run_call)."
+  },
+  "@chip_song_tick": {
+   "bytes": 400,
+   "label": "PROXY",
+   "basis": "deepest AUD chain (TIM14 ISR -> the synth tick -> the sequencer step -> the row reader -> the module command -> event_post: 368; deepest AUD root 400). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_packet": {
+   "bytes": 256,
+   "label": "PROXY",
+   "basis": "the Z80 packet flush -> the packet build -> the DMA start -> event_post. PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_watchdog": {
+   "bytes": 224,
+   "label": "PROXY",
+   "basis": "TIM7 ISR chain (watchdog / heartbeat). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_mbx": {
+   "bytes": 240,
+   "label": "PROXY",
+   "basis": "mbxA_dispatch chain (partial: the two dispatchers did not compile, their own frames are missing). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@chip_jobs": {
+   "bytes": 560,
+   "label": "PROXY",
+   "basis": "deepest job-type chain: MegaWire 560, saves 384, unpackers 304, scaling 208 (the chip's F4/F5/B6 use static buffers). PROXY: the cart chip's own call chain, written by our team from our own study of how the cart behaves, one function for each routine on it, compiled for RV32IM -O2 with the 0.2.6 toolchain, with the -fstack-usage frames summed along the chain. It stands for a straight port of the chip's call chain, not for our port"
+  },
+  "@l1_body_026": {
+   "bytes": 368,
+   "label": "PROXY+MODELLED",
+   "basis": "the 0.2.6 dispatcher minus the job commands, measured by fwstack's scheme 030 on the pocket72k TEST build (ppm_cmd_handler chain 304 B: AD -> object render -> block load -> unpack -> printf) + an estimated 64 B for the status layer; stands in for the new dispatcher and the re-hosted 0.2.6 bodies"
+  },
+  "@brain_call_026": {
+   "bytes": 384,
+   "mie_open": true,
+   "label": "PROXY",
+   "basis": "the 0.2.6 glue frame of buddy_event (96 B, measured) + buddy_call_brain (64 B, measured) + @brain (224 B, measured in the Unicorn emulator); stands in for the new firmware's brain call; the brain runs with MEI and MTI open"
+  },
+  "@feed_026": {
+   "bytes": 112,
+   "label": "PROXY",
+   "basis": "0.2.6 buddy_isr_tick without its trap frame (measured: scheme 026's mti level, 192 - 80): the SFX feeder / VU row that the new firmware moves onto the timer wheel"
+  },
+  "@gate_modelled": {
+   "bytes": 32,
+   "label": "MODELLED",
+   "basis": "a gate lookup or an acknowledge-only handler of the new dispatcher"
+  },
+  "@idle_modelled": {
+   "bytes": 128,
+   "label": "MODELLED",
+   "basis": "the idle housekeeping slices (buddy restart / restore, LSTAT polls): 0.2.6 ran them from buddy_event"
+  },
+  "@fatal_modelled": {
+   "bytes": 96,
+   "label": "MODELLED",
+   "basis": "the fatal halt: event_post's LED code and the \"WE SUX\" poll of $1FEA, then brd_full_reset; a leaf loop and one call deep (the chip's routine at 0x08020B56-0x08020C7C keeps 0x24 + 32 B of frame)"
+  }
+ },
+ "stand_in": {
+  "audio_tick_slice": [
+   "@chip_song_tick"
+  ],
+  "audio_tick_end": [
+   "@chip_packet"
+  ],
+  "audio_tick_begin": [
+   "@gate_modelled"
+  ]
+ },
+ "indirect": {
+  "l2a_mti": {
+   "targets": [
+    "re:^wh_"
+   ],
+   "basis": "core/sched/wheel.c: the const table wheel_fns holds only wh_* callbacks"
+  },
+  "wheel_low_run": {
+   "targets": [
+    "re:^wh_"
+   ],
+   "basis": "core/sched/wheel.c: the same const table wheel_fns (since 2026-10-15 the WH_LOW_SLOTS callbacks run from the thread)"
+  },
+  "memset": {
+   "targets": [],
+   "self": true,
+   "basis": "newlib memset: computed jump/call into its own store table, no frame"
+  },
+  "boot_cache_boot": {
+   "targets": [
+    "@c4b_overlay"
+   ],
+   "basis": "board/pocket/boot/boot_cache.c: jalr = the WRAM boot overlay's entry (its header's entry offset), test build 4b"
+  },
+  "buddy_call_brain": {
+   "targets": [
+    "@brain"
+   ],
+   "basis": "jalr a0 / jalr s0 = the brain's H2 and H1 entries"
+  },
+  "disp_post": {
+   "targets": [
+    "re:^f_"
+   ],
+   "basis": "core/dispatch/disp.c: the two const 55-entry tables tab_a / tab_b hold only the fragments f_* (dispatch_a / dispatch_b are inlined into disp_post)"
+  },
+  "l3_job": {
+   "targets": [],
+   "switch": true,
+   "basis": "core/dispatch/jobs.c: the switch on the job type (a jump table)"
+  },
+  "fatal_halt": {
+   "targets": [],
+   "switch": true,
+   "basis": "core/trace/fatal.c: the \"WE SUX\" state switch (a jump table, as the chip's 0x08020BEA)"
+  },
+  "song_gate": {
+   "targets": [],
+   "switch": true,
+   "basis": "core/song/song_posts.c (the s5 variants): the switch on the post's table index (a jump table)"
+  },
+  "song_body": {
+   "targets": [],
+   "switch": true,
+   "basis": "core/song/song_posts.c (the s5 variants): the switch on the post's table index and D6's sub-switch (jump tables)"
+  },
+  "module_command": {
+   "targets": [],
+   "switch": true,
+   "basis": "core/song/song_seq.c (the s5 variants): the switch on the module command (a jump table)"
+  },
+  "song_run_one": {"targets": ["re:^song_c6_(init|ready)$"], "basis": "core/song/song_oeq.c (the s5 variants): an SQ_CALL item calls its fn, and only core/dispatch/jobs.c's C6 job makes them: song_call(song_c6_init) and song_call(song_c6_ready) (core/song/song_c6.c); the s5probe image links neither"},
+  "psg_envelope_tick": {
+   "targets": [],
+   "switch": true,
+   "basis": "core/song/song_voice.c (the s5 variants): the switch on the PSG envelope state (a jump table)"
+  }
+ },
+ "sp_init": [
+  "_start"
+ ],
+ "stack_reset": [
+  "_start"
+ ],
+ "stack_reset_basis": "brd_full_reset (the cart's MCU-only reset: the fatal halt's backdoor, and the watchdog with 81 bit 4) jumps to _start, which loads sp from the stack top: a restart, not a nested call",
+ "constants_not_code": [
+  {
+   "in": "brd_sram_image_ok",
+   "value": "0x8000040",
+   "why": "board/pocket/s3_sram.c (MegaWire): the SRAM image's CRC-32 start (SRAM base + its 64-byte header), a data pointer; equal to the image's first function by layout"
+  },
+  {
+   "in": "mw_init",
+   "value": "0x1140",
+   "why": "core/mw/mw_task.c (MegaWire): the driver block's length (MW_DRV_BYTES, 4,416 B, the clear the chip's routine at 0x0801D648 makes), a data constant passed to memset; equal to a function start (wheel_low_run in the RELEASE image) only by layout"
+  },
+  {
+   "in": "mw_screen_step",
+   "value": "0x2EE0",
+   "why": "core/mw/mw_screen.c (MegaWire): the A858 screen's 12000-call wait (0x2EE0, the count the cart's chip compares), a data constant; equal to a function start (ppm_chip_flush_loads in the s5test_bug_r1 image) only by layout"
+  },
+  {
+   "in": "f_85",
+   "value": "0x4000",
+   "why": "the $1FE6 bit-14 mask (0x4000, the job-busy bit: core/dispatch), a data constant; equal to a function start (__floatunsisf in the RELEASE image) only by layout (since test build 4b, 2026-10-22, when the boot-cache stub moved .text by 348 B)"
+  },
+  {
+   "in": "f_db",
+   "value": "0x4000",
+   "why": "the $1FE6 bit-14 mask (0x4000, the job-busy bit: core/dispatch), a data constant; equal to a function start (__floatunsisf in the RELEASE image) only by layout (since test build 4b, 2026-10-22, when the boot-cache stub moved .text by 348 B)"
+  },
+  {
+   "in": "job_queued",
+   "value": "0x4000",
+   "why": "the $1FE6 bit-14 mask (0x4000, the job-busy bit: core/dispatch), a data constant; equal to a function start (__floatunsisf in the RELEASE image) only by layout (since test build 4b, 2026-10-22, when the boot-cache stub moved .text by 348 B)"
+  },
+  {
+   "in": "l3_job",
+   "value": "0x4000",
+   "why": "the $1FE6 bit-14 mask (0x4000, the job-busy bit: core/dispatch), a data constant; equal to a function start (__floatunsisf in the RELEASE image) only by layout (since test build 4b, 2026-10-22, when the boot-cache stub moved .text by 348 B)"
+  },
+  {
+   "in": "app_start",
+   "value": "0x1000",
+   "why": "core/boot/appinit.c: the $1FE6 bit-12 mask (s1 & 0x1000, chip 0x0801FA0C), a data constant; equal to a function start (st_store in the RELEASE image) only by layout (since 2026-10-15)"
+  },
+  {
+   "in": "app_start",
+   "value": "0xc00",
+   "why": "core/boot/appinit.c: the job slot's first halfword {fail_en 0, type JOB_SETUP_MW 12} = 0x0C00, stored with sh; equal to a function start only by layout"
+  },
+  {
+   "in": "app_start",
+   "value": "0x46f8",
+   "why": "core/boot/appinit.c: app init's $1FE4 word 0x46F8 (st_init_words, chip 0x0801FA1E), a data constant; equal to a function start (memset) only by layout (since the s1 build of 2026-10-11)"
+  },
+  {
+   "in": "ppm_setup_data",
+   "value": "0x10000",
+   "why": "legacy/026/mame.c ppm_setup_data: ppm_unk_data_addr = 0x10000, an SDRAM data address built with lui; equal to a function start (disp_job_slot) only by layout (the test_bug_go1 image, from 2026-10-12 on)"
+  },
+  {
+   "in": "dbg_write",
+   "value": "0x10008",
+   "why": "board/pocket/dbgsave.c dbg_write: the debug save's head word (DBG_B_HEAD << 16) | 8 = 0x00010008, a data constant built with lui / addi; equal to a function start (disp_post) only by layout (the test_bug_l1len image, 2026-10-13)"
+  },
+  {
+   "in": "wd_trip",
+   "value": "0x4200",
+   "why": "core/wdog/wdog.c: the watchdog trip's $1FE4 word 0x4200 (the fatal status the chip writes), a data constant; equal to a function start (mcu_reset in the TEST image) only by layout (since 2026-10-15)"
+  },
+  {
+   "in": "wh_wdog",
+   "value": "0x4200",
+   "why": "core/wdog/wdog.c: the same fatal $1FE4 word 0x4200 (wd_trip inlined into the TIM7 tick), a data constant; equal to a function start (mcu_reset in the TEST image) only by layout (since 2026-10-15)"
+  },
+  {
+   "in": "app_start",
+   "value": "0x1234",
+   "why": "core/boot/appinit.c: the chip's warm-path test $1FEA == 0x1234 (0x0801FA30-0x0801FA3A), a data constant built with lui / addi; equal to a function start (ppm_unpack_scal) only by layout (the s1 TEST image of 2026-10-14)"
+  }
+ ],
+ "sp_restore": {},
+ "entries_extra": [],
+ "address_taken_ok": {
+  "job_scale_save": "data, not an address: in the test_bug_l2c and test_bug_hold images from test build S3a, 2026-10-28 (core/zoom moves the code before it) job_scale_save starts at 0x1300 by layout, and 0x1300 is the MD+ command word of interim/album/mdp.c's mdp_stop (lui 0x1 / addi 0x300, passed to album_call and stored to the MD+ port; MD+ is the CD audio adapter the album plays through); job_scale_save is only ever called directly (the job step l3_job, core/dispatch/jobs.c)",
+  "ppm_snapshot_sat": "data, not an address: in the test_bug_sched1 image (2026-10-15) ppm_snapshot_sat starts at 0x2000 by layout, and 0x2000 is the status bit-13 constant of f_tick (st_set ST_FE6), wh_wdog (ST_FE4) and the DA / DB bodies. ppm_snapshot_sat is only ever called directly (TEST's l3_test_work)",
+  "sched_tick_start": "data, not an address: in the probe_bug3 image (2026-10-15) the probe's default config word probe_cfg[PK_SLICE_CYC] = 2000 (0x7D0, .data+0x8; tests/s1/sched_probe.c, overwritten by the fuzz test at boot) equals sched_tick_start's start by layout. sched_tick_start is only ever called directly (the 9494 handler, the probe's disp_post)",
+  "__fixsfsi": "data, not an address: in the release_bug_r1 image of 2026-10-18 (the compose of the sprite attribute word is 124 B shorter, so the code after it moves) libgcc's __fixsfsi starts at 0x4000 by layout, and 0x4000 is $1FE6 bit 14 (jobs pending) in f_85, f_db, job_queued and l3_job (st_set's mask); called directly only (jal), never through a pointer (measured: main.dis)",
+  "ppm_chip_rebuild": "data, not an address: in the TEST image of 2026-10-18 the scheduler fix moves the code before it by 16 B, so ppm_chip_rebuild starts at 0x1204 by layout, and the debug save's halfword table (board/pocket/dbgsave.c .rodata, 0x11de8-0x11e3f) holds the pair 0x0412, 0x0000 at .rodata+0x240, which reads as 0x1204. ppm_chip_rebuild is a static function only ever called directly (legacy/026/mame.c: ppm_vram_set_budget and EC's list rebuild)",
+  "wheel_low_pending": "data, not an address: in the s5release_bug_r1 image of 2026-10-23 (the main-loop pass's wiring in core/sched and the interim leftovers out of core/dispatch move the code before it) wheel_low_pending starts at 0xF00 by layout, and 0xF00 is the 4-bit mask constant (addi -256) of chip_af_over80, ppm_close_sprite_table and ppm_obj_render, the same constant as chip_trace's entry below. wheel_low_pending is only ever called directly (core/sched/sched.c l3_thread: jal, measured in main.dis)",
+  "st_raw_fe4": "data, not an address: in test build 4b's test_bug_l2c image of 2026-10-22 (crt0's call of the boot-cache stub and the stub itself move the code after them) st_raw_fe4 starts at 0x1204 by layout (0x11F4 in the clean TEST image), the value the debug save's halfword pair 0x0412, 0x0000 at .rodata+0x240 reads as (the pair chip_trace met in test build 4a's image, below). st_raw_fe4 is only ever called directly (core/dispatch disp.c, core/trace/mcureset.c, core/wdog/wdog.c: jal x5, measured in main.dis of test_bug_l2c)",
+  "chip_trace": "two layouts, both data, not an address (test build 5's integration keeps both texts under the one name). (1) data, not an address: in the s5release image of 2026-10-22 (the counter-11 fold in core/dispatch moves the code before it by 4 B) chip_trace starts at 0xF00 by layout (0xEFC before), and 0xF00 is the 4-bit mask constant (lui / addi -256) of chip_af_over80 and ppm_obj_render. chip_trace is only ever called directly (core/dispatch disp.c, jobs.c, status.c; core/song through board_trace: jal, measured: main.nm 00000f00 / main.dis). (2) data, not an address: in test build 4a's test_bug_l2c image (2026-10-22: crt0's FEAT check moves the code after it by 40 B) chip_trace starts at 0x1204 by layout (0x11F4 in the clean TEST image), the value the debug save's halfword pair 0x0412, 0x0000 at .rodata+0x240 reads as (the same pair as ppm_chip_rebuild's and s1_stamp_rescale's above). chip_trace is only ever called directly (core/dispatch disp.c, jobs.c, status.c; core/wdog/wdog.c: jal, measured: main.nm 00001204 / main.dis)",
+  "ed_cmd_cd_mount": "data, not an address: in the test_bug_l2c and test_bug_hold images of test build 4 with the debug save's version 6, 2026-10-20 (the album recorder's code in interim/album/mdp.c moves the code after it in irom_lo, and the two SCHED_BUG plants add 16 B more) interim/album/everdrive.c's ed_cmd_cd_mount starts at 0x4000 by layout, and 0x4000 is $1FE6 bit 14 (jobs pending) in f_85, f_db, job_queued and l3_job (st_set's mask, as __fixsfsi's entry above); called directly only (one jal, from mdp_init), never through a pointer (measured: main.dis of every variant)",
+  "ppm_setup_data": "data, not an address: in test build 5's s5release_bug_r1 image of 2026-10-23 (test build 5's s5release layout puts it at 0x200C and the R1 plant takes 12 B out of the code before it) legacy/026/mame.c's ppm_setup_data starts at 0x2000 by layout, and 0x2000 is a data constant (lui 0x2) in three functions: body_db's mailbox address ppmio + 0x2000 - 234 ($1F16, lhu), wh_wdog's st_set mask ST_FE4 (bit 13) and song_gate's board_status mask (bit 13), the same status bit-13 constant as ppm_snapshot_sat's entry above. ppm_setup_data is only ever called directly (one jal, from job_setup), never through a pointer (measured: main.dis of s5release_bug_r1)"
+ },
+ "schemes": {
+  "s1": {
+   "gate": true,
+   "what": "the new firmware (the 0.3.0 design on MCU interface v1.0): L1 l1_mei (MEI, closed) > L2a l2a_mti (MTI, MEI open) > L2b l2b_msi (MSI, MEI + MTI open) > L2c (inside L2b, MSI open again: a second L2b may nest) > L3 l3_thread (from crt0 and the board boot; since 2026-10-15 the CPU MATE brain call is the thread's); one trap entry s1_trap_entry (80 B frame per level); exceptions on top of any open level. Real code is measured; hooks not written yet count at their stand-in depth",
+   "levels": [
+    {
+     "name": "thread",
+     "entries": [
+      "_start"
+     ],
+     "basis": "reset entry: s1_crt0 -> brd_boot -> l3_thread (MIE on from the end of the boot): the brain call and TEST's diagnostics (both in the thread since 2026-10-15) and the idle housekeeping"
+    },
+    {
+     "name": "msi",
+     "stub": "s1_trap_entry",
+     "entries": [
+      "l2b_msi"
+     ],
+     "open": true,
+     "preempts": [
+      "thread"
+     ],
+     "basis": "L2b: the tick slices, the tick end + held posts, and L2c last (sched_l2c_once: one job; there is no firmware decoder: the RTL decodes)"
+    },
+    {
+     "name": "msi_l2c",
+     "stub": "s1_trap_entry",
+     "entries": [
+      "l2b_msi"
+     ],
+     "open": true,
+     "preempts": [
+      "msi"
+     ],
+     "basis": "an L2b nested on the L2b that runs L2c (a job) with MSI open again (a tick start during a job; in earlier versions also a SEND during a decode, or a decoder request). Counted as a whole second l2b_msi on top of the outer one at its deepest path: conservative (the outer one is inside sched_l2c_once then, and the nested one skips L2c)"
+    },
+    {
+     "name": "mti",
+     "stub": "s1_trap_entry",
+     "entries": [
+      "l2a_mti"
+     ],
+     "open": true,
+     "preempts": [
+      "thread",
+      "msi",
+      "msi_l2c"
+     ],
+     "basis": "L2a: the wheel and its callbacks, the urgent tick promotion"
+    },
+    {
+     "name": "mei",
+     "stub": "s1_trap_entry",
+     "entries": [
+      "l1_mei"
+     ],
+     "preempts": [
+      "thread",
+      "msi",
+      "msi_l2c",
+      "mti"
+     ],
+     "basis": "L1: ack, read, hold or dispatch, SEND"
+    },
+    {
+     "name": "exc",
+     "stub": "s1_trap_entry",
+     "entries": [
+      "sched_exception"
+     ],
+     "preempts": [
+      "thread",
+      "msi",
+      "msi_l2c",
+      "mti"
+     ],
+     "basis": "an exception where interrupts are open (an exception inside L1 adds the same 80 + its frame on top of L1's depth: not chained, covered by the margin; see docs)"
+    }
+   ]
+  }
+ }
+}

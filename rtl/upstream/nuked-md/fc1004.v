@@ -21,10 +21,11 @@
  *          help & support.
  *
  */
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 // 1: input, 0: output
 
-module fc1004
+module fc1004 #(parameter [5:0] YM_TRIM = 6'h00)   // pocket: stage 5 trfm, ym3438's TRIM (0 = full chip)
 	(
 	input MCLK,
 	input MCLK_e,
@@ -37,6 +38,11 @@ module fc1004
 	output WE1,
 	output WE0,
 	output OE1,
+	// pocket (0.3.0 stage 1, V1b): the values RAS1 / CAS1 / WE0 / OE1 take at the next MCLK (ym7101), for vram_alt
+	output RAS1_nx,
+	output CAS1_nx,
+	output WE0_nx,
+	output OE1_nx,
 	input [7:0] RD_i,
 	output [7:0] RD_o,
 	output RD_d,
@@ -139,6 +145,9 @@ module fc1004
 	input ZCLK_i,
 	output ZCLK_o,
 	output ZCLK_d,
+	output ZCLK_o_nx0,   // pocket (0.3.0 stage 1, G1 round 3): ZCLK_o (next) = ZCLK_o_nsel ? ZCLK_o_nx1 : ZCLK_o_nx0
+	output ZCLK_o_nx1,
+	output ZCLK_o_nsel,
 	input EDCLK_i,
 	output EDCLK_o,
 	output EDCLK_d,
@@ -303,6 +312,10 @@ module fc1004
 		.WE1(WE1),
 		.WE0(WE0),
 		.OE1(OE1),
+		.RAS1_nx(RAS1_nx),
+		.CAS1_nx(CAS1_nx),
+		.WE0_nx(WE0_nx),
+		.OE1_nx(OE1_nx),
 		.RD_i(RD_i),
 		.RD_o(RD_o),
 		.RD_d(RD_d),
@@ -326,8 +339,12 @@ module fc1004
 		.RESET(SRES),
 		.CLK1_i(CLK_i),
 		.CLK1_o(vdp_clk1_o),
+		.CLK1_gate(CLK_d),   // pocket (0.3.0): for the VDP's registered Z80 phase (zclk_q)
 		.SBCR(SBCR),
 		.CLK0(vdp_clk0),
+		.CLK0_nx0(ZCLK_o_nx0),   // pocket (0.3.0 stage 1, G1 round 3): ZCLK_o's next-value terms, for the Z80
+		.CLK0_nx1(ZCLK_o_nx1),
+		.CLK0_nsel(ZCLK_o_nsel),
 		.EDCLK_i(EDCLK_i),
 		.EDCLK_o(vdp_edclk_o),
 		.EDCLK_d(vdp_edclk_d),
@@ -380,7 +397,7 @@ module fc1004
 		.vdp_dma(vdp_dma)
 		);
 	
-	ym3438 fm
+	ym3438 #(.TRIM(YM_TRIM)) fm
 		(
 		.MCLK(MCLK),
 		.PHI(fm_clk),

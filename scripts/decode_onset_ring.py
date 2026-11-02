@@ -32,7 +32,7 @@ import sys
 
 # The save carries a 16-byte boot marker at 0x900 and the snapshot proper
 # (b[0] = 'P','S','A','T' in mcu/mame.c) at 0x910. The whole region is stored
-# 16-bit byte-swapped, which is why the magic reads 'SPTA' in a hex dump - so
+# 16-bit byte-swapped, which is why the magic reads 'SPTA' in a hex viewer - so
 # the swap is applied ONCE here and every offset below is then the same number
 # that appears in mcu/mame.c. Swapping per-field is how the two scripts would
 # drift apart.

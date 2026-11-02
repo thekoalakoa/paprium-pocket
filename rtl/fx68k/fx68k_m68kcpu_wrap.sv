@@ -1,3 +1,4 @@
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 // Pin-compatible wrapper around ijor/FX68K for paprium-pocket's Nuked md_board.
 // SHIPPING CPU from 0.2.2, selected by USE_FX68K (see projects/megadrive_pocket.qsf).
 // FX68K (c) 2018, 2021 Jorge Cwik, GPLv3-or-later. Wrapper GPLv3-or-later.
@@ -46,7 +47,10 @@ module fx68k_m68kcpu_wrap (
 );
 
 	localparam [15:0] COLD_PWRUP_CYCLES = 16'd4095;
-	reg pwrUp = 1'b1;
+	// pocket (0.3.0 stage 1, G1 fit round 2): maxfan 16. Since the warm-RESET fix pwrUp gates enPhi1 / enPhi2 directly
+	// (~120 loads at the fit), and its route into fx_reset -> FC_z -> the arbiter's INTAK decode -> VD set the vd_bus class
+	// on round-1 seed 4 (-0.793 ns, slow 85C). The copies are the same register (exact); each lies nearer its loads.
+	(* maxfan = 16 *) reg pwrUp = 1'b1;
 	reg [15:0] coldCnt = 16'd0;
 	always @(posedge MCLK) begin
 		if (pwrUp) begin
@@ -65,8 +69,13 @@ module fx68k_m68kcpu_wrap (
 	always @(posedge MCLK) clk_r <= CLK;
 	wire rise = CLK & ~clk_r;
 	wire mid  = ~CLK & clk_r;
-	wire enPhi1 = ~fx_reset & rise;
-	wire enPhi2 = ~fx_reset & mid;
+	// The phases stop only during the cold pwrUp, never during a warm RESET: FX68K's reset is
+	// synchronous and needs enPhi1/enPhi2 running while extReset is high (tState keeps ticking
+	// so T1 loads the reset micro-address and the bus-cycle latch clears on Phi2). With the
+	// phases stopped by fx_reset the release resumed the cut instruction or replayed the cut
+	// bus cycle before the vector read. Identical to ~fx_reset whenever RESET_i is high.
+	wire enPhi1 = ~pwrUp & rise;
+	wire enPhi2 = ~pwrUp & mid;
 
 
 	// ALT1+VPA: BR/BGACK/VPA enPhi2-register (stable at next enPhi1); ONE VARIABLE vs ALT1

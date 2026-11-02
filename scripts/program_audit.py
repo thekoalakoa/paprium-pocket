@@ -79,7 +79,7 @@ KNOWN_CMDS = {
     0x02: "pan",
     0x55: "sax-man marker",
 }
-# Commands tested for volume and refuted (see the project notes). Still unknown,
+# Commands tested for volume and refuted. Still unknown,
 # but knowing they are not volume is worth carrying into the report.
 REFUTED_VOLUME = {0x01, 0x07, 0x08, 0x1A}
 

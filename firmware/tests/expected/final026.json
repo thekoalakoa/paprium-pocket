@@ -1,0 +1,25 @@
+{
+  "note": "The final 0.2.6 firmware images, passed on hardware (the 0.2.6 integration build of 2026-10-09, made with its build_merge.sh + reloc.json + layout.json; TEST = defaults, RELEASE = -DPPM_RELEASE=1). Milestone 1: tools/fwbuild.py pocket --layout legacy54k must reproduce these bytes. md5 of each file in img/ and of main.elf.",
+  "legacy54k": {
+    "test": {
+      "mcu.txt":     "52801d2884e30932d2b9ae5c92d29207",
+      "mcu_ext.txt": "2c297175fbd4f7f906762c4ca42ce7e5",
+      "wram_hi.txt": "fb00f0ca4f3b3d5b0f84bc792cbca51e",
+      "wram_lo.txt": "d0fd1a9b1af7bad1f9c9529dcbe60131",
+      "rom.bin":     "3fec1f0df9d120428a61ae80c41d8f55",
+      "wcode.bin":   "29189a78dbbbc1c209829bf30942c0da",
+      "image.json":  "3a6f1bec8bb2a5e1ec2ae4c76c0b9d87",
+      "main.elf":    "ef138460b2b2213ba996039b0096d781"
+    },
+    "release": {
+      "mcu.txt":     "1570f36793636d008515faa7608d9c00",
+      "mcu_ext.txt": "d7da4574ba8834e8a9d9319a4081f313",
+      "wram_hi.txt": "1dfe3f401aaa4b0dab605a480a67c89c",
+      "wram_lo.txt": "502a6b1bfe800c004cf6605b9b3ec2a6",
+      "rom.bin":     "bedc68bd13b98659fd8d649edbe1e51b",
+      "wcode.bin":   "2c1ce124c556a836f27d4195f6262282",
+      "image.json":  "7e72a71bd7c5a4b5b6af5de139a81ea2",
+      "main.elf":    "3a861f717e9915e1c367e16929c3d09d"
+    }
+  }
+}

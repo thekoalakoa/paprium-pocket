@@ -1,4 +1,5 @@
-module ym3438_lfo
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
+module ym3438_lfo #(parameter [5:0] TRIM = 6'h00)   // pocket: stage 5 trfm
 	(
 	input MCLK,
 	input c1,
@@ -111,7 +112,7 @@ module ym3438_lfo
 		.nval()
 		);
 	
-	assign lfo_am = ~(lfo_cnt_lock[5:0] ^ {6{lfo_cnt_lock[6]}});
+	wire [5:0] lfo_am_full = ~(lfo_cnt_lock[5:0] ^ {6{lfo_cnt_lock[6]}});
 	
 	wire lfo_pm_sign_l_o;
 	
@@ -260,6 +261,7 @@ module ym3438_lfo
 		);
 	
 	wire [10:0] fnum_sr_o;
+	wire [11:0] fnum_lfo_full;   // pocket: stage 5 trfm T1
 	
 	ym_sr_bit_array #(.DATA_WIDTH(11)) fnum_sr
 		(
@@ -277,9 +279,25 @@ module ym3438_lfo
 		.MCLK(MCLK),
 		.c1(c1),
 		.inp(fnum_lfo_add),
-		.val(fnum_lfo),
+		.val(fnum_lfo_full),
 		.nval()
 		);
 	
+	// pocket: stage 5 trfm T1 - register 22 is never written, so lfo = 0 for ever: lfo_cnt_sr and lfo_cnt_lock
+	// hold 0, lfo_am = ~(0 ^ 0) = 6'h3F (the LFO-off constant, NOT 0) and the PM select terms are all 0. What is
+	// left of the PM path is its power-up transient: lfo_pm_add_1/2_l (dlatch_1, constant input 7F) give nval 7F
+	// until their first c1, lfo_pm_sum_l (dlatch_2) gives nval FF until the first c2 after that c1, and
+	// lfo_pm_sign_l2 (dlatch_2, constant input 1) gives nval 1 until the first c2; lfo_pm_sign_l3 is 0. The three
+	// 1-bit cells below are those latches' own state; the addend is non-zero only while fnum_sr_o is still 0 (a
+	// non-zero fnum needs two more c1 / c2 pairs to reach fnum_sr_o), so OR equals the adder exactly.
+	wire t1_c1_seen, t1_c2_after_c1, t1_c2_seen;
+	ym_dlatch_1 t1_c1_l(.MCLK(MCLK), .c1(c1), .inp(1'h1), .val(t1_c1_seen), .nval());
+	ym_dlatch_2 t1_c2a_l(.MCLK(MCLK), .c2(c2), .inp(t1_c1_seen), .val(t1_c2_after_c1), .nval());
+	ym_dlatch_2 t1_c2_l(.MCLK(MCLK), .c2(c2), .inp(1'h1), .val(t1_c2_seen), .nval());
+	wire [11:0] fnum_lfo_t1_add = { fnum_sr_o, 1'h0 } | { {4{~t1_c2_seen}}, {8{~t1_c2_after_c1}} };
+	wire [11:0] fnum_lfo_t1;
+	ym_dlatch_1 #(.DATA_WIDTH(12)) t1_fnum_lfo_l(.MCLK(MCLK), .c1(c1), .inp(fnum_lfo_t1_add), .val(fnum_lfo_t1), .nval());
+	assign lfo_am = TRIM[0] ? 6'h3F : lfo_am_full;
+	assign fnum_lfo = TRIM[0] ? fnum_lfo_t1 : fnum_lfo_full;
 
 endmodule

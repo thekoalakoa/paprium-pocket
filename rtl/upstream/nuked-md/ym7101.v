@@ -25,6 +25,7 @@
  *          help & support.
  *
  */
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 module ym7101
 	(
@@ -38,6 +39,11 @@ module ym7101
 	output WE1,
 	output WE0,
 	output OE1,
+	// pocket (0.3.0 stage 1, V1b - F4 shadow pins): the values RAS1 / CAS1 / WE0 / OE1 take at the next MCLK
+	output RAS1_nx,
+	output CAS1_nx,
+	output WE0_nx,
+	output OE1_nx,
 	input [7:0] RD_i,
 	output [7:0] RD_o,
 	output RD_d,
@@ -63,8 +69,14 @@ module ym7101
 	input CLK1_i,
 	output CLK1_o,
 	//output CLK1_d,
+	input CLK1_gate,    // pocket (0.3.0): fc1004's CLK_d; the board feeds CLK1_i = ~CLK1_gate & CLK1_o back in
 	output SBCR,
 	output CLK0,
+	// pocket (0.3.0 stage 1, G1 round 3): CLK0's value at the next MCLK edge, zclk_nx split at its select:
+	// CLK0(next) = CLK0_nsel ? CLK0_nx1 : CLK0_nx0 (for the Z80's instruction-register look-ahead)
+	output CLK0_nx0,
+	output CLK0_nx1,
+	output CLK0_nsel,
 	input MCLK_e,
 	input EDCLK_i,
 	output EDCLK_o,
@@ -2283,6 +2295,7 @@ module ym7101
 	end*/
 	
 	reg mclk_clk3_l;
+	wire prescaler_dff11_nx, prescaler_dff16_nx, prescaler_dff17_nx;   // pocket (0.3.0): zclk_q's taps, see below
 	
 	assign mclk_cpu_clk1 = ~(mclk_clk3 | mclk_clk3_l);
 	
@@ -2301,24 +2314,61 @@ module ym7101
 	ym7101_dff prescaler_dff8(.MCLK(MCLK), .clk(MCLK_e), .inp(prescaler_dff11_l2), .rst(mclk_and1), .outp(prescaler_dff8_l2));
 	ym7101_dff prescaler_dff9(.MCLK(MCLK), .clk(MCLK_e), .inp(prescaler_dff8_l2), .rst(mclk_and1), .outp(prescaler_dff9_l2));
 	ym7101_dff prescaler_dff10(.MCLK(MCLK), .clk(MCLK_e), .inp(~(prescaler_dff8_l2 & prescaler_dff9_l2)), .rst(mclk_and1), .outp(prescaler_dff10_l2));
-	ym7101_dff prescaler_dff11(.MCLK(MCLK), .clk(MCLK_e), .inp(prescaler_dff10_l2), .rst(mclk_and1), .outp(prescaler_dff11_l2));
+	ym7101_dff prescaler_dff11(.MCLK(MCLK), .clk(MCLK_e), .inp(prescaler_dff10_l2), .rst(mclk_and1), .outp(prescaler_dff11_l2), .nxt(prescaler_dff11_nx));
 	
 	ym7101_dff prescaler_dff12(.MCLK(MCLK), .clk(mclk_clk1), .inp(~(prescaler_dff12_l2 | prescaler_dff13_l2)), .rst(mclk_and1), .outp(prescaler_dff12_l2));
 	ym7101_dff prescaler_dff13(.MCLK(MCLK), .clk(mclk_clk1), .inp(prescaler_dff12_l2), .rst(mclk_and1), .outp(prescaler_dff13_l2));
 	ym7101_dff prescaler_dff14(.MCLK(MCLK), .clk(~mclk_clk1), .inp(prescaler_dff13_l2), .rst(mclk_and1), .outp(prescaler_dff14_l2));
 	ym7101_dff prescaler_dff15(.MCLK(MCLK), .clk(mclk_clk2), .inp(~(prescaler_dff15_l2 | prescaler_dff16_l2)), .rst(mclk_and1), .outp(prescaler_dff15_l2));
-	ym7101_dff prescaler_dff16(.MCLK(MCLK), .clk(mclk_clk2), .inp(prescaler_dff15_l2), .rst(mclk_and1), .outp(prescaler_dff16_l2));
-	ym7101_dff prescaler_dff17(.MCLK(MCLK), .clk(~mclk_clk2), .inp(prescaler_dff16_l2), .rst(mclk_and1), .outp(prescaler_dff17_l2));
+	ym7101_dff prescaler_dff16(.MCLK(MCLK), .clk(mclk_clk2), .inp(prescaler_dff15_l2), .rst(mclk_and1), .outp(prescaler_dff16_l2), .nxt(prescaler_dff16_nx));
+	ym7101_dff prescaler_dff17(.MCLK(MCLK), .clk(~mclk_clk2), .inp(prescaler_dff16_l2), .rst(mclk_and1), .outp(prescaler_dff17_l2), .nxt(prescaler_dff17_nx));
 	
+	// pocket (0.3.0): the Z80 clock phase as a register. mclk_cpu_clk0 (= ZCLK on the board, the Z80's CLK and the PSG's
+	// clock phase) was combinational off the prescaler: reg_test1[0] ? CLK1_i : dff16 | dff17, with CLK1_i coming back
+	// from the board as ~CLK1_gate & mclk_cpu_clk1, itself made of dff11 and mclk_clk3_l. Every Z80 latch enable and
+	// every PSG cell reads it, so one LUT net from the prescaler fanned out to ~400 loads: the worst inherited clk_md
+	// class (prescaler -> Z80 latch enables). zclk_q computes the same function from the NEXT value of every source,
+	// so on every edge it takes exactly what mclk_cpu_clk0 is about to become:
+	//   dff11 / dff16 / dff17 : their own l2_assign (ym7101_dff nxt)
+	//   mclk_clk3_l           : mclk_clk3 now, so mclk_cpu_clk1 next = dff11 next & dff11 now
+	//   reg_test1[0]          : sl_test1's next value (ym_slatch_r: rst ? 0 : en ? inp : mem), bit 0
+	//   CLK1_gate             : the board's tmss_test_2 | SEL1, constant (md_board ties TEST1-3 high and SEL1 low)
+	// Power-up: every source is 0, so mclk_cpu_clk0 starts at 0, and so does zclk_q. Exact by construction; a bench
+	// asserts zclk_q == mclk_cpu_clk0 on every clock. maxfan lets the fitter copy it next to the latch clusters.
+	// (G1 fit round 2 tried 16: both trial fits then had the copy next to its first LUT but the class at -0.104 /
+	// -0.054 ns, against 3 of 4 round-1 seeds >= 0 at 32; the rest of the cone is the Z80's own 7-8 LUT latch / PLA
+	// depth. Back to 32, the setting round 1 measured.)
+	// Defining ZCLK_COMB puts the combinational phase back.
+	wire reg_test1_0_nx = reset_ext ? 1'h0 : (w85 ? io_data[0] : reg_test1[0]);
+	wire zclk_nx1 = ~CLK1_gate & prescaler_dff11_nx & prescaler_dff11_l2;   // test register bit 0 set: CLK1_i's next value
+	wire zclk_nx0 = prescaler_dff16_nx | prescaler_dff17_nx;                // clear: the prescaler's
+	wire zclk_nx = reg_test1_0_nx ? zclk_nx1 : zclk_nx0;
+	// (G1 round 3) the Z80 reads the three terms itself, so its look-ahead puts the select (the VDP register-write decode,
+	// the deep part of zclk_nx) in its last LUT
+	assign CLK0_nx0 = zclk_nx0;
+	assign CLK0_nx1 = zclk_nx1;
+	assign CLK0_nsel = reg_test1_0_nx;
+	(* maxfan = 32 *) reg zclk_q = 1'h0;
+	always @(posedge MCLK)
+	begin
+		zclk_q <= zclk_nx;
+	end
+`ifdef ZCLK_COMB
+	wire zclk_sel = mclk_cpu_clk0;
+`else
+	wire zclk_sel = zclk_q;
+`endif
+	// pocket-end
+
 	assign SBCR = mclk_sbcr;
-	assign CLK0 = mclk_cpu_clk0;
+	assign CLK0 = zclk_sel;   // pocket (0.3.0): was mclk_cpu_clk0
 	assign CLK1_o = mclk_cpu_clk1;
 	
 	assign EDCLK_o = mclk_dclk;
 	
 	assign EDCLK_d = reg_test1[1];
 	
-	assign cpu_clk0 = mclk_cpu_clk0;
+	assign cpu_clk0 = zclk_sel;   // pocket (0.3.0): was mclk_cpu_clk0
 	assign cpu_clk1 = CLK1_i;
 	
 	// clk1, clk2
@@ -6156,11 +6206,14 @@ module ym7101
 	
 	// VRAM interface block
 	
+	// pocket (V1b): the next values of the latches behind RAS1 / CAS1 / WE0 / OE1 (see the pin block below)
+	wire l565_nx, l566_nx, l568_nx, l569_nx, l570_nx, l572_nx, l573_nx, l575_nx, l576_nx, l577_nx, l578_nx, l579_nx, l587_nx;
+	
 	ym_dlatch_1 dl564(.MCLK(MCLK), .c1(hclk1), .inp(l116), .nval(l564));
 	
-	ym_sr_bit sr565(.MCLK(MCLK), .c1(clk1), .c2(clk2), .bit_in(l564), .sr_out(l565));
+	ym_sr_bit_nx sr565(.MCLK(MCLK), .c1(clk1), .c2(clk2), .bit_in(l564), .sr_out(l565), .sr_out_nx(l565_nx));
 	
-	ym_dlatch_1 dl566(.MCLK(MCLK), .c1(clk1), .inp(l565), .nval(l566));
+	ym_dlatch_1_nx dl566(.MCLK(MCLK), .c1(clk1), .inp(l565), .nval(l566), .nval_nx(l566_nx));
 	
 	ym_dlatch_2 dl567(.MCLK(MCLK), .c2(clk2), .inp(l566), .nval(l567));
 	
@@ -6178,35 +6231,35 @@ module ym7101
 	
 	assign w990 = (w992 & l579) | l576 | reg_test0[5];
 	
-	ym_sr_bit sr568(.MCLK(MCLK), .c1(hclk1), .c2(hclk2), .bit_in(w991), .sr_out(l568));
+	ym_sr_bit_nx sr568(.MCLK(MCLK), .c1(hclk1), .c2(hclk2), .bit_in(w991), .sr_out(l568), .sr_out_nx(l568_nx));
 	
 	assign w991 = w286 | l571;
 	
 	assign w992 = l569 | ~l570;
 	
-	ym_dlatch_2 dl569(.MCLK(MCLK), .c2(hclk2), .inp(l570), .nval(l569));
+	ym_dlatch_2_nx dl569(.MCLK(MCLK), .c2(hclk2), .inp(l570), .nval(l569), .nval_nx(l569_nx));
 	
-	ym_dlatch_1 dl570(.MCLK(MCLK), .c1(hclk1), .inp(w1000), .nval(l570));
+	ym_dlatch_1_nx dl570(.MCLK(MCLK), .c1(hclk1), .inp(w1000), .nval(l570), .nval_nx(l570_nx));
 	
 	ym_sr_bit sr571(.MCLK(MCLK), .c1(hclk1), .c2(hclk2), .bit_in(w286), .sr_out(l571));
 	
 	assign w993 = ~w992 & (l572 | ~l573);
 	
-	ym_dlatch_2 dl572(.MCLK(MCLK), .c2(hclk2), .inp(l573), .nval(l572));
+	ym_dlatch_2_nx dl572(.MCLK(MCLK), .c2(hclk2), .inp(l573), .nval(l572), .nval_nx(l572_nx));
 	
-	ym_dlatch_1 dl573(.MCLK(MCLK), .c1(hclk1), .inp(l590), .nval(l573));
+	ym_dlatch_1_nx dl573(.MCLK(MCLK), .c1(hclk1), .inp(l590), .nval(l573), .nval_nx(l573_nx));
 	
 	ym_sr_bit sr574(.MCLK(MCLK), .c1(hclk1), .c2(hclk2), .bit_in(l109), .sr_out(l574));
 	
-	ym_dlatch_1 dl575(.MCLK(MCLK), .c1(hclk1), .inp(w1001), .nval(l575));
+	ym_dlatch_1_nx dl575(.MCLK(MCLK), .c1(hclk1), .inp(w1001), .nval(l575), .nval_nx(l575_nx));
 	
-	ym_sr_bit sr576(.MCLK(MCLK), .c1(clk1), .c2(clk2), .bit_in(~l564), .sr_out(l576));
+	ym_sr_bit_nx sr576(.MCLK(MCLK), .c1(clk1), .c2(clk2), .bit_in(~l564), .sr_out(l576), .sr_out_nx(l576_nx));
 	
-	ym_dlatch_1 dl577(.MCLK(MCLK), .c1(clk1), .inp(l576), .nval(l577));
+	ym_dlatch_1_nx dl577(.MCLK(MCLK), .c1(clk1), .inp(l576), .nval(l577), .nval_nx(l577_nx));
 	
-	ym_dlatch_2 dl578(.MCLK(MCLK), .c2(clk2), .inp(l577), .nval(l578));
+	ym_dlatch_2_nx dl578(.MCLK(MCLK), .c2(clk2), .inp(l577), .nval(l578), .nval_nx(l578_nx));
 	
-	ym_dlatch_1 dl579(.MCLK(MCLK), .c1(clk1), .inp(~l578), .nval(l579));
+	ym_dlatch_1_nx dl579(.MCLK(MCLK), .c1(clk1), .inp(~l578), .nval(l579), .nval_nx(l579_nx));
 	
 	assign w994 = ~((l116 & ~w265 & ~w263) | (w265 & l581));
 	
@@ -6234,7 +6287,7 @@ module ym7101
 	
 	ym_sr_bit sr586(.MCLK(MCLK), .c1(clk1), .c2(clk2), .bit_in(w1007), .sr_out(l586));
 	
-	ym_sr_bit sr587(.MCLK(MCLK), .c1(hclk1), .c2(hclk2), .bit_in(w1008), .sr_out(l587));
+	ym_sr_bit_nx sr587(.MCLK(MCLK), .c1(hclk1), .c2(hclk2), .bit_in(w1008), .sr_out(l587), .sr_out_nx(l587_nx));
 	
 	ym_sr_bit sr588(.MCLK(MCLK), .c1(hclk1), .c2(hclk2), .bit_in(l108), .sr_out(l588));
 	
@@ -6311,6 +6364,22 @@ module ym7101
 	assign WE1 = ~w987;
 	assign WE0 = ~w986;
 	assign OE1 = ~w985;
+	// pocket (0.3.0 stage 1, V1b - F4 shadow pins, timing NOTES 5.3): every term of the four pins vram_alt reads is a
+	// latch register (l565-l579, l587), so the pins' next values are the same equations on the latches' next values
+	// (their D inputs, from the *_nx cells). vram_alt registers them (pin_q) and reads the register: equal to the pin
+	// on every MCLK from power-up for any input (no reset touches these latches), and the VDP decode in front of the
+	// pins moves before that register instead of into 64 M10K port-B address registers (round 1: dl573 -> OE -> T ->
+	// port B, -0.339 ns at slow 85C on seed 3, 39 endpoints).
+	wire w992_nx = l569_nx | ~l570_nx;
+	wire w993_nx = ~w992_nx & (l572_nx | ~l573_nx);
+	wire w985_nx = (l565_nx & w993_nx & l579_nx) | (l575_nx & l576_nx) | (l575_nx & l576_nx);   // l576_delay = l576
+	wire w986_nx = l568_nx & l577_nx & l579_nx;
+	wire w988_nx = (l566_nx & l587_nx) | l579_nx;
+	wire w989_nx = (l566_nx & ~l587_nx) | l578_nx;
+	assign RAS1_nx = ~w989_nx;
+	assign CAS1_nx = ~w988_nx;
+	assign WE0_nx = ~w986_nx;
+	assign OE1_nx = ~w985_nx;
 	
 	assign RD_d = ~w990;
 	assign AD_d = ~w990;
@@ -7285,7 +7354,8 @@ module ym7101_dff #(parameter DATA_WIDTH = 1)
 	input clk,
 	input [DATA_WIDTH-1:0] inp,
 	input rst,
-	output [DATA_WIDTH-1:0] outp
+	output [DATA_WIDTH-1:0] outp,
+	output [DATA_WIDTH-1:0] nxt    // pocket (0.3.0): the value l2 takes on the next MCLK edge
 	);
 	
 	reg [DATA_WIDTH-1:0] l1 = {DATA_WIDTH{1'h0}}, l2 = {DATA_WIDTH{1'h0}};
@@ -7294,6 +7364,7 @@ module ym7101_dff #(parameter DATA_WIDTH = 1)
 	
 	//assign outp = l2_assign;
 	assign outp = l2;
+	assign nxt = l2_assign;
 	
 	always @(posedge MCLK)
 	begin

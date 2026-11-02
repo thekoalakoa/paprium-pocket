@@ -1,0 +1,1290 @@
+{
+ "note": "Config of tools/fwbudget.py. 'modules' attribute every byte of today's link (first matching rule wins; obj = object basename or lib:<archive>:<member>, sec = input-section name; 'as' overrides the memory class) and cap each module per class (irom / wram / wcode / brain; per variant when the cap is {test:{..}, release:{..}}). The linker's alignment fill is its own module, so the totals equal layout.txt's. Today's caps are the measured sizes (max of TEST and RELEASE): the 0.2.6 modules are frozen (milestone 1), so any growth is a deliberate change that must move its cap. 'plan' is the 0.3.0 module budget per placement. Each number says how it is known: measured (from a build) or estimated (calculated, with the basis given); the 'label' fields mark them MEASURED or MODELLED. Terms: s1 = the new 0.3.0 firmware's source set (fwbuild.json \"s1\", built with FW_S1) and s5 = its s5 variants (FW_S5, with the song engine). The fates and bases name the steps of the 0.3.0 work as stages: stage 1 = the scheduler, dispatcher, boot and watchdog of the s1 set; stage 2 = the sprite engine (core/sprite); stage 3 = the unpackers, the zoom (F4 / F5), the saves and MegaWire; stage 5 = the song engine (core/song). W1-W15 are the work items of docs/STAGE1_PLAN.md section 4.7. The D numbers (D02, D23, ...) name the differences between the 0.2.6 firmware and the cart's chip that our study of the cart listed.",
+ "modules": [
+  {
+   "name": "brain (fixed bytes)",
+   "area": "buddy",
+   "fate": "kept, never relinked",
+   "rules": [
+    {
+     "sec": "^\\.brain_irom$",
+     "as": "brain"
+    },
+    {
+     "sec": "^\\.wram_cf$",
+     "as": "brain"
+    }
+   ],
+   "cap": {
+    "brain": 39380
+   }
+  },
+  {
+   "name": "buddy glue: brain call",
+   "area": "buddy",
+   "fate": "rebuilt for the MSI entry (stage 1)",
+   "rules": [
+    {
+     "obj": "^zz_buddy\\.c\\.o$",
+     "sec": "^\\.text\\.(buddy_init|option_d|publish|restore_slice|work_slice|buddy_isr_tick|buddy_isr_post|buddy_exc_brain|buddy_event)$"
+    },
+    {
+     "obj": "^zz_buddy_trap\\.c\\.o$"
+    },
+    {
+     "obj": "^zz_buddy\\.c\\.o$",
+     "sec": "^\\.(rodata|noinit)"
+    },
+    {
+     "obj": "^zz_buddy_brain\\.c\\.o$",
+     "sec": "^\\.rodata\\.buddy_linked_entry$"
+    }
+   ],
+   "cap": {
+    "irom": 8,
+    "wram": 412,
+    "wcode": 5844
+   }
+  },
+  {
+   "name": "buddy glue: SFX feeder + VU",
+   "area": "buddy",
+   "fate": "goes with the SFX in logic (stage 5)",
+   "rules": [
+    {
+     "obj": "^zz_buddy\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "wcode": 3304
+   }
+  },
+  {
+   "name": "legacy: sprite engine",
+   "area": "legacy/026",
+   "fate": "replaced in core/ by code that does what the cart's chip does (stage 2); 2026-10-15 (FW_S1): + the load list's addresses beside the chip's count (ppm_chip_load_addr, 60 B wram), the frame end without the slot-age pass nothing reads with the chip's cache lists (3,368 TEST irom, 2,405 wram); 2026-10-17 (B Jam's decision of 2026-10-15/16): the chip's clip D24 (one compare) and the chip's whole AF frame end D10 + the rest of D42 (modes 0-2, the second 14-entry DMA, the stash as 28 words; chip_af_desc / chip_af_move, the mode and parity bytes); for MCU time in AD's and AF's L1 (the timed RV32 test: AF's reply must not end later than in the decoder-in-logic build of 2026-10-17) the compose writes each SAT entry as two words and reads the record's attribute word once, and the close stores its descriptors, the overflow move and the stash word-wide (the stash 4 x 7 fixed-offset copies); and, as the 2026-10-15 change did for AF's age pass, AE's 64-slot usage clear and the per-hit / per-claim usage / age marks are left out (nothing reads them with the chip's cache lists): 4,060 TEST / 3,884 RELEASE irom (+692 / +692), 2,407 wram (+2); 2026-10-17 (AF's reply): the same stores in the same order for fewer MCU instructions (the descriptors inline with their constant words, the end mark as one word, the stash fully unrolled in a shared tail-called helper chip_af_stash, the count > 80 tables out of line and compiled for size in chip_af_over80 with the relink four entries a pass): 4,192 TEST / 3,992 RELEASE irom (+132 / +108), 2,407 wram; 2026-10-18, TEST only: the frame end no longer asks for the SAT snapshot (body_af_replied does, after the reply), 4,172 TEST / 3,992 RELEASE irom (-20 / 0, measured); test build 4, 2026-10-18 (D23 as the chip does it; B Jam: \"if cart is different color change to cart\"): the attribute word as the chip's one 16-bit ADD with pose bit 29 (the frame word kept beside the pose offset, the object word and the flip's $800 set once a pose) in place of 0.2.6's field-wise rule and its door fix: 4,052 TEST / 3,868 RELEASE irom (-120 / -124, measured), 2,407 wram; 2026-10-27: the integer F5 stepping takes f5_s1.c's 4 B .srodata.cst4 (the float constant) out of the small data, so gp sits 4 B lower and three lui / addi pairs of ppm_obj_render no longer relax: 4,064 TEST / 3,868 RELEASE irom (+12 / 0, measured; no source change here); 2026-10-27: retired from every s1 and s5 image (core/sprite does what the cart's chip does; nothing links this code there, 0 B measured); it stays for the 0.2.6 milestone builds",
+   "rules": [
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "\\.(ppm_chip_(rebuild|ec_count|b0_reset|flush_loads|list|cd|shown|n|ab_only|f1[024]|loads|load_list|load_addr|af_mode|af_parity)|chip_af_(desc|move|end|f1c|stash|over80)|ppm_obj_|ppm_close_sprite_table|ppm_init_mame|ppm_block_addr|ppm_object_handles|ppm_anim_max_index|ppm_vram_slots|ppm_vram_max_slot|ppm_drawList|ppm_max_gfx_block|ppm_gfx_blocks_|ppm_anim_data|ppm_block_unpack_addr)"
+    },
+    {
+     "obj": "^paprium\\.c\\.o$",
+     "sec": "\\.(cmd_A[DEF]_|cmd_B[01]_|cmd_EC_|ppm_chip_engine_ready)"
+    }
+   ],
+   "cap": {
+    "irom": 4064,
+    "wram": 2407
+   }
+  },
+  {
+   "name": "legacy: sprite block load (D43)",
+   "area": "legacy/026",
+   "fate": "kept as ours (D43), moves to core/ (stage 2); 2026-10-27: retired from the s1 and s5 images (the composer lists the block, the flush pushes it, the RTL decodes it: B38), 0 B measured",
+   "rules": [
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "\\.(ppm_vram_load_block|ppm_chip_preload)$"
+    }
+   ],
+   "cap": {
+    "irom": 1512
+   }
+  },
+  {
+   "name": "stage 2: sprite engine (chip copy)",
+   "area": "core",
+   "fate": "core/sprite (stage 2; the path B Jam's decision of 2026-10-27 chose): the cart chip's sprite engine, written by our team from our own study of how the cart behaves, one function for each routine of the cart chip: the composer (D02-D04, D06, D07, D09, D23, D24, D39, D40), the AE aging as the loop of the chip's chains, AD (D18, D19), the AF frame end with the multiplex (D10, D42), the EC worker (D08, D49), B0 (D20), B1's flush count (D47), the flush's and F2's block-table read and C6's sprite init; -O2 (-Os added late AF passes). The state is the chip's fields in one struct (wram_data on the s5 images; wram_upper on these s1 interim images, whose wram_data the interim audio fills), the flush list in wram_sched. Measured 2026-10-28: 5,480 TEST / 5,300 RELEASE irom, 2,944 / 2,932 wram (the 2,096 B state and the 768 B index in wram_upper here, the 64 B flush list in wram_sched; TEST: four cache counters for its SAT snapshot, 12 B); pocket88k (the s5 images, no budget): s5test IROM free 4,268 B against 4,208 before, s5release 9,180 B against 9,444; stage 3, test build S3a, 2026-10-28 (B Jam's decision of 2026-10-28 on docs/ALLOWLIST.md row B52): an objID of 256-267 reads the chip's H+$504..$50F (the directory as its 16-bit view address, the directory long, the load count, 0) from the state, which now keeps them in the chip's order after frames[] (blkdir_bus +4 B, nload_pad +2 B: +8 B wram), the AD's check one compare and one byte load: 5,520 TEST irom (+40), 2,952 wram (+8, measured)",
+   "rules": [
+    {
+     "obj": "^spr_(compose|frame|posts)\\.c\\.o$"
+    },
+    {
+     "obj": "^spr_cache\\.c\\.o$",
+     "sec": "\\.(spr_age|spr_ec_set)$"
+    }
+   ],
+   "cap": {
+    "irom": 5520,
+    "wram": 2952
+   }
+  },
+  {
+   "name": "stage 2: sparse block->id index",
+   "area": "core",
+   "fate": "core/sprite spr_cache.c (stage 2): the 256 bucket heads + 128 nodes (768 B, wram_upper) that answer every read of the chip's 16 KB block -> id table with the same value. Measured 2026-10-27: 244 B irom (TEST and RELEASE)",
+   "rules": [
+    {
+     "obj": "^spr_cache\\.c\\.o$",
+     "sec": "\\.spr_bid_(get|set|clear)$"
+    }
+   ],
+   "cap": {
+    "irom": 244
+   }
+  },
+  {
+   "name": "legacy: unpack + DA/DB/F2/F4 stream",
+   "area": "legacy/026",
+   "fate": "chip unpackers (a decision of the 0.3.0 plan), stage 3",
+   "rules": [
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "\\.(ppm_unpack|swapshorts|ppm_sptr_shadow|ppm_unk_data|ppm_bgm_unpack_addr)"
+    },
+    {
+     "obj": "^paprium\\.c\\.o$",
+     "sec": "\\.(cmd_D[AB]_|cmd_F2_|cmd_F4_)"
+    }
+   ],
+   "cap": {
+    "irom": 1836,
+    "wram": 16
+   }
+  },
+  {
+   "name": "legacy: F5 rescale (soft float)",
+   "area": "legacy/026",
+   "fate": "chip integer F5 (stage 3); the soft float goes with it",
+   "rules": [
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "\\.(ppm_stamp_rescale|ppm_scale_stamp)$"
+    },
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "^\\.srodata\\.cst4$"
+    },
+    {
+     "obj": "^paprium\\.c\\.o$",
+     "sec": "\\.cmd_F5_"
+    },
+    {
+     "obj": "^lib:libgcc\\.a:(addsf3|mulsf3|fixsfsi|floatunsisf|_clzsi2|_clz)\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 4480,
+    "wram": 2052
+   }
+  },
+  {
+   "name": "legacy: C6 setup",
+   "area": "legacy/026",
+   "fate": "chip C6 one-shot + job 11 (stage 1 / 3)",
+   "rules": [
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "\\.ppm_setup_data$"
+    },
+    {
+     "obj": "^paprium\\.c\\.o$",
+     "sec": "\\.cmd_C6_"
+    }
+   ],
+   "cap": {
+    "irom": 1048
+   }
+  },
+  {
+   "name": "legacy: dispatcher, main loop, reset",
+   "area": "legacy/026",
+   "fate": "chip dispatcher + gates + status layer (stage 1)",
+   "rules": [
+    {
+     "obj": "^paprium\\.c\\.o$",
+     "sec": "\\.(ppm_cmd_handler|ppm_init_cmd_ptr|ppm_start|ppm_reset|cmd_unknown|cmd_00|cmd_81_|cmd_84_|cmd_E7_|cmp_ptr|ppmio|cmd_resp|tick_ctr)"
+    }
+   ],
+   "cap": {
+    "irom": 1440,
+    "wram": 1050
+   }
+  },
+  {
+   "name": "legacy: saves (plain format)",
+   "area": "legacy/026",
+   "fate": "chip save format + one-time import (stage 3)",
+   "rules": [
+    {
+     "obj": "^paprium\\.c\\.o$",
+     "sec": "\\.cmd_(DF|E0)_"
+    }
+   ],
+   "cap": {
+    "irom": 280
+   }
+  },
+  {
+   "name": "debug aids (TEST; 2 counters in RELEASE)",
+   "area": "legacy/026",
+   "fate": "TEST builds only (B Jam's rule); replaced by stage 1's counters. 2026-10-17 (FW_S1): the SAT snapshot's layout 2 (the session's most crowded frame with its true count beside the capped one, the latest frame of 20 or more, AF's most and over-80 count, a torn copy flagged): measured 2,067 B TEST irom (+260 over 1,807), 237 B wram (+20: AF's latched count, its two counters, the kept frame's count and AF number); RELEASE unchanged (images byte-identical); not a plan row (the plan's debug-aids allocation is the s1 counters' module), so the irom placement's slack stays 12 B. 2026-10-18 (with the fix from its review: ppm_snapshot_sat takes the frame-start count its caller read with the request): 2,059 B TEST irom (-8), 237 B wram (measured)",
+   "rules": [
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "\\.(snap_|ppm_snapshot_)"
+    },
+    {
+     "obj": "^neorv32_uart\\.c\\.o$",
+     "sec": "\\.(neorv32_uart_printf|__neorv32_uart_itoa|symbols|numbers)"
+    },
+    {
+     "obj": "^main\\.c\\.o$",
+     "sec": "^\\.rodata\\.main\\.str"
+    }
+   ],
+   "cap": {
+    "test": {
+     "irom": 3308,
+     "wram": 237
+    },
+    "release": {
+     "irom": 0,
+     "wram": 8
+    }
+   }
+  },
+  {
+   "name": "interim: album, SFX, VU, music cmds",
+   "area": "interim",
+   "fate": "removed with the album path (stage 5); 2026-10-17 (FW_S1 only): the chip's SFX laws in sfx.c (D1 / D3 level (T[v] + v) / 2 with the level table built at boot in wram_upper, 256 B; the D1 loop flag; D2 / D3 steps and the per-channel fade on the synth tick), 3,476 TEST / 3,132 RELEASE irom, 683 wram (stage 1); 2026-10-17: 3,468 TEST / 3,124 RELEASE irom, 683 wram (measured, the same as the committed tree of the SFX laws); 2026-10-19 (the Block 888 cell alarm B Jam reported): the s1 SFX is interim/s1/sfx_s1.c (sfx.c back to 0.2.6's text, not linked in stage 1): the chip's channel records, its channel choice, the echo / spread voices, the retrigger, the start delay and the mixer's bookkeeping from the block count, in the code window (pocket72k.json wcode_text; the cold parts compiled for size, the D1 and synth-tick paths at -O2): 4,552 TEST / 4,440 RELEASE wcode; the channel records and the pending starts in wram_upper: 975 wram; s1 irom 1,856 TEST / 1,684 RELEASE (everdrive, mdp); the irom cap is now the 0.2.6 builds' (3,442 TEST / 3,354 RELEASE, sfx.c in them; measured); 2026-10-19, TEST only: mdp.c notes every album call and polls the album's state for the debug save (album_call, s1_album_poll: out of line, for size; the record in s1_audio_stats), s1 irom 2,280 TEST (+424) / 1,684 RELEASE, 983 TEST wram (+8: the last play request's VSCNT and its flag; measured)",
+   "rules": [
+    {
+     "obj": "^(everdrive|mdp|sfx|sfx_s1)\\.c\\.o$"
+    },
+    {
+     "obj": "^paprium\\.c\\.o$",
+     "sec": "\\.(cmd_8[8CD]_|cmd_C[9A]_|cmd_D[1235]_|ppm_music_vu|vu_)"
+    },
+    {
+     "obj": "^mame\\.c\\.o$",
+     "sec": "\\.(ppm_bgm_addr|ppm_sfx_|ppm_bgm_tracks_)"
+    }
+   ],
+   "cap": {
+    "test": {
+     "irom": 3442,
+     "wram": 983,
+     "wcode": 4552
+    },
+    "release": {
+     "irom": 3442,
+     "wram": 975,
+     "wcode": 4552
+    }
+   }
+  },
+  {
+   "name": "stage 1: crt0, trap entry, board boot",
+   "area": "board/pocket",
+   "fate": "s1 board layer (W3; W6 adds the boot steps). Test build 4a, 2026-10-21, TEST only: crt0's FEAT check (MCU interface v1.3 section 1 rule 2: the image's blocks and its IROM) and brd_boot's two calls of the sound-cache probe (board/pocket/s1_cache4a.c), 1,332 TEST irom (+44); RELEASE and the probe images unchanged (measured). Test build 4b, 2026-10-22, TEST and RELEASE: crt0's FEAT check in both (they drive XLINK CACHE / BAR) and its call of the boot-cache stub (board/pocket/boot/boot_cache.c) before .data / .bss, brd_boot's two calls of the TEST record writer instead of the probe's (measured)",
+   "rules": [
+    {
+     "obj": "^s1_(crt0|trap)\\.S\\.o$"
+    },
+    {
+     "obj": "^s1_board\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "test": {
+     "irom": 1344,
+     "wram": 20
+    },
+    "release": {
+     "irom": 1344,
+     "wram": 20
+    }
+   }
+  },
+  {
+   "name": "stage 1: scheduler and timer wheel",
+   "area": "core",
+   "fate": "core/sched (W3); measured 2026-10-11: 1,920 B with every path linked (the probe; 1,932 with planted bug 3), 1,816 TEST / 1,476 RELEASE in the skeleton; with crt0 + trap + board boot 2,660 TEST / 2,216 RELEASE against the plan's 1,200 B (estimated) allocation; W11: 2,060 TEST / 1,672 RELEASE, printed against that plan row (a stage1_by row, which does not fail the check); 2026-10-13: + the WH_DEC wheel slot and wheel_due_above, 2,188 TEST / 1,800 RELEASE, 140 wram; 2026-10-14: the decoder leaves the wheel for L2c inside l2b_msi, one request a pass with MSI open and MTI masked, and TEST's debug save slot runs from L2c too (WH_DEC and wheel_due_above gone; wheel_l2c_pending / wheel_l2c_run, 4 B of state), 2,480 TEST / 2,072 RELEASE / 2,372 probe, 144 wram; 2026-10-14: the CPU MATE brain call holds the SFX feeder's wheel slot from the brain post to the call's end (wheel_hold, w_held: 4 B), 2,648 TEST / 2,240 RELEASE / 2,464 probe, 148 wram; 2026-10-15: the wheel's own cost cut (an arm / disarm inside l2a_mti only edits the slot, the compare is programmed once in its last look; l2a_look walks the five slots unrolled, l2a_mti saves 3 registers instead of 13; w_in_l2a: 4 B), 2,996 TEST / 2,588 RELEASE / 2,916 probe, 152 wram; 2026-10-15, with the sprite decoder moved into logic: the levels of the 2026-10-15 'game's own work first' change without a firmware decoder (the RTL decodes, MCU interface v1.2): L2b = the tick slices and L2c (one job); the brain call in the thread (the ordering of that change's own side branch, which also had a faster firmware decoder and was not merged); 2,856 TEST / 2,376 RELEASE, 148 wram; 2026-10-18: the lost wake-up of the versions from 2026-10-15 fixed (l2c_missed: a nested L2b that finds an L2c pass running says so, and the pass looks again before it leaves; l2b_msi +8 B TEST / +20 B RELEASE, sched_init +4 B), 2,868 TEST / 2,400 RELEASE irom, 152 wram (measured)",
+   "rules": [
+    {
+     "obj": "^(sched|wheel)\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 2868,
+    "wram": 152
+   }
+  },
+  {
+   "name": "stage 1: watchdog, heartbeat, fatal halt",
+   "area": "core",
+   "fate": "core/wdog + core/trace (W7): the chip's TIM7 tick (watchdog 0x08020E50, heartbeat 0x08020DE8) on the wheel with the Pocket-menu gate, event_post's fatal half (the LED waits and the WE SUX poll) and the MCU reset 0x0801FCC8; it does what the cart's chip does, and stays",
+   "rules": [
+    {
+     "obj": "^(wdog|fatal|mcureset)\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 1160,
+    "wram": 36
+   }
+  },
+  {
+   "name": "stage 1: CPU MATE glue (MSI entry)",
+   "area": "buddy",
+   "fate": "buddy/s1_glue.c (W8): the brain call from L2b (SEND -> CAUSE.S -> MSI), the abort through the trap exit, the restart / release / restore and option D as L3 idle housekeeping; the brain, its helpers and the 0.2.6 call wrapper unchanged; stays. 2026-10-19, TEST only: the late counter counts each answer armed after D_WORD (LCLR of the stub's sticky LATE flag just before the ARM, the flag read after it; late_note: the count, the largest lateness from TICK, the short-path calls; the old late_seen counted every publish while the flag stayed up), 2,384 TEST wcode (+20), 116 TEST wram (+12: three counters); RELEASE unchanged (1,784 wcode, 104 wram; images byte-identical; measured). 2026-10-19, TEST only: each late answer counted once (a late ARM whose publish read finds the game's next post already in counts on the discard path too) and late_max taken only from a TICK read with no post since the call's (LSTAT's post count read after it), 2,424 TEST wcode (+40), 116 TEST wram; RELEASE unchanged (images byte-identical; measured)",
+   "rules": [
+    {
+     "obj": "^s1_glue\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "test": {
+     "wcode": 2424,
+     "wram": 116
+    },
+    "release": {
+     "wcode": 2364,
+     "wram": 104
+    }
+   }
+  },
+  {
+   "name": "stage 1: TEST counters and debug save",
+   "area": "core + board/pocket",
+   "fate": "core/sched/stats.c + board/pocket/dbgsave.c (W10): per-level entries / exclusive cycles / longest run, the boot milestones, the L1 latency and the 84 window-off time from STAMP_B, the freeze telemetry, all copied into the save RAM at 0x1000 every TIM7 period (tools/dbgsave.py); TEST only (RELEASE: an empty WH_TEST callback); 2026-10-15 (debug save v4): + the RTL decoder block (FPGAIO slots 18-22 copied in place), 2,750 B TEST; 2026-10-17 (debug save v5): + the previous session's lateness block and its chain (DBG_B_PREV2: the decoder, CPU MATE, feeder, exception, dispatcher and stack counters the Pocket's quit used to lose), read once at the boot (68000 held) through a one-pass index of the old record (old_index) and written by the boot's write only (the region clear skips the words that write rewrites, so the boot is no slower), 3,160 B TEST (+410), 668 B wram_upper (+220: the block 148, the index 72); RELEASE unchanged; 2026-10-19 (debug save v6): the CPU MATE glue's true late count, largest lateness and short-path calls and the album's state (both in their own modules' blocks) carried across the quit in PREV2 (10 more words: 8 table rows, the largest lateness and the longest wait folded into the chain), the album poll called first at every write, the stack block stored from its own two words (one block call, -16 B): 3,164 B TEST (+4), 708 B wram_upper (+40); record 1,024 of 1,024 words; RELEASE unchanged (measured); test build 4a, 2026-10-21 (debug save v7): the room for DBG_B_CACHE behind PREV2 (the sound-cache probe's module reads and writes the block itself) and PREV2's chain carried from a version-6 or -7 record: constants only, 3,164 B TEST, 708 B wram_upper (measured, unchanged); record 978 of 1,024 words (the audio-call log 128 calls); test build 4b, 2026-10-22 (debug save v8): the record block for the boot cache (constants), and the VS poll and the album poll at one instant with interrupts off (a play request that preempted the write between them took the older VS count as its frame: tdiag_s1 seed 5 M4, 2 frames early): 3,176 B TEST (+12), 708 B wram_upper (measured)",
+   "rules": [
+    {
+     "obj": "^(stats|dbgsave)\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "test": {
+     "irom": 3176,
+     "wram": 708
+    },
+    "release": {
+     "irom": 8
+    }
+   }
+  },
+  {
+   "name": "card 4b: the boot-cache stub",
+   "area": "board/pocket",
+   "fate": "board/pocket/boot/boot_cache.c (IROM, TEST and RELEASE; stage 5, test build 4b, 2026-10-22, docs/MCU_INTERFACE.md section 21.1): crt0 calls it before .data / .bss; XLINK CACHE.VALID, the WRAM boot overlay's header and bitwise CRC-32, its entry, BAR off; the .noinit record c4b_rec. The overlay itself (the cache check, the WavPack unpack, the header, the SFX copy, the bar: board/pocket/boot/c4b_ovl.c + core/wavpack) is linked on its own into wram_upper and is measured in its build's ovl/ovl.txt, not by this tool (plan rows 'cache check, boot sequencer, SFX bank copy, bar' and 'WavPack decoder') (measured)",
+   "rules": [
+    {
+     "obj": "^boot_cache\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "test": {
+     "irom": 348,
+     "wram": 64
+    },
+    "release": {
+     "irom": 348,
+     "wram": 64
+    }
+   }
+  },
+  {
+   "name": "card 4b: the boot-cache record in the debug save (TEST only)",
+   "area": "board/pocket",
+   "fate": "board/pocket/s1_cache4b.c (TEST only; test build 4b, 2026-10-22): the boot cache's record (c4b_rec, which crt0's stub and the overlay fill) copied to the debug save's DBG_B_CACHE (version 8: this boot's and the previous four, carried across the Quit's reboot; the block is this module's, so the debug save's own code is unchanged). Boot only, 68000 held: in the WRAM code window (pocket72k.json wcode_text; the TEST IROM is full). A test aid, not a plan module; it replaces test build 4a's sound-cache probe (s1_cache4a.c, 1,420 B wcode); RELEASE has none of it (measured)",
+   "rules": [
+    {
+     "obj": "^s1_cache4b\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "test": {
+     "wcode": 468,
+     "wram": 324
+    },
+    "release": {
+     "wcode": 0,
+     "wram": 0
+    }
+   }
+  },
+  {
+   "name": "stage 1: hook defaults (skeleton)",
+   "area": "core",
+   "fate": "weak defaults of the skeleton; 0 B in the test and release images since W4-W10 (tests/check_images.py s1 fails if one is linked: W11); the probe images may use them",
+   "rules": [
+    {
+     "obj": "^sched_stubs\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 72
+   }
+  },
+  {
+   "name": "stage 1 TEST probe (probe images only)",
+   "area": "tests",
+   "fate": "never in a shipped image (tests/equiv/fuzz_sched.py drives it); 2026-10-15: + the probe's jobs (a B post with bit 0 queues one for L2c: probe_jobs), 1,184 irom (1,196 with planted bug 5) / 16,442 wram",
+   "rules": [
+    {
+     "obj": "^sched_probe\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 1196,
+    "wram": 16442
+   }
+  },
+  {
+   "name": "stage 1: dispatcher, status layer, job queue, event post",
+   "area": "core",
+   "fate": "core/dispatch (W4): the chip's mailbox entry / finish, both 55-entry tables with their gates and refusals, the status helper, the 16-slot job queue and job step, C6, 81-85, the 9494 head, event_post's counters; the weak hook defaults (fatal_halt W7, audio_tick_begin stage 5). Measured 2026-10-11: 6,872 TEST / 6,960 RELEASE irom, 476 wram, against the plan's 3,236 B (estimated) dispatcher allocation; W11: 6,964 TEST / 6,944 RELEASE with the W7-W10 hooks, printed against that plan row (a stage1_by row, which does not fail the check); 2026-10-13: + the board's deferred finish of AF / F2 (disp_board_tail), 7,028 TEST / 7,008 RELEASE, 480 wram; 2026-10-15: the flush pushes the load list last to first (push_entry, body_load_list), F2 / DA direct through push_entry, one DEC_BASE board call before each START, AF / F2 finish at once (disp_board_tail and the deferred stream finish gone), 7,024 TEST / 7,004 RELEASE, 476 wram; 2026-10-17: the AF open-frame gate D38 and the multiplex parity H+$403 (+1 at AE, B0 and the C6 sprite init), 7,112 TEST / 7,096 RELEASE (+88 / +92), 476 wram; 2026-10-17 (AF's reply): the flush writes each list entry's two queue registers in line (push_entry's call gone from the loop; the same writes in the same order), 7,132 TEST / 7,116 RELEASE (+20 / +20), 476 wram; 2026-10-17: the C6 hold (docs/ALLOWLIST.md, row B34, as the chip does it: the C6 job keeps $1FE6 bit 14 for the game's 80 VBlank polls, counted on VSCNT; TEST: its record c6_hold_test), 7,440 TEST / 7,368 RELEASE irom, 488 / 484 wram; 2026-10-17: the sprite-values update with the AF reply, and the C6 hold, together, 7,548 TEST / 7,480 RELEASE irom (the decoder-in-logic build of 2026-10-17, + the sprite-values update and the AF reply together, +108 / +112, + the C6 hold's +416 / +364 (the misc update of 2026-10-17): the two add exactly, measured), 488 / 484 wram; 2026-10-18, TEST only: f_af makes the finish itself and then calls body_af_replied, so TEST's SAT-snapshot bookkeeping comes after AF's reply, 7,568 TEST / 7,480 RELEASE irom (+20 / 0, measured); 2026-10-27: AD refuses an object index above $3F (D48, 0x0801BE18-0x0801BE20), 7,588 TEST / 7,500 RELEASE irom (+20 / +20), 488 / 484 wram; stage 3, test build S3a, 2026-10-28: job 8 runs the chip's set-up after its save (0x08022D34: the stamps := 0, core/zoom), 7,592 TEST irom (+4, measured)",
+   "rules": [
+    {
+     "obj": "^(disp|status|jobs|event|disp_stubs)\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 7592,
+    "wram": 488
+   }
+  },
+  {
+   "name": "stage 1: app init and boot page",
+   "area": "core",
+   "fate": "core/boot (W4 / W6): the chip's app start / app init, docs/BOOT_SPEC.md P3 / P4 (boot page, D45 patches, header), the MegaWire status; 2026-10-17: the per-Console-region letter switch (BOOT-07) dropped, the letters are the ROM's own: 576 TEST / 580 RELEASE irom",
+   "rules": [
+    {
+     "obj": "^(appinit|bootpage)\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 580,
+    "wram": 8
+   }
+  },
+  {
+   "name": "stage 1: register accessor and oracle log",
+   "area": "board/pocket",
+   "fate": "board/pocket/s1_freg.c (W6): the store, the shadow of every offset; TEST: the oracle log (2 KB, wram_upper); 2026-10-15: the firmware decoder queue gone (MCU interface v1.2: the RTL's), 156 TEST / 48 RELEASE irom, 2,084 / 32 wram",
+   "rules": [
+    {
+     "obj": "^s1_freg\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 156,
+    "wram": 2084
+   }
+  },
+  {
+   "name": "stage 1: 0.2.6 bodies re-hosted, the decoder's board half, VU",
+   "area": "interim",
+   "fate": "interim/s1 (W5): the 0.2.6 command bodies under the chip map, the DA06/DA07 board work, the moved VU rows; replaced by the chip's bodies stage by stage, the album parts with stage 5. Measured 2026-10-11: 3,002 TEST / 2,822 RELEASE irom, 86 / 74 wram before W9; 4,042 / 3,862 irom, 90 / 78 wram with the VU rows linked and their interrupts-off sections (W9); 2026-10-13: + the decoder stand-in out of L1 (wh_dec, its 32-entry queue in wram_upper, the AF / F2 tails; TEST: AF's SAT snapshot there too), 4,702 / 4,354 irom, 374 / 342 wram; with W13's E0 job slot check as the chip makes it (+24 B each): measured at the integration (2026-10-13) 4,726 / 4,378 irom, 374 / 342 wram; 2026-10-14: wh_dec becomes l2c_pending / l2c_run (L2c below the brain call, one request a call; TEST counts it as board work), 4,694 / 4,294 irom, 374 / 342 wram; 2026-10-15 (on a side branch that was not merged): a faster firmware decoder and a block memo (6,726 / 6,318 irom); 2026-10-15 (MCU interface v1.2): the RTL decodes, so the stand-in (its queue, the AF / F2 tails, the DA06 / DA07 board work) is gone; left: the load list for the flush, the decoder's output base before each START, TEST's SAT snapshot in the thread: 3,954 / 3,598 irom, 90 / 66 wram (TEST / RELEASE); 2026-10-17: body_af hands the mode and the parity to the chip's frame end, 3,962 / 3,558 irom (+8 / -40); 2026-10-17, with the SFX laws (body_d2 calls the chip's D2, body_d3 no longer kicks the feeder): 3,954 / 3,550 irom, 90 / 66 wram (measured); 2026-10-17: + AF's count latch and its two compares for TEST's snapshot layout 2 (s1_sat_snapshot_later: 18 instructions, was 3; no loop), 4,014 / 3,598 irom on the decoder-in-logic build (2026-10-17) (TEST / RELEASE); 2026-10-18: the merged tree of 2026-10-17 + the debug save's version 5 and the snapshot's layout 2, and a fix from its review (l3_test_work reads the frame-start count with its take of the snapshot request, interrupts off, and hands it to ppm_snapshot_sat: +12 B here, -8 B in the debug aids), 4,026 / 3,550 irom, 90 / 66 wram (TEST / RELEASE, measured); 2026-10-18, TEST only: the snapshot's AF bookkeeping (snap_cnt_af and s1_sat_snapshot_later, kept a function of its own for tests/equiv/q1_save.py) moves after AF's reply, into body_af_replied with its own is026 check (+36 B; measured: before the reply it cost ~1.6 us of it), 4,062 / 3,550 irom, 90 / 66 wram (measured); 2026-10-18, TEST only: body_af reads $1F18 before AF's reply into a 2-byte holding place (snap_af_read; after the reply the 68000 may already have written the next frame's count) and s1_sat_snapshot_later latches it from there: 4,062 / 3,550 irom (the read moved, 0 B), 92 / 66 wram (+2 / 0; the linker's fill 2 B less, measured); 2026-10-19: body_88 tells the SFX the 88 mode bit (sfx_mode88, both mailboxes: the chip's echo / spread voices need the cart-DAC mode), a tail call after the 0.2.6 body: 4,090 / 3,578 irom (+28 / +28), 92 / 66 wram (measured); 2026-10-27: the sprite bodies call core/sprite on every form and both mailboxes (0.2.6's per-byte rule gone), C6 hands the container to the engine's init, the interim's 88 keeps the frame-rate word the 50 Hz skip reads (D39), 3,886 TEST / 3,402 RELEASE irom (the 0.2.6 engine's bodies leave), 95 / 69 wram (+3 / +3)",
+   "rules": [
+    {
+     "obj": "^(bodies_s1|vu_s1)\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 4090,
+    "wram": 95
+   }
+  },
+  {
+   "name": "stage 1: interim audio on the wheel",
+   "area": "interim",
+   "fate": "interim/s1/audio_s1.c (W9): the rate-aware SFX feeder (0.2.6 glue chan_batch) on the WH_FEED grid, the first batch after D1 / D3, the VU rows on WH_VU, the empty song-tick hooks; TEST: the ordered audio-call log (1 KB, wram_upper); removed with the album path (stage 5). 2026-10-15: the same pushes, cheaper (feed_chans: one leaf with the batch inlined, only feed_playing's channels, the full flag read before the record, one loop per sample format): 1,396 -> 1,732 TEST / 1,260 RELEASE; 2026-10-17: the song-tick hook runs the chip's SFX fade on the synth tick (the NTSC 1-in-6 skip, its frame counter), D3 no longer kicks the feeder: 1,836 TEST / 1,364 RELEASE irom, 1,057 / 9 wram; 2026-10-19: the grid starts the pending starts (sfx_pend_run: a start delay, a FIFO drained silent first) and runs while one waits, and gives the SFX block count its clock figure (s1_sfx_blk3: the code window holds none): 1,948 TEST / 1,476 RELEASE irom (+112 / +112), 1,057 / 9 wram (measured); 2026-10-19, TEST only: s1_audio_stats carries the album's state after its five counters (alb_*, written by interim/album/mdp.c: the MD+ result word, XLINK's CDDA underruns and ring writes lost, the last album call and play request, the wait for a requested track to play) and moves to wram_upper (wram_data is tight): 1089 TEST wram (+32), irom unchanged; RELEASE unchanged (measured); test build 4a, 2026-10-21, TEST only: the audio-call log keeps 128 calls (S1_AU_LOG, for the debug save's version-7 room), 577 TEST wram (-512), irom unchanged (measured)",
+   "rules": [
+    {
+     "obj": "^audio_s1\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "test": {
+     "irom": 1948,
+     "wram": 1089
+    },
+    "release": {
+     "irom": 1948,
+     "wram": 1057
+    }
+   }
+  },
+  {
+   "name": "stage 3: zoom, the cart chip's (was: stage 1: F5 rescale copy)",
+   "area": "core",
+   "fate": "interim/s1/f5_s1.c (W5): 0.2.6's float F5 as a job, its 4 KB buffer static in wram_upper; W14: a fixed-point, word-wise body with the same results (+348 B: the 0.2.6 body stays for a window past row 127); the chip's integer F5 replaces it (stage 3). 2026-10-27: that window steps its rows in integers that are the IEEE single sums exactly (f5_round24; the host keeps the float body as the test reference), so libgcc's soft float leaves every s1 and s5 image (3,812 B, the row 'legacy: F5 rescale (soft float)' that the 0.2.6 builds still fill): 1,012 TEST / RELEASE irom (+100, measured), the image's IROM use -3,712 B; stage 3, test build S3a, 2026-10-28: retired; the row now holds core/zoom/zoom.c, the cart chip's zoom: F4's source in the chip's layout, job 8's save of RAMDP $0200-$09FF (0x08022CD0) and the stamps' set-up (0x08022D34), F5's integer rescale (0x08022D84, both 32-byte column copies written out as the chip has them: a decision of the plan for the IROM room) and the copy-out (0x08022D48), B6's restore (0x08022D04); the stamps 2 KB in wram_data, the F4 source and the save 4 KB in wram_upper (where f5_s1.c's 4 KB work buffer and mame.c's 2 KB ppm_scale_stamp were). Measured: 2,148 B irom (the rescale 1,632, the column for the edges past the stamps / the source 176, the copy-out 92, the save / restore 60 each, the 3a-only F4 byte order 80, two job bodies 24 each), 6,144 B wram",
+   "rules": [
+    {
+     "obj": "^zoom\\.c\\.o$"
+    }
+   ],
+   "cap": {
+    "irom": 2148,
+    "wram": 6144
+   }
+  },
+  {
+   "name": "board: crt0, main, UART setup",
+   "area": "board/pocket",
+   "fate": "own crt0 / trap entry, no UART (stage 1)",
+   "rules": [
+    {
+     "obj": "^crt0\\.S\\.o$"
+    },
+    {
+     "obj": "^main\\.c\\.o$"
+    },
+    {
+     "obj": "^neorv32_uart\\.c\\.o$",
+     "sec": "\\.neorv32_uart_setup$"
+    }
+   ],
+   "cap": {
+    "irom": 572
+   }
+  },
+  {
+   "name": "lib: memcpy, memset",
+   "area": "lib",
+   "fate": "kept",
+   "rules": [
+    {
+     "obj": "^lib:libc\\.a:"
+    }
+   ],
+   "cap": {
+    "irom": 516
+   }
+  },
+  {
+   "name": "linker: alignment fill",
+   "area": "link",
+   "fate": "follows the modules (alignment padding between input sections). 2026-10-18: 42 B TEST wram (measured; was 30 on 2026-10-17): the same small fills between the .sbss inputs, plus 12 B after .noinit, which now ends 4 B past a 16-byte boundary (the .bss is 20 B longer: layout 2's five counters); 3 B TEST irom; RELEASE 2 B irom, 27 B wram, as on 2026-10-17; 2026-10-18: 38 B TEST / 23 B RELEASE wram (the scheduler's 4 B fill a gap in the .sbss), irom unchanged (measured); the hook fix of 2026-10-18: 36 B TEST wram (the bodies' 2-byte snap_af_read fills a gap), RELEASE unchanged (measured); 2026-10-19: 32 B TEST / 19 B RELEASE wram, 3 / 2 B irom (measured)",
+   "rules": [
+    {
+     "obj": "^\\(linker fill\\)$",
+     "sec": "^\\*fill\\*$"
+    }
+   ],
+   "cap": {
+    "irom": 10,
+    "wram": 42
+   }
+  }
+ ],
+ "plan": {
+  "note": "Allocation (\"budget\") per 0.3.0 module = the target the module must meet; the sum per placement must fit its room (the check fails otherwise). lo / cen / hi = the forecast (basis corrected to Thumb-1 after the first study): the Thumb-1 spans of the chip x ratios against Cortex-M0, or measured sizes of code that exists, or measured sizes of a draft (the song engine, the 88 audio config and the synth state: the song-engine draft, folded in after its review; the sprite engine, the sparse block->id index and the sprite state: the sprite-engine draft, folded in after its review). The verdict block checks the resident code (IROM + window + WRAM-ROM) against its room per forecast and variant; the room is net of the data allocated in wram_upper. Labels: see \"ratio_labels\" and each module's \"label\".",
+  "ratios": {
+   "R_PORT": 1.12,
+   "R_OS": 1.406,
+   "R_O2": 1.593,
+   "R_DEC": {
+    "AUD": 2.039,
+    "SPR": 2.111,
+    "SCAL": 1.921,
+    "SAVE": 1.982,
+    "MW": 1.928,
+    "WAVPK": 1.852,
+    "MBX": 1.99,
+    "WDOG": 1.8,
+    "TRIM": 1.748,
+    "UNPK": 1.923,
+    "BOOT": 1.696,
+    "AUDINIT": 1.905,
+    "AUDMIX": 1.732,
+    "ALL": 1.939
+   }
+  },
+  "ratio_checks": {
+   "song_engine_draft": "Measured (the song-engine draft of 2026-10-10, made outside this tree): a struct-based C port of the song engine (chip 12,364 Thumb) links at 1.341 x the Thumb with -Os and 1.603 x with -O2. Against the ratios: R_OS 1.406 held (the port is 4.6 % smaller), R_O2 1.593 held (+0.6 %), R_PORT 1.12 is refuted for this module, and R_DEC (2.039 on AUD) overstated it: the compiled C of the chip's routines is 1.29 x (-Os) / 1.20 x (-O2) the draft on A1-A6, and on the audio posts that C glues the dispatcher fragments into much larger functions.",
+   "gate_tables": "Measured (the song-engine draft, audio commands): one 55-entry handler table serves both mailboxes (inferred for the entries not studied); gates as code: dispatcher entry + handler table 568 B -Os / 600 B -O2; table-driven gates: 1,100 / 1,212 B, and the audio handlers lose 332 / 400 B. Over the whole dispatcher a gate table saves about 0.45-0.57 KB (estimated from the audio rate), not ~3 KB. The dispatcher module keeps its forecast (it counts the chip's 662 B of dispatch tables; the draft needs 220 B) until the dispatcher itself is drafted.",
+   "sprite_engine_draft": "Measured (the sprite-engine draft of 2026-10-11, made outside this tree): a struct-based C port of the whole sprite engine links at 5,164 B -Os / 5,704 B -O2 against a forecast of 5,756 / 6,655 / 12,446. The chip's duplication disappears in a port (4,020 B of unrolled aging chains become a 164 B loop; three copies of search + claim become shared helpers; the per-mailbox dispatcher fragments become shared refusals). On the six routines the chip does not duplicate (1,826 Thumb) the port is 1.43 x (-Os) / 1.67 x (-O2) the Thumb, so R_OS 1.406 and R_O2 1.593 held within 2-5 %; R_DEC SPR 2.111 overstated the module because a Thumb x ratio basis cannot see the duplication (the compiled C of the chip's routines is 1.10 x / 1.03 x the draft on those six routines)."
+  },
+  "ratio_basis": "Cortex-M0 (Thumb-1): the cart program is Thumb-1 code (0 IT instructions; the only real 32-bit instructions are BL and ARMv6-M barriers; measured, and measured again). The earlier Cortex-M4 ratios (R_OS 1.508, R_O2 1.708, R_DEC 1.952) overstated the central forecast of every Thumb-based module by 7.3 %; the hi forecast (R_DEC) moves by under 1 % (the C of the chip's routines compiles to the same size for both cores, M0/M4 1.006).",
+  "ratio_labels": {
+   "R_OS": "Measured: same C (our 0.2.6 app sources) compiled RV32IM -Os and Cortex-M0 -Os, .text + .rodata",
+   "R_O2": "Measured: same C, RV32IM -O2 / Cortex-M0 -Os",
+   "R_DEC": "PROXY: code written by our team from our own study of how the cart behaves, one function for each routine of the cart program (620 of 737 functions), compiled RV32IM -O2 and Cortex-M0 -Os, per subsystem; stands in for a straight port in the code style of the chip",
+   "R_PORT": "PROXY, inferred: our 0.2.6 sprite rows that do what the chip does, RV32 bytes per chip Thumb byte of the rows they cover; the row mapping is inferred"
+  },
+  "placements": {
+   "irom": {
+    "bytes": 41076,
+    "what": "pocket72k irom_lo 21,344 + irom_hi 19,732 (the 72 KB IROM around the brain)"
+   },
+   "wcode": {
+    "bytes": 9656,
+    "what": "WRAM code window 16,384 minus the brain's fixed cf.bin + pad + image tables 6,728"
+   },
+   "wram_upper": {
+    "bytes": 16384,
+    "what": "WRAM 0x6C00-0xABFF: synth state, scaling buffers, extra .bss and WRAM-ROM spill"
+   },
+   "wram_data": {
+    "bytes": 6176,
+    "what": "WRAM 0x0000-0x181F (crt0-cleared data)"
+   },
+   "sram_cold": {
+    "bytes": 32768,
+    "what": "SRAM 0x18000-0x1FFFF: cold pack (one-off job bodies, run in place)"
+   },
+   "sram_mw": {
+    "bytes": 65536,
+    "what": "SRAM 0x00000-0x0FFFF: MegaWire code + RAM, run in place"
+   },
+   "boot_overlay": {
+    "bytes": 22560,
+    "what": "power-on WRAM (wram_data + wram_upper) before crt0"
+   }
+  },
+  "resident": {
+   "placements": [
+    "irom",
+    "wcode",
+    "wram_upper"
+   ],
+   "kinds": [
+    "code",
+    "rodata"
+   ],
+   "room_minus_data_in": [
+    "wram_upper"
+   ]
+  },
+  "modules": [
+   {
+    "name": "crt0, trap entry, L1/L2/L3 scheduler, timer wheel",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 872,
+    "cen": 1200,
+    "hi": 1672,
+    "budget": 1200,
+    "basis": "the 0.3.0 design's estimate (today crt0 372 + main 72 measured). Stage 1 measured 2026-10-11 (work item W11; a stage1_by row, which does not fail the check): 3,272 B TEST / 2,748 B RELEASE (crt0 412, trap entry 372, board boot ~290, scheduler + wheel 1,672 RELEASE / 2,060 TEST with its counters): the estimated 1,200 B did not count the trap entry, the board boot or the scheduler's held posts, urgent promotion and brain poll; docs/BUDGET.md section 7",
+    "label": "MODELLED",
+    "stage": "1",
+    "stage1_by": [
+     "stage 1: crt0, trap entry, board boot",
+     "stage 1: scheduler and timer wheel"
+    ]
+   },
+   {
+    "name": "dispatcher, gates, status layer, job queue, C6 reply",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 2472,
+    "cen": 3236,
+    "hi": 3878,
+    "budget": 3236,
+    "basis": "chip MBX 942 + JOBQ 292 + C6 382 Thumb + the chip dispatch tables 662 B kept as table bytes; lo Thumb 1616 x 1.12 (port ratio), cen Thumb 1616 x 1.593 (-O2), hi Thumb 1616 x 1.990 (chip style, R_DEC MBX) + 662 fixed. Stage 1 measured 2026-10-11 (work item W11; a stage1_by row, which does not fail the check): 6,964 B TEST / 6,944 B RELEASE (disp.c 5,920 RELEASE: both 55-entry tables with every gate and refusal written out per mailbox fragment as the chip has them, 81-85, the 9494 head, C6). Part of it is counted again in the song-engine draft (A7: the audio posts' gates, 2,812 B -Os) and the sprite draft (S7, 372 B); how much is not known; docs/BUDGET.md section 7",
+    "label": "MODELLED",
+    "stage": "1",
+    "stage1_by": [
+     "stage 1: dispatcher, status layer, job queue, event post"
+    ]
+   },
+   {
+    "name": "sprite engine, complete chip copy",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 5164,
+    "cen": 5704,
+    "hi": 7456,
+    "budget": 5704,
+    "basis": "Measured draft (the sprite-engine draft of 2026-10-11, made outside this tree): written by our team from our own study of how the cart behaves, one function for each routine of SPR (all 141 rows of our map of the chip's routines), the resident part = composer, AE aging (the chip's unrolled chains as one loop), AE open, B1 flush, AF + multiplex, B0, AD, EC and the EC/AD/AE/AF/B0/B1 posts; compiled and linked RV32IM with this tree's GCC 15.2 and flags, gates as code, the 0.3.0 design's sparse index, .text + rodata: 5,164 B -Os / 5,704 B -O2. cen = allocation = -O2 (the plan's convention for hot L1 code; sprite replies are L1); lo = -Os (if a CPU measurement allows it); hi = the chip's code shape at -O2 (search + claim and every refusal inlined at each site, as the chip does) 7,456 B, a measured variant kept as the upper bound because the draft was not run. Not in these bytes: the sparse index (next module), F2 (292 / 304 B; unpack/stream module), the C6 job 11 sprite part (728 / 740 B; cold pack), the chip's table placeholders (568 B; constant tables), the D43 loader (own module). Size only: behaviour not known (stage 2 proves it: 351,839 draws). Was (forecast, Thumb-1 basis): 5,756 / 6,655 / 12,446",
+    "label": "MEASURED (size of a draft; behaviour NOT ESTABLISHED)",
+    "stage": "2",
+    "draft": {
+     "status": "MEASURED",
+     "by": "the sprite-engine draft of 2026-10-11 (made outside this tree; not in it); rebuilt from the same sources by its review: sizes.json identical (md5 7dcee974)",
+     "bytes_Os": 5164,
+     "bytes_O2": 5704,
+     "label": "MEASURED",
+     "chip_thumb": 8752,
+     "chip_thumb_aging_as_loop": "4,890-5,040",
+     "ratio_Os_O2_vs_aging_as_loop": [
+      "1.025-1.056",
+      "1.132-1.166"
+     ],
+     "ratio_Os_O2_on_the_six_routines_the_chip_does_not_duplicate": [
+      1.43,
+      1.67
+     ],
+     "per_part_Os_O2": {
+      "S1 composer (4 chip fragments -> one function + 3 helpers; chip 2,112 Thumb)": [
+       2016,
+       2092
+      ],
+      "S2 AE aging (entry + 4,020 B of unrolled chains -> one loop; chip 4,064 Thumb)": [
+       164,
+       188
+      ],
+      "S3 AE open, B1 flush, B0 (chip 428 Thumb)": [
+       624,
+       648
+      ],
+      "S4 AF + multiplex (chip 852 Thumb)": [
+       1208,
+       1544
+      ],
+      "S5 AD wrapper, 3 entries (chip 294 Thumb)": [
+       500,
+       548
+      ],
+      "S6 EC worker (chip 252 Thumb)": [
+       280,
+       316
+      ],
+      "S7 posts EC/AD/AE/AF/B0/B1 (chip dispatcher walk 750 B)": [
+       372,
+       368
+      ]
+     },
+     "variants_Os_O2": {
+      "chip code shape (search + claim and every refusal inlined at each site)": [
+       6612,
+       7456
+      ],
+      "gates in a table (the gate table lives in the dispatcher)": [
+       4976,
+       5524
+      ],
+      "search + claim out of line": [
+       5164,
+       5688
+      ],
+      "the chip's direct 16 KB block->id table (+15,616 B of RAM; not placeable)": [
+       5048,
+       5676
+      ],
+      "RV32IMC (compressed; ALM cost NOT MEASURED; information only)": [
+       4100,
+       4640
+      ]
+     },
+     "outside_Os_O2": {
+      "sparse block->id index (its own plan module)": [
+       240,
+       248
+      ],
+      "F2 block viewer, body + post (unpack/stream module; the plan keeps our D46 path)": [
+       292,
+       304
+      ],
+      "C6 job 11 sprite part: init + anim setup (cold pack, \"C6 job 11 body\")": [
+       728,
+       740
+      ],
+      "chip tables as zero placeholders: slot->id 56 + DMA words 2 x 256 (constant tables module)": [
+       568,
+       568
+      ]
+     },
+     "ram_bss": {
+      "sprite state": 2100,
+      "sparse index": 768
+     },
+     "stack": "deepest L1 sprite chain (dispatcher entry -> AD -> composer -> miss -> claim): 272 B -Os / 256 B -O2 of measured frames (+64 B estimated status layer = 336 / 320), under the MEI level of tools/stack.json (448 TEST / 384 RELEASE)",
+     "what": "The slot is filled: the measured -O2 size replaced cen and the allocation, lo = -Os, hi = the chip-shape variant at -O2, and the verdict was recomputed (after the draft's review)."
+    },
+    "measured_by": [
+     "stage 2: sprite engine (chip copy)"
+    ]
+   },
+   {
+    "name": "sparse block->id index",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 240,
+    "cen": 248,
+    "hi": 248,
+    "budget": 248,
+    "basis": "Measured draft (the sprite-engine draft of 2026-10-11, made outside this tree): bid_get / bid_set / bid_clear 240 B -Os / 248 B -O2 (.text); its RAM (256 bucket heads + 128 nodes = 768 B) is in the wram_data line below, as designed. Size only. Was (the 0.3.0 design's estimate): 200 / 300 / 400",
+    "label": "MEASURED (size of a draft)",
+    "stage": "2",
+    "measured_by": [
+     "stage 2: sparse block->id index"
+    ]
+   },
+   {
+    "name": "sprite block load into SDRAM (D43, ours)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 1244,
+    "cen": 1456,
+    "hi": 1512,
+    "budget": 1512,
+    "basis": "ppm_vram_load_block + ppm_chip_preload, measured today (RELEASE 1,244 / TEST 1,456); moves as is. The same source compiled in the s1 set (interim/s1/appmain.h: no NEORV32 HAL, printf dropped) is measured 1,512 TEST / 1,264 RELEASE (2026-10-11, work items W4-W6): hi and budget follow it",
+    "label": "MEASURED",
+    "stage": "2",
+    "measured_by": [
+     "legacy: sprite block load (D43)"
+    ]
+   },
+   {
+    "name": "unpackers 0x80/0x81/0x82 (chip copy) + DA/DB/F2 handlers (ours, D46)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 1656,
+    "cen": 3965,
+    "hi": 4688,
+    "budget": 3965,
+    "basis": "chip LZO1X 976 + 0x80/0x82 946 + jobs 266 Thumb + our DA/DB/F2 handlers 480 B measured; lo = ours today 1,656 B measured (bit-identical); lo measured 1656, cen Thumb 2188 x 1.593 (-O2), hi Thumb 2188 x 1.923 (chip style, R_DEC UNPK) + 480 fixed",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "song engine hot path (sequencer, commands, voices, FM/PSG/Z80, packet, SFX control, Boom Box, audio posts)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 16584,
+    "cen": 16584,
+    "hi": 19816,
+    "budget": 16584,
+    "basis": "Measured draft (the song-engine draft of 2026-10-10, made outside this tree): written by our team from our own study of how the cart behaves, one function for each routine of AUD minus the wave envelope (A1-A7: the 54 routines and the 92 dispatcher fragments of the 13 audio commands; chip 12,364 Thumb), compiled and linked RV32IM with this tree's GCC 15.2 and flags, gates as code, .text + function rodata: 16,584 B -Os (x1.341 of the Thumb) / 19,816 B -O2 (x1.603). cen = allocation = the -Os build; lo = the same (the port ratio 1.12 is refuted here: a struct-based port measures 1.341); hi = the whole engine at -O2 (if the CPU measurement asks for it; -O2 on the tick path only, A1 + A3, is about +2.0 KB). Not in these bytes: the chip data tables (326 B of placeholders; constant tables module), the dispatcher entry + handler table (dispatcher module), the glue not drafted yet (next module). Size only: the draft was not run, behaviour not known (stage 5 proves it against the cart's chip, run in our cart-engine runner). Was (forecast, Thumb-1 basis): 11,435 / 17,381 / 25,206",
+    "label": "MEASURED (size of a draft; behaviour NOT ESTABLISHED)",
+    "stage": "5",
+    "draft": {
+     "status": "MEASURED",
+     "by": "the song-engine draft of 2026-10-10 (made outside this tree; not in it)",
+     "bytes_Os": 16584,
+     "bytes_O2": 19816,
+     "label": "MEASURED",
+     "ratio_Os": 1.341,
+     "ratio_O2": 1.603,
+     "chip_thumb": 12364,
+     "per_part_Os_O2": {
+      "A1 sequencer, module commands, effects, note functions": [
+       5968,
+       7532
+      ],
+      "A2 voice back-ends, PSG envelope, pitch and gain helpers": [
+       1800,
+       2252
+      ],
+      "A3 Z80 messages, packet + YM-DAC stream copy, flush timer": [
+       2848,
+       3256
+      ],
+      "A4 masters and fades": [
+       1140,
+       1192
+      ],
+      "A5 SFX control": [
+       1688,
+       2168
+      ],
+      "A6 Boom Box feed": [
+       328,
+       400
+      ],
+      "A7 audio posts (gates + bodies)": [
+       2812,
+       3016
+      ]
+     },
+     "variants_Os_O2": {
+      "gates in a table (the dispatcher then carries the gate table)": [
+       16252,
+       19416
+      ],
+      "chip-shape refusals (inlined at every site, as the chip)": [
+       18852,
+       22568
+      ],
+      "RV32IMC (compressed; ALM cost NOT MEASURED; information only)": [
+       13800,
+       16656
+      ]
+     },
+     "outside_Os_O2": {
+      "wave envelope 300 Hz (logic in design B; firmware fallback)": [
+       580,
+       696
+      ],
+      "8C job tail (job kind 2; dispatcher module JOBQ)": [
+       136,
+       156
+      ],
+      "dispatcher entry + one 55-entry handler table, gates as code": [
+       568,
+       600
+      ],
+      "dispatcher entry + gate table + interpreter + handler table": [
+       1100,
+       1212
+      ]
+     },
+     "ram_bss": 6400,
+     "what": "The slot is filled: the measured -Os size replaced cen and the allocation, lo / hi were re-derived from the draft, and the verdict was recomputed (after the draft's review)."
+    }
+   },
+   {
+    "name": "song engine glue not drafted yet (wave-voice hand-off, sliced tick / urgent rule / held posts, flush timer + packet copy)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 350,
+    "cen": 625,
+    "hi": 900,
+    "budget": 625,
+    "basis": "Estimated (the open list of the song-engine draft): wave-voice hand-off to the synth logic 0-0.4 KB (0 if the logic reads the voice records in WRAM), the 0.3.0 design's sliced song tick / urgent rule / held posts 0.2-0.5 KB (partly in the scheduler module, so this line may double count a little), the board's flush timer and packet copy ~0.1 KB; cen = the midpoint",
+    "label": "MODELLED",
+    "stage": "5"
+   },
+   {
+    "name": "88 audio config -> synth registers",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 384,
+    "cen": 384,
+    "hi": 388,
+    "budget": 384,
+    "basis": "Measured draft (the song-engine draft of 2026-10-10, made outside this tree): the 88 configuration (chip 272 Thumb) linked RV32IM, 384 B -Os / 388 B -O2, size only. Was (forecast): 302 / 471 / 693",
+    "label": "MEASURED (size of a draft)",
+    "stage": "5"
+   },
+   {
+    "name": "MegaWire command entry + refusals (L1)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 100,
+    "cen": 300,
+    "hi": 552,
+    "budget": 300,
+    "basis": "the 0.3.0 design's estimate (the rest of MegaWire runs in SRAM)",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "lib: memcpy, memset",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 516,
+    "cen": 516,
+    "hi": 516,
+    "budget": 516,
+    "basis": "Measured today (newlib)",
+    "label": "MEASURED",
+    "stage": "0",
+    "measured_by": [
+     "lib: memcpy, memset"
+    ]
+   },
+   {
+    "name": "resident boot stub (cache_valid, overlay check)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 348,
+    "cen": 348,
+    "hi": 348,
+    "budget": 360,
+    "basis": "board/pocket/boot/boot_cache.c boot_cache_boot (test build 4b, 2026-10-22): CACHE.VALID, the overlay's header and bitwise CRC-32, its entry, BAR off: 348 B measured (RV32IM -O2, the s1 images); allocation 372 -> 360 (12 B to the TEST debug save's one-instant album poll, test build 4b)",
+    "label": "MEASURED",
+    "stage": "4",
+    "measured_by": [
+     "card 4b: the boot-cache stub"
+    ]
+   },
+   {
+    "name": "debug aids + per-level counters (TEST build only)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 1500,
+    "cen": 2800,
+    "hi": 4420,
+    "budget": 3176,
+    "basis": "today's debug aids 3,308 B measured (TEST), TEST-RELEASE delta 4,420 measured; allocation 2,800 = today's minus the 0.2.6 snapshots that stage 1 retires + the per-level counters. Measured 2026-10-11 (work item W10, core/sched/stats.c + board/pocket/dbgsave.c): 2,580 B TEST, 8 B RELEASE; the 0.2.6 snapshots it was to replace stay in the s1 TEST image (legacy/026/mame.c, PPM_SAT_SNAPSHOT: their own module). Measured 2026-10-11 (the s1 build with the 8 KB save, debug save v2): 2,590 B TEST, 8 B RELEASE: +10 B net for the previous session's record kept across a Soft Reset (DBG_B_PREV), the fatal halt's write, the region cleared at the boot and the bounded log writes, with the block writers moved out of line. Measured 2026-10-13 (MCU interface v1.1, debug save v3): 2,738 B TEST (+148), 448 B WRAM (+20, wram_upper), 8 B RELEASE: the VS counter's poll and 32-bit extension at every write, the VS block and the two VS words of the previous session's record (B Jam's decision of 2026-10-13: the VS counter in the freeze telemetry); inside the 2,800 B allocation. Measured 2026-10-17 (debug save v5): 3,160 B TEST (+410 over the 2,750 of 2026-10-15), 8 B RELEASE: the previous session's lateness counters and their worst over the chained sessions (DBG_B_PREV2), because the Pocket's quit restarts the MCU before the .sav is read (B Jam's saves from a hardware test on 2026-10-17); allocation raised 2,800 -> 3,160 out of the irom placement's slack (372 -> 12 B free), TEST only. Measured 2026-10-19 (debug save v6): 3,164 B TEST (+4): the CPU MATE late counter's and the album recorder's words carried across the quit (PREV2 +10 words, 8 table rows) and the album poll's call, less the stack block's copy (-16 B); allocation 3,160 -> 3,164 out of the irom placement's slack (12 -> 8 B free), TEST only; the counter and the recorder themselves are in their own modules (the glue's wcode, interim album irom). Test build 4b, 2026-10-22: 3,176 B TEST (+12, measured: dbg_write polls the VS count and the album at one instant, interrupts off); allocation 3,164 -> 3,176 from the resident boot stub row (372 -> 360), TEST only",
+    "label": "MODELLED",
+    "stage": "1",
+    "variant": "test",
+    "measured_by": [
+     "stage 1: TEST counters and debug save"
+    ]
+   },
+   {
+    "name": "buddy glue 0.3.0 (MSI entry; no SFX feeder, no VU)",
+    "placement": "wcode",
+    "kind": "code",
+    "lo": 3500,
+    "cen": 4000,
+    "hi": 5844,
+    "budget": 4000,
+    "basis": "today's brain-call glue 5,844 B measured minus buddy_isr_post 1,060 (posts go to L1) and the feeder part of buddy_isr_tick; + MSI entry ~200 (estimated). Measured 2026-10-11 (work item W8, buddy/s1_glue.c): 2,332 B TEST of the code window, plus the 0.2.6 call wrapper and the entry table (320 B, counted in the 0.2.6 module \"buddy glue: brain call\")",
+    "label": "MODELLED",
+    "stage": "1",
+    "measured_by": [
+     "stage 1: CPU MATE glue (MSI entry)"
+    ]
+   },
+   {
+    "name": "scaling F4/F5/B6, integer chip copy (D26)",
+    "placement": "wcode",
+    "kind": "code",
+    "lo": 2697,
+    "cen": 3836,
+    "hi": 4626,
+    "budget": 3836,
+    "basis": "chip SCAL 1,096 + 1,312 Thumb (F5 is a reply the game waits on: -O2); lo Thumb 2408 x 1.12 (port ratio), cen Thumb 2408 x 1.593 (-O2), hi Thumb 2408 x 1.921 (chip style, R_DEC SCAL)",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "watchdog / heartbeat D35 (copied, gated)",
+    "placement": "irom",
+    "kind": "code",
+    "lo": 920,
+    "cen": 1104,
+    "hi": 1104,
+    "budget": 1160,
+    "basis": "Measured 2026-10-11 (work item W7, core/wdog + core/trace): 920 B RELEASE / 1,104 B TEST (1,096 before the W10 milestone hook) of IROM; 1,160 B TEST after the 8 KB save was added (the fatal halt writes the debug save at once and while it polls: +56 B, TEST only). Moved from the code window (stage 3) to the IROM in stage 1 (docs/STAGE1_PLAN.md section 2, conflict 8; W7). The row now also holds event_post's fatal half (the LED waits and the WE SUX poll, ~440 B) and the MCU reset, which the plan had in 'trace counters, WE SUX backdoor, 83 frame-period reply' (stage 3) and as the '~200' fatal subset of W7. Was (estimated): chip WDOG 440 Thumb; lo x 1.12 = 493, cen x 1.406 = 619, hi x 1.800 = 792 in wcode.",
+    "label": "MEASURED",
+    "stage": "1",
+    "measured_by": [
+     "stage 1: watchdog, heartbeat, fatal halt"
+    ]
+   },
+   {
+    "name": "menu-pause mute, boot milestone counters",
+    "placement": "wcode",
+    "kind": "code",
+    "lo": 50,
+    "cen": 100,
+    "hi": 200,
+    "budget": 100,
+    "basis": "Estimated (the 0.3.0 plan's decision 5 and its hypothesis 4)",
+    "label": "MODELLED",
+    "stage": "1"
+   },
+   {
+    "name": "firmware constant tables (note, fnum, voice order, D6 sub, SFX small, slot/DMA words)",
+    "placement": "irom",
+    "kind": "rodata",
+    "lo": 1320,
+    "cen": 2098,
+    "hi": 2886,
+    "budget": 2098,
+    "basis": "the 0.3.0 design's estimate; core/tables' six start-up tables (2,592 B measured) feed the synth logic, 0 B here (+1,536 if the gain chain falls back to firmware). The song-engine draft's own chip tables are 326 B of this (note pitch 220, fnum 26, voice order 52, SFX spread 16, SFX trim 12; measured placeholders). Placement: the IROM (was WRAM-ROM in wram_upper; moved after the song-engine draft's review so wram_upper's allocations fit its room after the synth state took its measured 6,400 B; the IROM reads it at the same cost, LAYOUT.md)",
+    "label": "MODELLED",
+    "stage": "5"
+   },
+   {
+    "name": "app init values + warm reset",
+    "placement": "wram_upper",
+    "kind": "code",
+    "lo": 352,
+    "cen": 692,
+    "hi": 834,
+    "budget": 692,
+    "basis": "chip BOOT app init 492 Thumb; lo = ppm_reset 352 measured; lo measured 352, cen Thumb 492 x 1.406 (-Os), hi Thumb 492 x 1.696 (chip style, R_DEC BOOT). Stage 1 measured 2026-10-11 (work item W11; a stage1_by row, which does not fail the check): 652 B TEST / 656 B RELEASE of IROM (core/boot: app init 428 + the boot page 228, RELEASE); in the IROM in stage 1, not in WRAM-ROM",
+    "label": "MODELLED",
+    "stage": "1",
+    "stage1_by": [
+     "stage 1: app init and boot page"
+    ]
+   },
+   {
+    "name": "saves: DF/E0 reply + gates",
+    "placement": "wram_upper",
+    "kind": "code",
+    "lo": 280,
+    "cen": 1046,
+    "hi": 1475,
+    "budget": 1046,
+    "basis": "chip DF/E0 handler bytes 744 Thumb; lo = ours today 280 measured; lo measured 280, cen Thumb 744 x 1.406 (-Os), hi Thumb 744 x 1.982 (chip style, R_DEC SAVE)",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "trace counters, WE SUX backdoor, 83 frame-period reply",
+    "placement": "wram_upper",
+    "kind": "code",
+    "lo": 448,
+    "cen": 844,
+    "hi": 1633,
+    "budget": 844,
+    "basis": "the 68000-visible part of chip TRACE 500 + TRIM 342 Thumb (estimated share); lo Thumb 400 x 1.12 (port ratio), cen Thumb 600 x 1.406 (-Os), hi Thumb 842 x 1.939 (chip style, R_DEC ALL)",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "sprite state (handles, anim counts, slots, lists)",
+    "placement": "wram_data",
+    "kind": "data",
+    "lo": 2100,
+    "cen": 2100,
+    "hi": 2346,
+    "budget": 2346,
+    "basis": "Measured .bss of the sprite-engine draft (2026-10-11, made outside this tree), the chip's field sizes: 64 handles 1,024, engine block 260, block directory 10, load list 32, countdowns 128, id->block 256, lists A/B/C 390 = 2,100 B (the block->id index's 768 B is in the next line). Allocation kept at 0.2.6's measured 2,346 B (246 B of headroom; the draft was not run); hi = that allocation",
+    "label": "MEASURED (.bss of a draft)",
+    "stage": "2"
+   },
+   {
+    "name": "sparse index 768 + system globals 440 + job queue 320 + status shadow / held posts 64",
+    "placement": "wram_data",
+    "kind": "data",
+    "lo": 1400,
+    "cen": 1592,
+    "hi": 1800,
+    "budget": 1592,
+    "basis": "the 0.3.0 design's estimate",
+    "label": "MODELLED",
+    "stage": "1"
+   },
+   {
+    "name": "buddy glue data (.noinit)",
+    "placement": "wram_data",
+    "kind": "data",
+    "lo": 412,
+    "cen": 412,
+    "hi": 412,
+    "budget": 412,
+    "basis": "Measured today",
+    "label": "MEASURED",
+    "stage": "1"
+   },
+   {
+    "name": "synth state (sequencer S + 26 voices, G, Z80 queue, SFX, packet staging, SFX record table, BGM pointer table)",
+    "placement": "wram_upper",
+    "kind": "data",
+    "lo": 4096,
+    "cen": 6400,
+    "hi": 6400,
+    "budget": 6400,
+    "basis": "Measured .bss of the song-engine draft (2026-10-10, made outside this tree), the chip's layouts: S + 26 voices 3,000, SFX record table 2,048, SFX state 448, packet staging 448, BGM pointer table 256, Z80 queue 132, G 64, 4 = 6,400 B. The SFX record table and the BGM pointer table (2,304 B) had no allocation (the 0.3.0 design had 3,600 / 4,500 / 5,400). Allocation = the chip layout; lo = both tables read in place through the board view (4,096). Open (for B Jam, with the song engine): size the SFX table to the game's 127 SFX (inferred) (1 KB: -1,024 B), or read both tables in place (-2,304 B); every byte saved here is resident room (verdict)",
+    "label": "MEASURED (.bss of a draft)",
+    "stage": "5"
+   },
+   {
+    "name": "scaling buffers (F5 stamps 2 x 1 KB, F4 source 2 KB, $0200-$09FF save 2 KB)",
+    "placement": "wram_upper",
+    "kind": "data",
+    "lo": 6144,
+    "cen": 6144,
+    "hi": 6144,
+    "budget": 6144,
+    "basis": "the 0.3.0 design's estimate; replaces today's 2 KB ppm_scale_stamp and F5's 4 KB stack buffer",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "extra .bss",
+    "placement": "wram_upper",
+    "kind": "data",
+    "lo": 300,
+    "cen": 500,
+    "hi": 800,
+    "budget": 500,
+    "basis": "MODELLED",
+    "label": "MODELLED",
+    "stage": "1"
+   },
+   {
+    "name": "save job bodies (two copies, trailer, scramble, blank rule)",
+    "placement": "sram_cold",
+    "kind": "code",
+    "lo": 1172,
+    "cen": 1471,
+    "hi": 2073,
+    "budget": 1471,
+    "basis": "chip SAVE jobs 1,046 Thumb (the I2C driver 4,584 is dropped); lo Thumb 1046 x 1.12 (port ratio), cen Thumb 1046 x 1.406 (-Os), hi Thumb 1046 x 1.982 (chip style, R_DEC SAVE)",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "one-time import of 0.2.x saves",
+    "placement": "sram_cold",
+    "kind": "code",
+    "lo": 300,
+    "cen": 500,
+    "hi": 800,
+    "budget": 500,
+    "basis": "Estimated (the decision: cart save format + import)",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "C6 job 11 body",
+    "placement": "sram_cold",
+    "kind": "code",
+    "lo": 708,
+    "cen": 914,
+    "hi": 1260,
+    "budget": 914,
+    "basis": "chip ~650 Thumb; lo = ours today 708 measured; lo measured 708, cen Thumb 650 x 1.406 (-Os), hi Thumb 650 x 1.939 (chip style, R_DEC ALL)",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "audio init (bank directory, programs, SFX table init)",
+    "placement": "sram_cold",
+    "kind": "code",
+    "lo": 766,
+    "cen": 962,
+    "hi": 1303,
+    "budget": 962,
+    "basis": "the chip's audio set-up and bank load, 684 Thumb; lo Thumb 684 x 1.12 (port ratio), cen Thumb 684 x 1.406 (-Os), hi Thumb 684 x 1.905 (chip style, R_DEC AUDINIT)",
+    "label": "MODELLED",
+    "stage": "5"
+   },
+   {
+    "name": "MegaWire code (ESP AT/TCP/HTTP, A858 screen + loaders, OTA writer), cart-exact",
+    "placement": "sram_mw",
+    "kind": "code",
+    "lo": 20746,
+    "cen": 25750,
+    "hi": 34884,
+    "budget": 25750,
+    "basis": "chip MW 22,356 - HAL UART/ADC 3,724 (board-layer hook) - command entry 1,134 (IROM) Thumb + 1,148 B rodata; lo Thumb 17498 x 1.12 (port ratio), cen Thumb 17498 x 1.406 (-Os), hi Thumb 17498 x 1.928 (chip style, R_DEC MW) + 1148 fixed",
+    "label": "MODELLED",
+    "stage": "3"
+   },
+   {
+    "name": "MegaWire RAM (8 KB ring, state, buffers)",
+    "placement": "sram_mw",
+    "kind": "data",
+    "lo": 13920,
+    "cen": 13920,
+    "hi": 13920,
+    "budget": 13920,
+    "basis": "the chip's MegaWire RAM, measured from our map of the chip",
+    "label": "MEASURED",
+    "stage": "3"
+   },
+   {
+    "name": "cache check, boot sequencer, SFX bank copy, bar",
+    "placement": "boot_overlay",
+    "kind": "code",
+    "lo": 900,
+    "cen": 1600,
+    "hi": 2600,
+    "budget": 1600,
+    "basis": "Measured on test build 4b, 2026-10-22: board/pocket/boot/c4b_ovl.c -Os ~3.5-4.0 KB (ovl/ovl.map per object; the overlay is linked apart, so this row is measured by hand, not by this tool)",
+    "label": "MEASURED",
+    "stage": "4"
+   },
+   {
+    "name": "WavPack decoder (first-boot unpack)",
+    "placement": "boot_overlay",
+    "kind": "code",
+    "lo": 8310,
+    "cen": 11820,
+    "hi": 13742,
+    "budget": 11820,
+    "basis": "Measured on test build 4b, 2026-10-22: core/wavpack (the BSD tiny decoder, encoder / stereo / float dropped, tables generated) + wvbank.c, -Os: ~10.9 KB text + 274 B rodata; the whole overlay 14,724 of wram_upper's 16,384 B (-O2 17.8 KB does not fit); the first boot's time is estimated, not measured here",
+    "label": "MEASURED",
+    "stage": "4"
+   },
+   {
+    "name": "WavPack data / cold-pack image (the larger of the two)",
+    "placement": "boot_overlay",
+    "kind": "data",
+    "lo": 3500,
+    "cen": 4088,
+    "hi": 5600,
+    "budget": 4088,
+    "basis": "Measured on test build 4b, 2026-10-22: the overlay's scratch, outside wram_upper: 3,680 B .bss at the start of wram_data (below __BSS_END__) + 3,528 B (the decoder's context and sample buffer) at the stack floor; no cold pack yet (stage 3)",
+    "label": "MEASURED",
+    "stage": "4"
+   }
+  ]
+ }
+}

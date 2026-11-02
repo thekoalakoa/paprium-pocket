@@ -1,25 +1,31 @@
-// pocket: paprium_mcd_link - the hook-free CPU MATE's Mega CD side (xram stage 2, option D).
+// Copyright (C) 2026 Marsupial Solutions LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+// pocket: paprium_mcd_link - the hook-free CPU MATE's Mega CD side (xram step 2, the second step of our Pocket SRAM /
+// CRAM work; option D).
 // Sits beside paprium_addons on clk_md_107_39, the 68000's own clock (md_board MCLK2),
 // so every release instant is exact to one 9.3 ns clock. It never drives DTACK and changes no bus
 // timing: the stub's read mux shows `busy` in $A12020 bit 7 and `comstat2` at $A12024, both plain
-// flops loaded ahead of the read (gate_report item 2).
+// flops loaded ahead of the read.
 //
 //  strobe    a write is taken when its strobe is seen on two consecutive clocks after a clock
 //            without it (ramdp_io's cpu_we_st == 3'b011 rule), so a one-clock glitch on LWR is never
 //            an event. The event clock is F = the third clock of the strobe.
 //  post      the game's command-2 send (main $9C686): a low-byte write to $A12011 whose low 7 bits are
-//            2 and whose bit 7 differs from the bit 7 of the previous $A12011 low-byte write (R6).
+//            2 and whose bit 7 differs from the bit 7 of the previous $A12011 low-byte write.
 //            `last7` is this module's own copy, so a glitch that rewrote the stub's c1 cannot hide a
 //            post. The 512 $55AA/$AA55 tests and the $80 handshake have other low bits: never posts.
 //            A post is taken only while the sub runs (SRES = 1), as the real sub could not see it.
 //  timer     sub cycles since the post: the 12.5 MHz sub clock with W = 0, made exactly from this
 //            clock: +250,000 per clock, one tick per 2,147,727 (107.386 MHz x 250,000 / 2,147,727 =
-//            12.5 MHz exactly; gate_nb 3.1). Its origin is T0 = F - 1 + HOLD clocks, phase 0 there.
+//            12.5 MHz exactly). pocket: 0.3.0 new core (the clock-following change) - the divisor is CLK_MD_HZ / 50
+//            rounded (core_top's parameter), because the real Mega CD's sub clock is its own crystal:
+//            NTSC 2,147,727 as before, PAL 2,128,137 (12.5 MHz within 0.1 ppm). HOLD stays in clk_md
+//            clocks (a firmware value). Its origin is T0 = F - 1 + HOLD clocks, phase 0 there.
 //            tick >= D is first true at edge T0 + ceil(D x 8.5909); the release flop changes one
 //            clock later. HOLD (LCTRL[15:8], xlink) moves the origin so that the release lands on
 //            (A)'s instant: (A) counts from the end of the post's write bus cycle and samples at the
-//            end of the read bus cycle (gate_nb section 2). The default and its derivation are in
-//            the xram stage-2 README; it is NOT measured.
+//            end of the read bus cycle (our timing notes on the original Mega CD's sub CPU). The default and its
+//            derivation are in our notes for xram step 2 (not in this repository); it is not measured.
 //  busy      set at the post (only with option D on); cleared at tick D_BUSY (if armed). RET stays
 //            the stub's constant 1.
 //  comstat2  takes PEND at tick D_WORD (if armed, option D on). Armed late (the tick already past
@@ -30,9 +36,10 @@
 //  AI off    $A12001 bit 1 (SBRQ) written 0 -> 1 (main $09C9C2 `|= 3`; also the boot's first write of
 //            3): flag, busy cleared, disarmed, comstat2 held.
 //  snoop     en_mirror = Mega CD Mode; en_prg = Mega CD Mode & bank ($A12003[7:6]) == 0 & sub held in
-//            reset (the rev-3 gate). Quasi-static levels for paprium_snoop on clk_sys.
+//            reset (the third version of this condition). Quasi-static levels for paprium_snoop on clk_sys.
 //
-// arm       (buddy_s2, review finding 1) an ARM toggle is latched in `arm_p` until the release logic takes it.
+// arm       (found in the review of the second step of our 0.2.x CPU MATE work) an ARM toggle is latched in
+// `arm_p` until the release logic takes it.
 //            Before, `arm_ev` was a one-clock pulse read only in the branch that runs when the clock holds no
 //            post and no $A12001 write, so an ARM landing on such a clock was lost and BUSY stayed set until
 //            the MCU armed again. Now: a $A12001 write clock only delays it by one clock (restart / AI off
@@ -46,6 +53,9 @@
 // the MCU), NOT md_reset. The stub's own registers keep md_reset.
 
 module paprium_mcd_link
+#(
+	parameter integer CLK_MD_HZ = 0               // clk's frequency in Hz (core_top's CLK_MD_HZ)
+)
 (
 	input  wire        clk,                       // clk_md_107_39
 	input  wire        reset,                     // shell_reset (cartridge reset)
@@ -81,8 +91,16 @@ module paprium_mcd_link
 );
 
 	localparam [21:0] INC = 22'd250000;
-	localparam [21:0] DIV = 22'd2147727;
+	localparam integer DIV_I = (CLK_MD_HZ + 25) / 50; // INC / DIV = 12.5 MHz / CLK_MD_HZ, rounded
+	localparam [21:0] DIV = DIV_I[21:0];
 	localparam [21:0] DMI = DIV - INC;           // acc + INC >= DIV  <=>  acc >= DMI
+
+	// synthesis translate_off
+	initial begin
+		if (CLK_MD_HZ <= 0 || DIV_I > 22'h3FFFFF || DIV_I <= 250000)
+			$fatal(1, "paprium_mcd_link: CLK_MD_HZ = %0d is unset or out of range", CLK_MD_HZ);
+	end
+	// synthesis translate_on
 
 	wire [23:0] a      = {cart_addr, 1'b0};
 	wire        gate   = (a[23:6] == 18'h28480);  // $A12000-$A1203F

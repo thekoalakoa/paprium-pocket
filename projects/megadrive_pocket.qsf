@@ -15,6 +15,7 @@
 # ==============================================================================
 # Project-Wide Assignments
 # ==============================================================================
+# Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 18.1.1
 set_global_assignment -name LAST_QUARTUS_VERSION "21.1.1 Lite Edition"
 set_global_assignment -name TOP_LEVEL_ENTITY apf_top
@@ -110,15 +111,16 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT HIGH
 set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 
-set_global_assignment -name SEED 3
+set_global_assignment -name SEED 16
 
 # --- FX68K is the shipping CPU from 0.2.2 (ijor/FX68K, GPL-3, vendored in rtl/fx68k) ---
 set_global_assignment -name VERILOG_MACRO "USE_FX68K=1"
 set_global_assignment -name QIP_FILE ../rtl/fx68k/fx68k.qip
 set_global_assignment -name SEARCH_PATH ../rtl/fx68k
 
-# pocket: xram stage 1. Every live SRAM / cram0 pin register goes into its IOE, so the
-# pad delays are the ones the controllers' wait states were planned against (xram facts probe);
+# pocket: xram (the Pocket SRAM and CRAM controllers), first step. Every live SRAM / cram0 pin register goes into
+# its IOE, so the pad delays are the ones the controllers' wait states were planned against (measured on a probe
+# build);
 # the SDC budgets in core_constraints.sdc fail if one falls out. cram0_clk and cram0_ce1_n are
 # constants, not registers. Assignments on the ports of a variant that ties them off are ignored.
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to sram_a[*]
@@ -140,4 +142,22 @@ set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+# pocket-end
+
+# pocket (0.3.0): the VDP's M5 and DISP mode latches (register 1 bits 2 and 6) are quasi-static register bits that most of
+# the linebuffer and sprite logic reads: the second inherited clk_md class on 0.2.6 seed 2 (sl_m5 -> linebuffer_out,
+# -0.724 ns at slow 85C, 86 endpoints). Let the fitter copy them next to their loads; no logic change. The Z80 phase
+# (ym7101 zclk_q) carries its own maxfan attribute in the RTL. If a fit's "Ignored Assignments" lists these two, the
+# names moved: re-point them at the ym_slatch mem registers of sl_m5 / sl_disp
+set_instance_assignment -name MAX_FANOUT 32 -to ic|md_board|ym|vdp|sl_m5|mem[0]
+set_instance_assignment -name MAX_FANOUT 32 -to ic|md_board|ym|vdp|sl_disp|mem[0]
+# pocket-end
+
+# pocket (0.3.0): SDRAM_A (sdram.sv, which also drives DQMH/DQML) has both a synchronous clear and a synchronous load,
+# which an I/O register cannot take, so on 0.2.x 10 address bits and both DQM pins were left in the fabric (fit warning
+# 176279) despite FAST_OUTPUT_REGISTER in pocket.tcl. Build the sdram instance's clears and loads in LUTs so the
+# register itself packs into the IOE like dram_ba and the command pins. A synthesis mapping option: no next-state
+# function changes. If a fit still reports 176279 for dram_*, the fallback is to restate SDRAM_A's next value in RTL
+# (a step of our timing plan, not in this repository); the pad budgets in core_constraints.sdc fail until it packs
+set_instance_assignment -name ALLOW_SYNCH_CTRL_USAGE OFF -to "core_top:ic|cartridge:cartridge|sdram:sdram"
 # pocket-end

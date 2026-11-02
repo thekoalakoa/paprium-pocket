@@ -1,4 +1,5 @@
-module ym3438_reg_ctrl
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
+module ym3438_reg_ctrl #(parameter [5:0] TRIM = 6'h00)   // pocket: stage 5 trfm
 	(
 	input MCLK,
 	input c1,
@@ -524,6 +525,7 @@ module ym3438_reg_ctrl
 	// EXTRA end
 		
 	wire reg_21_wr;
+	wire [7:0] reg_21_r;   // pocket: stage 5 trfm T5
 	
 	ym3438_reg_wr_ctrl #(.REG_ADDRESS(8'h21)) reg_21_ctrl
 		(
@@ -545,10 +547,14 @@ module ym3438_reg_ctrl
 		.data(data[7:0]),
 		.reg_wr(reg_21_wr),
 		.rst(nIC),
-		.data_o(reg_21)
+		.data_o(reg_21_r)
 		);
+	
+	// pocket: stage 5 trfm T5 - 21 is never written: 0 from power-up and every IC (test terms and the debug read off)
+	assign reg_21 = TRIM[4] ? 8'h00 : reg_21_r;
 		
 	wire reg_22_wr;
+	wire [3:0] lfo_r;   // pocket: stage 5 trfm T1
 	
 	ym3438_reg_wr_ctrl #(.REG_ADDRESS(8'h22)) reg_22_ctrl
 		(
@@ -570,10 +576,14 @@ module ym3438_reg_ctrl
 		.data(data[3:0]),
 		.reg_wr(reg_22_wr),
 		.rst(nIC),
-		.data_o(lfo)
+		.data_o(lfo_r)
 		);
 	
+	// pocket: stage 5 trfm T1 - 22 is never written: the LFO stays disabled (0 from power-up and every IC)
+	assign lfo = TRIM[0] ? 4'h0 : lfo_r;
+	
 	wire [9:0] reg_timer_a_o;
+	wire [9:0] reg_timer_a_r;
 		
 	wire reg_24_wr;
 	
@@ -597,7 +607,7 @@ module ym3438_reg_ctrl
 		.data(data[7:0]),
 		.reg_wr(reg_24_wr),
 		.rst(nIC),
-		.data_o(reg_timer_a_o[9:2])
+		.data_o(reg_timer_a_r[9:2])
 		);
 		
 	wire reg_25_wr;
@@ -622,10 +632,14 @@ module ym3438_reg_ctrl
 		.data(data[1:0]),
 		.reg_wr(reg_25_wr),
 		.rst(nIC),
-		.data_o(reg_timer_a_o[1:0])
+		.data_o(reg_timer_a_r[1:0])
 		);
 	
+	// pocket: stage 5 trfm T4 - 24 / 25 are never written
+	assign reg_timer_a_o = TRIM[3] ? 10'h000 : reg_timer_a_r;
+	
 	wire [7:0] reg_timer_b_o;
+	wire [7:0] reg_timer_b_r;
 		
 	wire reg_26_wr;
 	
@@ -649,8 +663,11 @@ module ym3438_reg_ctrl
 		.data(data[7:0]),
 		.reg_wr(reg_26_wr),
 		.rst(nIC),
-		.data_o(reg_timer_b_o)
+		.data_o(reg_timer_b_r)
 		);
+	
+	// pocket: stage 5 trfm T4 - 26 is never written
+	assign reg_timer_b_o = TRIM[3] ? 8'h00 : reg_timer_b_r;
 		
 	wire reg_27_wr;
 	
@@ -667,6 +684,7 @@ module ym3438_reg_ctrl
 		);
 	
 	wire [3:0] reg_27_timer_ctrl_o;
+	wire [3:0] reg_27_timer_ctrl_r;
 		
 	ym3438_reg_data #(.DATA_WIDTH(4)) reg_27_timer_ctrl
 		(
@@ -676,10 +694,14 @@ module ym3438_reg_ctrl
 		.data(data[3:0]),
 		.reg_wr(reg_27_wr),
 		.rst(nIC),
-		.data_o(reg_27_timer_ctrl_o)
+		.data_o(reg_27_timer_ctrl_r)
 		);
 	
+	// pocket: stage 5 trfm T4 - 27 bits 0-3 (load / enable) are never set: no timer ever runs or flags
+	assign reg_27_timer_ctrl_o = TRIM[3] ? 4'h0 : reg_27_timer_ctrl_r;
+	
 	wire [1:0] reg_27_timer_reset_o;
+	wire [1:0] reg_27_timer_reset_r;
 
 	ym_sr_bit_array #(.DATA_WIDTH(2)) reg_27_timer_reset
 		(
@@ -687,10 +709,14 @@ module ym3438_reg_ctrl
 		.c1(c1),
 		.c2(c2),
 		.data_in(reg_27_wr ? data[5:4] : 2'h0),
-		.data_out(reg_27_timer_reset_o)
+		.data_out(reg_27_timer_reset_r)
 		);
 	
+	// pocket: stage 5 trfm T4 - 27 bits 4-5 (flag resets) are never written; IC still clears the two flags
+	assign reg_27_timer_reset_o = TRIM[3] ? 2'h0 : reg_27_timer_reset_r;
+	
 	wire [1:0] reg_27_mode_o;
+	wire [1:0] reg_27_mode_r;
 		
 	ym3438_reg_data #(.DATA_WIDTH(2)) reg_27_mode
 		(
@@ -700,8 +726,12 @@ module ym3438_reg_ctrl
 		.data(data[7:6]),
 		.reg_wr(reg_27_wr),
 		.rst(nIC),
-		.data_o(reg_27_mode_o)
+		.data_o(reg_27_mode_r)
 		);
+	
+	// pocket: stage 5 trfm T3 - 27 bits 6-7 are never set: ch3 special mode and CSM stay off, so the A8-AE
+	// registers (reg_ac, reg_fnum_ch3, reg_block_ch3) have no reader and fold away with the CSM key-on
+	assign reg_27_mode_o = TRIM[2] ? 2'h0 : reg_27_mode_r;
 		
 	wire reg_28_wr;
 	
@@ -809,6 +839,7 @@ module ym3438_reg_ctrl
 		);
 		
 	wire reg_2c_wr;
+	wire [7:3] reg_2c_r;   // pocket: stage 5 trfm T5
 	
 	ym3438_reg_wr_ctrl #(.REG_ADDRESS(8'h2c)) reg_2c_ctrl
 		(
@@ -830,8 +861,11 @@ module ym3438_reg_ctrl
 		.data(data[7:3]),
 		.reg_wr(reg_2c_wr),
 		.rst(nIC),
-		.data_o(reg_2c)
+		.data_o(reg_2c_r)
 		);
+	
+	// pocket: stage 5 trfm T5 - 2C is never written (DAC LSB 0, DAC test off, TEST pin input off, TEST_o_z 0)
+	assign reg_2c = TRIM[4] ? 5'h00 : reg_2c_r;
 	
 	wire kon_sr1_in;
 	wire kon_sr1_out;

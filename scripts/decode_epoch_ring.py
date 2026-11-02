@@ -12,8 +12,8 @@ write the RTL latches two counts for the epoch that just ended:
 If the tape kept step, ack == oe. ack > oe is a double-advance: one 68000
 word issued two SDRAM reads, and every tile fetched after it is shifted by a
 word until the next re-point. That is the mechanism left standing after the
-CRC card (bytes are right) and the onset ring (the block cache was idle while
-the band formed).
+CRC-snapshot build (bytes are right) and the onset-ring build (the block cache was
+idle while the band formed).
 
 Only epochs with traffic are recorded. Each is 10 bytes: ack u16, oe u16,
 frame u16 (low half of the in-game frame counter), ptr u32 (the pointer that

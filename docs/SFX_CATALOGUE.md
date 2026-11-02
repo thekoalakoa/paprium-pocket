@@ -17,7 +17,7 @@ from `scripts/decode_cmdlog.py`. Recorded because it is hard-won and easy to los
 | `0x4B` | 4.55 s | **Area ambience** — subway trains passing | by ear; log shows it looping on ch6 with positional volume/pan the whole level |
 | `0x3D` | 3.07 s | **Crowd fleeing in fear** | by ear |
 | `0x08` | 0.81 s | **Something breaking** — e.g. the door at the start | by ear |
-| `0x1C` | 2.15 s | *believed* big / fat enemy death on original hardware | by ear from the dump — **but the game never requests it**, see below |
+| `0x1C` | 2.15 s | *believed* big / fat enemy death on original hardware | by ear from the files `dump_sfx.py` writes — **but the game never requests it**, see below |
 
 ## The big-enemy death is unresolved
 
@@ -47,7 +47,7 @@ Two possibilities remain:
 ## Reading a capture
 
 `decode_cmdlog.py` prints the id, channel mask and flags for every request. The id
-maps straight to a dump filename: `0x3D` -> `sfx_061_0x3D_9600Hz_4bit_3.07s.wav`.
+maps straight to a file name `dump_sfx.py` writes: `0x3D` -> `sfx_061_0x3D_9600Hz_4bit_3.07s.wav`.
 
 Useful signal: **rare ids are events, common ids are texture.** In a full
 playthrough `0x40` fired 170 times and `0x7D` 79 - footsteps and hits. Anything

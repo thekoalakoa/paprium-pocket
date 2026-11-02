@@ -11,10 +11,11 @@
 //   * the rate clocks use this port's dac_clocker signature (audio_clock.sv):
 //     rst tied low (free-running), dac_clk/phase left open, rate as 16-bit Hz.
 // ---------------------------------------------------------------------------
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 module audio_sfx
 #(
-	parameter ECHO_CRAM = 1'b1   // pocket: the echo line lives in CRAM (paprium_cram port E)
+	parameter ECHO_CRAM = 1'b1   // pocket: the echo line lives in CRAM (the Pocket's cellular RAM, paprium_cram port E)
 )
 (
 	input  McuBus mcu,
@@ -104,10 +105,16 @@ endmodule
 // fits at 99% ALM and this is Paprium's own logic, not the console's.
 //
 // Every rate the bank produces is a sub-multiple of the 48 kHz tick the engine already
-// has, so they come free from counters that never exceed 9:
+// has, so they come free from counters that never exceed 10:
 //
-//   24000 = 48000/2   12000 = 48000/4   9600 = 48000/5   6000 = 48000/8
-//   5333 -> 48000/9 = 5333.33 Hz, 0.006% fast and inaudible
+//   24000 = 48000/2   12000 = 48000/4   9600 = 48000/5   6000 = 48000/8   4800 = 48000/10
+//
+// pocket (0.3.0): rate index 5 is the cart chip's 4800 Hz. The chip's divisor table is
+// {1,2,4,5,8,10}, measured entry by entry against the original samples
+// (docs/SFX_BANK_MEASURED.md). Upstream mega-ppm made index 5 48000/9 = 5333 Hz, and this
+// file kept /9 with a comment calling it inaudible: it played the six index-5 effects
+// (0x22, 0x2C, 0x2F, 0x48, 0x4C, 0x71) 11 % fast, +1.8 semitones. Indexes 6 and 7 stay at
+// 48000; the firmware never writes them (the 0x0100 rate step stops at 5).
 //
 // The divided rates are now phase-locked to the 48 kHz tick rather than free-running.
 // For per-channel PCM pacing that is harmless, and deterministic rather than not.
@@ -126,14 +133,14 @@ module aclk_bank
 	reg [2:0] div4  = 0;   // /4  -> 12000
 	reg [2:0] div5  = 0;   // /5  ->  9600
 	reg [3:0] div8  = 0;   // /8  ->  6000
-	reg [3:0] div9  = 0;   // /9  ->  5333.33
+	reg [3:0] div10 = 0;   // /10 ->  4800
 
 	always @(posedge mcu.clk) if(dac_next_sample) begin
 		div2 <= (div2 == 2'd1) ? 2'd0 : div2 + 1'd1;
 		div4 <= (div4 == 3'd3) ? 3'd0 : div4 + 1'd1;
 		div5 <= (div5 == 3'd4) ? 3'd0 : div5 + 1'd1;
 		div8 <= (div8 == 4'd7) ? 4'd0 : div8 + 1'd1;
-		div9 <= (div9 == 4'd8) ? 4'd0 : div9 + 1'd1;
+		div10 <= (div10 == 4'd9) ? 4'd0 : div10 + 1'd1;
 	end
 
 	// One 48 kHz tick wide, exactly like dac_clocker's next_sample
@@ -141,7 +148,7 @@ module aclk_bank
 	assign aclk[2] = dac_next_sample & (div4 == 3'd0);
 	assign aclk[3] = dac_next_sample & (div5 == 3'd0);
 	assign aclk[4] = dac_next_sample & (div8 == 4'd0);
-	assign aclk[5] = dac_next_sample & (div9 == 4'd0);
+	assign aclk[5] = dac_next_sample & (div10 == 4'd0);
 
 endmodule
 // paprium-end
@@ -196,7 +203,7 @@ module sfx_chan
 	wire [7:0]flags = mcu.dato[31:24];
 	wire [15:0]vol  = mcu.dato[15:0];
 
-	//48000, 24000, 12000, 9600, 6000, 5333
+	//48000, 24000, 12000, 9600, 6000, 4800 (6, 7: 48000, never written)
 	wire next_sample = aclk[srate];
 
 	wire fifo_empty = addr_rd == addr_wr;
@@ -509,8 +516,12 @@ module mix_mono
 		if(chan_idx < 8) begin
 			case(state[1:0])
 				0: val <= pcm;
-				1: val <= $signed(val) * vol / 'h400;
-				2: val <= $signed(val) * pan / 'h80;
+				// pocket (0.3.0): the divisors are written signed. With an unsigned 'h400 / 'h80 the whole
+				// expression is unsigned by the language rules, and Verilator and Icarus then zero-extend a
+				// negative sample; Quartus builds it signed (the SFX sound right on hardware). Now all three
+				// agree: a signed multiply and a signed divide that truncates toward zero
+				1: val <= $signed(val) * vol / 'sh400;
+				2: val <= $signed(val) * pan / 'sh80;
 				3: begin
 					// paprium: amplify scales the RUNNING mix, not the voice -
 					// GPGX does `l = (l * 125) / 100` on the accumulator inside

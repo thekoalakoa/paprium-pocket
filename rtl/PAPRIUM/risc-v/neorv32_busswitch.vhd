@@ -34,6 +34,7 @@
 -- # ********************************************************************************************* #
 -- # The NEORV32 Processor - https://github.com/stnolting/neorv32              (c) Stephan Nolting #
 -- #################################################################################################
+-- Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -193,14 +194,12 @@ begin
     arbiter.we_trig   <= '0';
     arbiter.re_trig   <= '0';
     --
-    p_bus_src_o <= '0';
 
     -- state machine --
     case arbiter.state is
 
       when IDLE => -- Controller a has full bus access
       -- ------------------------------------------------------------
-        p_bus_src_o <= '0'; -- access from port A
         if (ca_req_current = '1') then -- current request?
           arbiter.bus_sel   <= '0';
           arbiter.state_nxt <= BUSY;
@@ -217,7 +216,6 @@ begin
 
       when BUSY => -- transaction in progress
       -- ------------------------------------------------------------
-        p_bus_src_o     <= '0'; -- access from port A
         arbiter.bus_sel <= '0';
         if (ca_bus_cancel_i = '1') or -- controller cancels access
            (p_bus_err_i = '1') or -- peripheral cancels access
@@ -227,7 +225,6 @@ begin
 
       when RETIRE => -- retire pending access
       -- ------------------------------------------------------------
-        p_bus_src_o     <= '0'; -- access from port A
         arbiter.bus_sel <= '0';
         if (PORT_CA_READ_ONLY = false) then
           arbiter.we_trig <= ca_wr_req_buf;
@@ -237,7 +234,6 @@ begin
 
       when BUSY_SWITCHED => -- switched transaction in progress
       -- ------------------------------------------------------------
-        p_bus_src_o     <= '1'; -- access from port B
         arbiter.bus_sel <= '1';
         if (cb_bus_cancel_i = '1') or -- controller cancels access
            (p_bus_err_i = '1') or -- peripheral cancels access
@@ -247,7 +243,6 @@ begin
 
       when RETIRE_SWITCHED => -- retire pending switched access
       -- ------------------------------------------------------------
-        p_bus_src_o     <= '1'; -- access from port B
         arbiter.bus_sel <= '1';
         if (PORT_CB_READ_ONLY = false) then
           arbiter.we_trig <= cb_wr_req_buf;
@@ -261,6 +256,10 @@ begin
 
   -- Peripheral Bus Switch ------------------------------------------------------------------
   -- -------------------------------------------------------------------------------------------
+  -- pocket: card 4 (0.3.0 stage 1) - the access source follows the selected port in every state. 1.4.8.1 drove '0'
+  -- in IDLE even when it granted port B there, so the Wishbone gateway (which copies src while idle) tagged such an
+  -- instruction fetch as a data access; the other states already had src = bus_sel. Only the gateway reads src.
+  p_bus_src_o    <= arbiter.bus_sel; -- access source: 0 = A, 1 = B
   p_bus_addr_o   <= ca_bus_addr_i   when (arbiter.bus_sel = '0')    else cb_bus_addr_i;
   p_bus_wdata_o  <= cb_bus_wdata_i  when (PORT_CA_READ_ONLY = true) else ca_bus_wdata_i when (PORT_CB_READ_ONLY = true) else
                     ca_bus_wdata_i  when (arbiter.bus_sel = '0')    else cb_bus_wdata_i;

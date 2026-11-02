@@ -1,10 +1,10 @@
 """Read the crash-context heartbeat out of Paprium.sav (PPM_HEARTBEAT firmware).
 
-    python scripts/decode_heartbeat.py "D:/Saves/genesis/common/Paprium/Paprium (ROM+Core+OST)/paprium/paprium.sav"
+    python scripts/decode_heartbeat.py "D:/Saves/paprium/common/Paprium.sav"
 
 The firmware rewrites a 40-byte record at bram 0xF70 through every frame:
 command entry/exit, per object, per walked sprite, per stream DMA, BGM unpack,
-frame end. On a hang, exit the core from the Pocket menu; the OS dumps bram to
+frame end. On a hang, exit the core from the Pocket menu; the OS writes bram to
 the .sav and this prints where the firmware stopped. The snapshot region is
 16-bit byte-swapped in the file, like the ring.
 """

@@ -286,8 +286,8 @@ def load_timbres_half(path, base, grades=("A", "B", "C")):
     the cart. The octave is PER PATCH, not global: on the cart 0x01, 0x02, 0x4B,
     0x3D, 0x79 and 0x5C carry their fundamental at f/2 with the odd harmonics of
     f/2 belonging to the note, while 0x57, 0x06, 0x0E and 0x22 sit at the written
-    f with no f/2 line at the 0.3-3 % level (two strands, two independent
-    verifiers, controls passing). A MUL-0 carrier in the patch bytes is a
+    f with no f/2 line at the 0.3-3 % level (two independent analyses, each
+    checked again by an independent run, controls passing). A MUL-0 carrier in the patch bytes is a
     tendency, not the rule. So the table carries an `octave` column, and only
     rows marked `half` with `use` = 1 take this path; every other patch renders
     as before. The old profiles, read at k x f, are those tones' EVEN harmonics

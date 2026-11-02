@@ -11,6 +11,14 @@
         "value": 1
       },
       {
+        "name": "Console Reset",
+        "id": 42,
+        "type": "action",
+        "enabled": true,
+        "address": "0xF0000004",
+        "value": 1
+      },
+      {
         "name": "Aspect Ratio",
         "id": 8,
         "type": "list",
@@ -73,6 +81,69 @@
             "value": 7
           }
         ]
+      },
+      {
+        "name": "Arcade Mode",
+        "id": 38,
+        "type": "list",
+        "enabled": true,
+        "address": "0x0000005C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": 0
+          },
+          {
+            "name": "On",
+            "value": 1
+          },
+          {
+            "name": "Multiplayer",
+            "value": 2
+          },
+          {
+            "name": "Stick Only",
+            "value": 3
+          }
+        ]
+      },
+      {
+        "name": "Arcade Coins",
+        "id": 40,
+        "type": "list",
+        "enabled": true,
+        "address": "0x00000064",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "1 Coin 1 Credit",
+            "value": 0
+          },
+          {
+            "name": "2 Coins 1 Credit",
+            "value": 1
+          },
+          {
+            "name": "Inf. Credits (0012)",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Attract Only",
+        "id": 41,
+        "type": "check",
+        "enabled": true,
+        "address": "0x00000068",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "value": 1
       },
       {
         "name": "Arcade Stage Select",
@@ -218,6 +289,17 @@
         "value": 1
       },
       {
+        "name": "3-Player Mode",
+        "id": 39,
+        "type": "check",
+        "enabled": true,
+        "address": "0x00000060",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "value": 1
+      },
+      {
         "name": "Console",
         "id": 36,
         "type": "list",
@@ -254,6 +336,10 @@
           {
             "name": "Mega Jet",
             "value": 6
+          },
+          {
+            "name": "TeraDrive",
+            "value": 8
           },
           {
             "name": "Unknown",
@@ -315,17 +401,6 @@
         "type": "check",
         "enabled": true,
         "address": "0x0000004C",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 0,
-        "value": 1
-      },
-      {
-        "name": "MegaWire",
-        "id": 37,
-        "type": "check",
-        "enabled": true,
-        "address": "0x00000058",
         "persist": true,
         "writeonly": true,
         "defaultval": 0,

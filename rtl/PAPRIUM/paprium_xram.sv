@@ -1,5 +1,5 @@
 // pocket: paprium_xram - the Pocket's asynchronous SRAM as the cart MCU's external RAM window
-// (MCU 0x08000000-0x0803FFFF, aliased above). xram stage 1.
+// (MCU 0x08000000-0x0803FFFF, aliased above). xram step 1 (the first step of our Pocket SRAM / CRAM work).
 //
 // Part (Analogue developer docs, "External Hardware", and the AS6C2016 datasheet Rev 1.1):
 // AS6C2016-55BIN, 128K x 16 = 256 KB, 55 ns, 3.3 V. The board ties its chip enable active, so
@@ -10,23 +10,23 @@
 //   0  APF loader  data_loader output (bridge 0x4xxxxxxx). A 1-clock pulse, >= 24 clocks apart,
 //                  no back-pressure: held in a 1-entry register and served first. A pulse that
 //                  finds the register still full is counted in stat_loader_lost.
-//   1  snoop       stage 2 (68000 Word RAM mirror). Tied off in stage 1.
+//   1  snoop       step 2 (68000 Word RAM mirror). Tied off in step 1.
 //   2  MCU writes  POSTED: a 32-bit store is acked as soon as the 1-entry buffer takes it, and
 //                  written in the background (one or two 16-bit operations).
 //   3  MCU reads   the NEORV32 Wishbone window, always the whole 32-bit word (two 16-bit reads).
 //                  Level request, ack held until the request drops (paprium_mcu_mem's pattern). A
 //                  read waits behind the posted buffer, so a load sees the MCU's own earlier stores.
-//                  Request drop (buddy_s2, review finding 3): if the request drops while its read is
-//                  still in the engine (NEORV32 1.4.8.1 does this only after its 127-cycle bus
-//                  timeout, then up to 31 more clocks in the gateway's CANCELED state), that read
+//                  Request drop (found in the review of the second step of our 0.2.x CPU MATE work): if the
+//                  request drops while its read is still in the engine (NEORV32 1.4.8.1 does this only after its
+//                  127-cycle bus timeout, then up to 31 more clocks in the gateway's CANCELED state), that read
 //                  finishes WITHOUT an ack (`mc_drop`). Before, it acked whatever request was up by
 //                  then, so a new read issued 1..rd+8 clocks after the drop got the old word.
 //
-// Byte order, "16-bit native" (the same as RAMDP and the rv_port map): RV byte X lives in SRAM
+// Byte order, "16-bit native" (the same as RAMDP and the CPU MATE brain's memory map): RV byte X lives in SRAM
 // word X>>1, the even byte on DQ[7:0] (LB#), the odd byte on DQ[15:8] (UB#). APF's loader word
 // is {file byte 2k+1, file byte 2k} (bridge_endian_little = 0), so file byte n = RV byte n.
 //
-// Pin structure (from the xram facts probe, which packed every pin register into its IOE): the
+// Pin structure (from our xram probe build, which packed every pin register into its IOE): the
 // FSM writes fabric registers (*_f); each pin register copies its fabric register on EVERY clock
 // with no enable and no reset, so address, controls, DQ out and the 16 DQ output enables can all
 // sit in the IOE (FAST_*_REGISTER in the qsf; with a clock enable Quartus leaves the OE registers
@@ -68,7 +68,7 @@ module paprium_xram #(
 	input  wire [17:0] ld_addr,                    // byte address
 	input  wire [15:0] ld_data,
 
-	// client 1: snoop FIFO head (stage 2; tie sn_valid low)
+	// client 1: snoop FIFO head (step 2; tie sn_valid low)
 	input  wire        sn_valid,
 	input  wire [16:0] sn_waddr,
 	input  wire [15:0] sn_data,

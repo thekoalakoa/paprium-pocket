@@ -1,5 +1,9 @@
+# Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/tmss.v ]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/vram.v ]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/vram_alt.v ]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/vram_alt_ram_syn.v ]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/vram_td_stub.v ]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/ym_lib.v ]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/ym3438_ch.v ]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) nuked-md/ym3438_detune.v ]

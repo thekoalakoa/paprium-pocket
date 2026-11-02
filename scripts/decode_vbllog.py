@@ -4,7 +4,7 @@
 The question it exists to answer: how much room does Paprium actually leave
 between finishing its per-frame VDP updates and the start of active display?
 
-Written for the FX68K soak. The OSD-freeze test (2026-09-07) showed the frozen
+Written for the FX68K soak (our testing and debugging of the builds that use the FX68K 68000 core). The OSD-freeze test (2026-09-07) showed the frozen
 picture is clean while the running picture is not, so VRAM is correct at all
 times and the defect is that the VDP scans a region while the CPU is still
 writing it. Whether a small CPU throughput difference can cause that depends
@@ -16,7 +16,7 @@ entirely on the margin, and nobody had measured it.
                                 loss produces exactly the observed symptom
 
 Record layout (8 bytes, little-endian), written by ppm_vbl() in
-gpgx-build/core/vdp_ctrl.c. One record per (frame, line) that saw any traffic:
+GPGX's core/vdp_ctrl.c. One record per (frame, line) that saw any traffic:
     u16 frame
     u16 line          v_counter
     u16 data_writes   data-port writes on that line (saturating)

@@ -1,5 +1,7 @@
+// Copyright (C) 2026 Marsupial Solutions LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 // ---------------------------------------------------------------------------
-// Paprium CDDA ring buffer, CRAM edition (xram stage 1).
+// Paprium CDDA ring buffer, CRAM edition (xram step 1, the first step of our Pocket SRAM / CRAM work).
 //
 // The same module as paprium_cdda_buf - same parameters, same ports to core_top,
 // the fetch side and the player - with the 16-M10K dpram_dif ring replaced by
@@ -28,8 +30,8 @@
 // bytes_avail reads the old track's count, so the first frame header after a
 // track change can come from the old track's bytes (seen in simulation; whether
 // it is audible on hardware is not established). FLUSH_GUARD = 0 keeps the old
-// rule. The guard also lasts at least FLUSH_HOLD clocks (xram review, finding
-// 2): a flush that finds the old track's wr_chunk at 0 (mod 8) would otherwise
+// rule. The guard also lasts at least FLUSH_HOLD clocks (a finding of our review
+// of the xram work): a flush that finds the old track's wr_chunk at 0 (mod 8) would otherwise
 // let go at once, and an old chunk completing inside the lag (wr_chunk 0 -> 1)
 // would then be read as the new track's first bytes. The lag from the flush to
 // the fetch side's reset showing here is ~8-10 clk_sys (the toggle through
@@ -139,6 +141,10 @@ module paprium_cdda_buf_cram #(
 	reg                 rd_out   = 1'b0;         // a CRAM read is outstanding (cleared ONLY by its done)
 	reg                 rd_stale = 1'b0;         // ...and its data must be dropped (flush/reset since)
 
+	// 0.3.0 new core (the reset-domain fixes): the first ring word of chunk wr_chunk (slot wr_chunk mod NUM_CHUNKS, where
+	// the fetch lands it)
+	wire [BADDR_W-2:0]  resync_word = {wr_chunk[CHUNK_W-1:0], {(CB_W-1){1'b0}}};
+
 	wire       can_fetch = ~flush_wait & ~rd_out & ~cr_rd & (fq_n <= 4'd6) &
 	                       ({{(BADDR_W-2){1'b0}}, fq_n} + 4'd2 <= bytes_avail);
 
@@ -156,11 +162,17 @@ module paprium_cdda_buf_cram #(
 
 		if(reset | flush) begin
 			rd_in_chunk  <= {CB_W{1'b0}};
-			rd_chunk     <= {(CHUNK_W+1){1'b0}};
+			// 0.3.0 new core (the reset-domain fixes; a project decision): a reset resynchronises the chunk credit with the
+			// fetch side instead of zeroing it. paprium_cdda_fetch is reset at power-on only, so 0.2.6's rd_chunk <= 0 left
+			// chunks_ahead = (fetch's wr_chunk) after every Soft Reset: stale ring chunks counted as unread and,
+			// from 4 on, a fetch that saw no room. Taking the synchronised wr_chunk (and the ring word where that
+			// chunk lands) leaves 0 chunks ahead and the fetch room at the release. A flush still restarts at 0,
+			// with the fetch side's track request (unchanged)
+			rd_chunk     <= reset ? wr_chunk : {(CHUNK_W+1){1'b0}};
 			byte_pending <= 1'b0;
 			fq_head      <= 3'd0;
 			fq_n         <= 4'd0;
-			pf_word      <= {(BADDR_W-1){1'b0}};
+			pf_word      <= reset ? resync_word : {(BADDR_W-1){1'b0}};
 			// a read still in flight (or being issued) returns into a buffer it no longer belongs to
 			rd_stale     <= (rd_out & ~cr_rd_done) | cr_rd;
 		end

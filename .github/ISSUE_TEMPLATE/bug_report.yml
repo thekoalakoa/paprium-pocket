@@ -7,13 +7,13 @@ body:
       value: |
         Thanks for testing this.
 
-        **Please check [Known issues](https://github.com/thekoalakoa/paprium-pocket#known-issues) first** — the
-        elevator's scrolling tile squares and some residual animation skipping are
-        already logged and understood.
+        **Please check [Known issues](https://github.com/thekoalakoa/paprium-pocket#known-issues) and
+        [Known differences from the original cartridge](https://github.com/thekoalakoa/paprium-pocket#known-differences-from-the-original-cartridge)
+        first.**
 
-        **We cannot help you obtain the ROM or the soundtrack.** WaterMelon have
-        ceased trading and the game is no longer sold, but it is not public domain.
-        You supply your own cartridge dump and your own copy of the music.
+        **We can't help you get the game.** WaterMelon have ceased trading and the
+        game is no longer sold, but it is not public domain. You supply your own
+        legally obtained copy of the game. There's no music file any more.
 
         One thing that helps more than anything else: **describe what you actually
         saw, not what you think it means.** "The pillar still looks undamaged"
@@ -24,7 +24,7 @@ body:
     attributes:
       label: Core version
       description: From the core's own listing on the Pocket, or `core.json`.
-      placeholder: "0.1.0"
+      placeholder: "0.3.0"
     validations:
       required: true
 
@@ -67,22 +67,6 @@ body:
         How reliably does it happen — every time, or occasionally? Anything that
         makes it more or less likely (number of enemies on screen, a particular
         attack, a particular route)?
-    validations:
-      required: true
-
-  - type: dropdown
-    id: music
-    attributes:
-      label: Is music installed?
-      description: >
-        Only relevant to audio reports, but worth knowing. If music is silent,
-        rebuild the blob — the format changed and the core plays nothing rather
-        than noise when it sees an old one.
-      options:
-        - "Yes, and it plays"
-        - "Yes, but there is no music"
-        - "No, running without music"
-        - "Not sure"
     validations:
       required: true
 

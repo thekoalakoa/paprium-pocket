@@ -1,0 +1,62 @@
+{
+  "name": "pocket72k",
+  "note": "0.3.0 memory layout (locked 2026-10-10). IROM, the cart MCU's code memory, is 72 KB = rom0 32 KB (mcu.txt) + one 40 KB extension (mcu_ext.txt) in 2048-deep slices, the extension selected by addr[16] | addr[15] (docs/MCU_INTERFACE.md section 3.1; docs/STAGE1_PLAN.md, row M4). The CPU MATE brain keeps 0x5360-0xD2EB with its bytes unchanged. WRAM, the MCU's working RAM, is 48 KB in the 0.3.0 map. Source of truth for tools/mkld.py (-> pocket72k.ld), tools/fwsize.py and docs/LAYOUT.md. Addresses are MCU bus addresses; hi bounds are exclusive.",
+
+  "irom": {"rom0_kb": 32, "ext_kb": 40},
+  "wram": {"base": "0x80000000", "kb": 48},
+
+  "regions": [
+    {"name": "irom_lo",    "lo": "0x00000000", "hi": "0x00005360", "kind": "rom",     "what": "firmware: crt0 (.text.boot at 0), .text"},
+    {"name": "brain",      "lo": "0x00005360", "hi": "0x0000D2EC", "kind": "fixed",   "what": "CPU MATE brain (brain.bin, 32,652 B, linked for 0x5360; jump table + text + its rodata)"},
+    {"name": "irom_hi",    "lo": "0x0000D2EC", "hi": "0x00012000", "kind": "rom",     "what": "firmware: .text_hi (listed input sections), .rodata, .data load image"},
+    {"name": "wram_data",  "lo": "0x80000000", "hi": "0x80001820", "kind": "ram",     "what": "hot firmware .data/.bss (crt0-cleared) + the glue's .noinit"},
+    {"name": "brain_data", "lo": "0x80001820", "hi": "0x80002AC0", "kind": "fixed",   "what": "buddy data fixed by the brain link: cap 1 KB, CM 0x1C20, T16 0x2020, key/CM_BAD/counters, movem shadow, brain RAM 2 KB at 0x22C0"},
+    {"name": "wram_sched", "lo": "0x80002AC0", "hi": "0x80002C00", "kind": "ram",     "what": "NOT cleared by crt0: the 0.2.6 relocated lists (.bss_noclear); in 0.3.0 the scheduler state / timer wheel"},
+    {"name": "wcode",      "lo": "0x80002C00", "hi": "0x80006C00", "kind": "fixed",   "what": "write-locked code window, bitstream-initialised: cf.bin at 0x2C00, 64 zero bytes, image tables 0x4110-0x4647, then the glue's code and rodata"},
+    {"name": "wram_upper", "lo": "0x80006C00", "hi": "0x8000AC00", "kind": "ram",     "what": "0.3.0 upper data: synth state, scaling buffers, extra .bss (.bss_upper, cleared by the s1 crt0), WRAM-ROM spill, boot overlay at power-on"},
+    {"name": "stack",      "lo": "0x8000AC00", "hi": "0x8000C000", "kind": "stack",   "what": "stack, 5,120 B as in 0.2.6 (static bound with F5's 4 KB local buffer: 4,960 B)"}
+  ],
+
+  "brain_end": "0x0000D2EC",
+  "cf_base": "0x80002C00",
+  "stack_begin": "0x8000BFFC",
+
+  "irom_hi_text": [
+    "*paprium.c.o(.text.ppm_reset)",
+    "*paprium.c.o(.text.ppm_init_cmd_ptr)",
+    "*mame.c.o(.text.ppm_chip_preload)",
+    "*mdp.c.o(.text.mdp_init)",
+    "*appinit.c.o(.text .text.*)",
+    "*bootpage.c.o(.text .text.*)",
+    "*bodies_s1.c.o(.text .text.*)",
+    "*vu_s1.c.o(.text .text.*)",
+    "*disp.c.o(.text .text.*)",
+    "*jobs.c.o(.text .text.*)",
+    "*wdog.c.o(.text .text.*)",
+    "*fatal.c.o(.text .text.*)",
+    "*mcureset.c.o(.text .text.*)",
+    "*stats.c.o(.text .text.*)",
+    "*dbgsave.c.o(.text .text.*)",
+    "*audio_s1.c.o(.text .text.*)"
+  ],
+  "irom_hi_text_note": "the four boot-time / out-of-line functions 0.2.6 already placed after the brain (in the 0.2.6 build's relocation list); everything else of .text stays in irom_lo. Move whole input sections here when .text outgrows irom_lo. From 2026-10-11: the objects only the s1 images have (the new firmware, built with FW_S1) of the core dispatcher, the boot and the interim bodies (no 0.2.6 object has these names, so the milestone-2 images do not move); same IROM, same fetch cost. Later s1 work added the watchdog, fatal halt, MCU reset, TEST counters, debug save and interim audio objects. A review of the split (measured: irom_lo 2,716 / irom_hi 2,092 B free in TEST, 5,828 / 5,328 in RELEASE) moved nothing (docs/LAYOUT.md, the s1 images). On 2026-10-19 the F5 copy (f5_s1.c, 912 B) went back to irom_lo, which the move of the s1 SFX code to the code window had left with 1.8 KB while irom_hi had 52 B (TEST, measured).",
+
+  "wcode_text": [
+    "*sfx_s1.c.o(.text .text.* .rodata .rodata.* .srodata .srodata.*)",
+    "*s1_cache4b.c.o(.text .text.* .rodata .rodata.* .srodata .srodata.*)"
+  ],
+  "wcode_text_note": "s1 objects placed in the code window after the glue (no 0.2.6 object has these names, so the milestone images do not move). From 2026-10-19: our code for the chip's SFX channels (interim/s1/sfx_s1.c: a D1 / D2 / D3 post, the synth tick, a pending start), 4.5 KB that the TEST IROM no longer holds (212 + 168 B free before); the window keeps its fixed bytes (cf.bin, pad, tables) first. From 2026-10-21 (test build 4a): the TEST image's sound-cache probe (board/pocket/s1_cache4a.c, boot only, ~1 KB; the TEST irom_lo had 632 B free and its crt0 needs 40 B more), after sfx_s1; RELEASE has no such object, so its images do not move. From 2026-10-22 (test build 4b): the TEST record writer of the boot cache (board/pocket/s1_cache4b.c) in the probe's place; the boot cache itself is the IROM stub (boot/boot_cache.c) and the WRAM boot overlay (wram_upper at power-on, linked on its own: link/c4b_ovl.ld).",
+
+  "rodata_region": "irom_hi",
+  "data_load_region": "irom_hi",
+
+  "sched_noclear": [
+    "*mame.c.o(.bss.ppm_chip_list)",
+    "*mame.c.o(.bss.ppm_drawList)",
+    "*paprium.c.o(.bss.ppmio)",
+    "*mame.c.o(.bss.snap_da_other)",
+    "*mame.c.o(.sbss.snap_db_ring)",
+    "*spr_posts.c.o(.bss.spr_list_addr)"
+  ],
+  "sched_noclear_note": "the same five .bss objects 0.2.6 relocated to the gap 0x2AC0-0x2BFF (their initial contents are never read; this was argued variable by variable when 0.2.6 placed them). Not cleared by crt0. From 2026-10-27: the sprite engine's flush list (core/sprite spr_posts.c, 64 B; every entry the flush reads is written by spr_load_list first, so its start contents are never read) takes part of the room the 0.2.6 engine's two lists left (TEST's wram_data holds the engine's state)."
+}

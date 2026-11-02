@@ -5,7 +5,7 @@
 # Everything not listed here stays vendored but uncompiled: the
 # MiSTer-platform-only files (md_plus.sv, mdp_audio.sv, md_io.sv, cheatcodes.sv,
 # the pad/lightgun/multitap/keyboard muxes) and the features this device cannot
-# fit (VM2413/, mboot.mif, EEPROM_STM95.sv). SVP/ compiles but only elaborates in
+# fit (mboot.mif, EEPROM_STM95.sv). SVP/ compiles but only elaborates in
 # the SVP bitstreams: cartridge.sv keeps it behind the SVP parameter because it
 # does not fit next to the save hardware.
 #

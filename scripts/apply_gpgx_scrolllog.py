@@ -1,11 +1,11 @@
 """Instrument GPGX to log every write that moves a plane horizontally or vertically.
 
-    python scripts/apply_gpgx_scrolllog.py ../gpgx-build/core/vdp_ctrl.c
+    python scripts/apply_gpgx_scrolllog.py [<Genesis Plus GX source>/core/vdp_ctrl.c]   (default: core/vdp_ctrl.c in the current folder)
 
 Apply AFTER apply_gpgx_vdplog.py and apply_gpgx_vbllog.py - this block sits below
 them and reuses the stdio/stdlib includes the first one adds. Idempotent.
 
-WHY: the user reports that in the Tug room the FOREGROUND bounces left and right
+WHY: B Jam, who tests this port on hardware, reports that in the Tug room the FOREGROUND bounces left and right
 while the stage, background and enemies are fine - "as if a layer is glitching".
 On a Mega Drive that is one plane's scroll value being wrong on some frames, and
 it is a much smaller target than "sprites and logos flicker".
@@ -51,7 +51,7 @@ table is never written.
 
 Decode with scripts/decode_scrolllog.py.
 
-Written with the Write tool, no backslash escapes: tabs, newlines and quotes built
+Written with no backslash escapes: tabs, newlines and quotes are built
 with chr(), per the note in apply_gpgx_winlog.py.
 """
 import sys
@@ -62,7 +62,7 @@ CR = chr(13)
 
 
 def main():
-    p = sys.argv[1] if len(sys.argv) > 1 else '../gpgx-build/core/vdp_ctrl.c'
+    p = sys.argv[1] if len(sys.argv) > 1 else 'core/vdp_ctrl.c'
     s = open(p, encoding='utf-8', newline='').read()
 
     if 'ppm_scroll' in s:

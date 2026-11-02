@@ -1,3 +1,4 @@
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
 
 typedef struct{
 	
@@ -14,6 +15,8 @@ typedef struct{
 	bit [31:0]dato;
 	bit [31:0]addr;
 	bit [3:0]we;
+	//pocket: test build 4 = the 0.3.0 hardware test build of the MCU fast path
+	bit [3:0]sel;//pocket: test build 4 - the access's byte lanes, loads too (an instruction fetch: 1111, the whole word)
 	bit oe;
 	bit ce;
 	bit clk;
@@ -32,13 +35,13 @@ typedef struct{//mcu memory map
 	bit bram;
 	bit sfx;
 	bit mdp;
-	bit xram;//pocket: 0x08 Pocket SRAM window (xram stage 1)
+	bit xram;//pocket: 0x08 Pocket SRAM window (the first xram step)
 	bit xcram;//pocket: 0x09 Pocket CRAM window
 	bit xlink;//pocket: 0x0A xram register block
+	bit regs;//pocket: 0.3.0 new core - 0x0B the cart register file $1FE0-$1FFF (paprium_regfile)
 	
 	bit fpgio_ctrl;//var control flags
-	bit fpgio_time;//timer
-	bit fpgio_sptr;//sdram ptr 
+	bit fpgio_sptr;//sdram ptr
 	bit fpgio_vols;//sfx vol
 	bit fpgio_volb;//bgm vol
 	

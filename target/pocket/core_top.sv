@@ -12,6 +12,18 @@
 // in the core, not here: MegaDrive_MiSTer ships no savestate engine, so one has to
 // be written first (README, "Not included").
 //
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
+// pocket: words used in the pocket comments of this file. "New core" = the first step of the 0.3.0 work, which built
+// the new cart register file and MCU interface v1.0 (the firmware's docs/STAGE1_PLAN.md); "synth step" = the 0.3.0
+// step that moved the cart chip's audio work into logic (paprium_synth); "MegaWire step" = the 0.3.0 step that
+// added the MegaWire code to the firmware; "release fit" = the fit made for the 0.3.0 release. "Test build N" = a
+// 0.3.0 hardware test build that B Jam ran on the Pocket: 4 = the MCU fast path, 4a = the first sound-cache build,
+// 4b = the first-boot unpack build, 5 = the synth build, S3c = a test build of the MegaWire step. "Fit round 1 / 2" =
+// the new core's first and second rounds of fits and timing fixes. "xram step 1 / 2" = the two steps of our Pocket
+// SRAM / CRAM work (paprium_xlink.sv). FPGAIO = the MCU's register block in the FPGA (fpgio.sv); XLINK = the MCU's
+// register block for the Pocket's own memories and the CPU MATE link (paprium_xlink.sv); CRAM = the Pocket's cellular
+// RAM; RAMDP = the cart RAM that both the 68000 and the MCU see; MCU interface vN / MCU_INTERFACE = the firmware's
+// docs/MCU_INTERFACE.md.
 
 `default_nettype none
 
@@ -295,18 +307,50 @@ module core_top (
   parameter PAL = 1'b0;
   parameter SVP = 1'b0;
 // paprium: a third variant. It swaps the general mapper and save hardware for the
-// Paprium cartridge subsystem, and is NTSC-only: the MCU's CLOCK_FREQUENCY generic and
-// CLK_FREQ are 53.693 MHz, so building it PAL would put every clock-derived figure in
-// the firmware out by 0.9%
+// Paprium cartridge subsystem, and is NTSC-only (generate.tcl): the RTL's clock figures
+// follow CLK_HZ below, but the MCU firmware is built for one clock (its build-time
+// clk_hz), so a PAL Paprium bitstream also needs a PAL firmware build
   parameter PAPRIUM = 1'b0;
   // Diagnostic switch: drop the cartridge PCM engine to buy ~700 ALMs. Shipping is 1
   parameter PAPRIUM_SFX = 1'b1;
   // Diagnostic build: report openfile's outcome as playback duration. Shipping is 0.
+  // pocket: synth step (test build 4a on) - the album path is gone, so nothing reads this any more; it stays declared
+  // because generate.tcl / syn_check.tcl / the qsf still set it on every variant
   parameter PAPRIUM_CDDA_DBG = 1'b0;
 
   // paprium: log the 68k's mailbox commands to their own APF data slot. Diagnostic
   // builds only; shipping is 0 and the whole block folds away.
   parameter PAPRIUM_CMD_LOG = 1'b0;
+
+  // pocket: 0.3.0 new core (the clock-following change) - the one clock value. clk_sys_53_69 is VCO/12
+  // and clk_md_107_39 VCO/6 in both regions (the wire names carry the NTSC figures). Every
+  // clock-derived count in the RTL is computed from these two and passed down as a
+  // parameter; scripts/clkcheck.py refuses a clock literal anywhere else
+  localparam integer CLK_HZ    = PAL ? 53_203_424 : 53_693_175;
+  localparam integer CLK_MD_HZ = 2 * CLK_HZ;
+
+  // pocket: synth step (MCU interface v1.3 section 4.10) - FPGAIO FEAT (slot 23), what this bitstream carries, a
+  // constant the firmware's crt0 checks. Test builds 4a / 4b: [0] CACHE (the sound-cache slot, XLINK CACHE /
+  // CACHE_LOADED) = 1, [1] BAR (the first-boot bar, XLINK BAR) = 1, [2] SYNTH = 0, [3] SFXFIFO = PAPRIUM_SFX (region
+  // 0x06 is audio_sfx's FIFOs, FPGAIO VOL_SFX live), [4] MDP = 1 (region 0x07, the MD+ block, kept with its album gone:
+  // mdp_playing reads 0), [5] ALBUM = 0 (removed: it shared CRAM port A with the cache slot), [6] GS3 = 0, [23:16] IROM
+  // = 72 (KB).
+  // NTSC: 0x0048_001B. SYNTH and SFXFIFO are never both 1
+  // pocket: synth step (the synth's first version) - PAPRIUM_SYNTH = 1: region 0x06 is the synth (paprium_synth,
+  // MCU_INTERFACE v1.3 3.10) instead of audio_sfx, FEAT [2] SYNTH = 1 and [3] SFXFIFO = 0, and paprium_cram ports C / E
+  // are the synth's. Hand-set like the other FEAT inputs: 0 until the synth integration (test build 5) turns it on
+  // pocket: synth step (test build 5, the integration; MCU interface v1.3 sections 3.1, 4.10, 21.5) - test build 5 is
+  // the synth fit:
+  // PAPRIUM_SYNTH = 1 (the synth on region 0x06; audio_sfx's FIFOs are not built), [4] MDP = 0 (the MD+ block is out of
+  // paprium_cart: region 0x07 is unassigned), [6] GS3 = 1 (the virtual Grand Stick III in paprium_pads), [23:16] IROM
+  // = 88 KB (mcu_core: rom0 32 KB + a 56 KB extension in 7 slices, from FEAT itself through paprium_cart). NTSC:
+  // 0x0058_0047 = CACHE | BAR | SYNTH | GS3, IROM 88: what test build 5's firmware crt0 asks for (CACHE | BAR | SYNTH,
+  // IROM >= 88)
+  localparam        PAPRIUM_SYNTH   = 1'b1;
+  localparam [7:0]  PAPRIUM_IROM_KB = 8'd88;
+  localparam [31:0] PAPRIUM_FEAT    = {8'd0, PAPRIUM_IROM_KB, 9'd0, 1'b1, 1'b0, 1'b0,
+                                       ((PAPRIUM_SFX && !PAPRIUM_SYNTH) ? 1'b1 : 1'b0), (PAPRIUM_SYNTH ? 1'b1 : 1'b0),
+                                       1'b1, 1'b1};
 // paprium-end
 
 
@@ -433,6 +477,8 @@ module core_top (
 
   // No saves and nothing else to write back, so no target dataslot commands
   // paprium: driven by paprium_cdda_fetch in the Paprium builds, 0 elsewhere
+  // pocket: synth step (test build 4a on) - the album's fetcher is gone, so no variant issues a target command (tied 0
+  // below)
   wire        target_dataslot_read;
   wire        target_dataslot_write = 0;
   wire        target_dataslot_getfile = 0;
@@ -456,13 +502,22 @@ module core_top (
   wire        sram_present_74a;
   wire        eeprom_present_74a;
 
-  // paprium: the Paprium save is the MCU-managed 4 KB backup RAM, not a 64 KB cart SRAM.
-  // APF sizes the .sav file from this, and paprium_backup only decodes 12 address bits,
-  // so a 64 KB slot would wrap 16 times over the array and corrupt the save on load
-  localparam [31:0] SAVE_SIZE = PAPRIUM ? 32'h1000 : 32'h10000;
-  wire [ 9:0] datatable_addr = 10'd3;
+  // paprium: the Paprium save is the MCU-managed backup RAM, not a 64 KB cart SRAM.
+  // APF sizes the .sav file from this, and paprium_backup only decodes 13 address bits,
+  // so a 64 KB slot would wrap 8 times over the array and corrupt the save on load.
+  // New core (B Jam's decision of 2026-10-11 on the save size): 8 KB like the cart's EEPROM (0.2.x: 4 KB, 32'h1000); a
+  // 0.2.x 4 KB .sav loads into the low half, at the same addresses as before
+  localparam [31:0] SAVE_SIZE = PAPRIUM ? 32'h2000 : 32'h10000;
+  // pocket: synth step (MCU interface v1.3 section 21.1, test builds 4a / 4b) - the Paprium build also writes the
+  // sound-cache slot's size (data slot index 2, datatable word 5) all the time: XLINK CACHE.VALID ? CACHE.SIZE : 0. The
+  // words come from paprium_cache_slot (xmem block), which alternates word 3 (save_dt) and word 5 on clk_74a, each
+  // rewritten every other clock, so the Pocket writes the cache file back at a shutdown only once the firmware has set
+  // CACHE, with exactly SIZE bytes; a session that ends before that writes no file. Other variants keep word 3 alone
+  // (xmem_tie)
+  wire [31:0] save_dt = (sram_present_74a | eeprom_present_74a) ? SAVE_SIZE : 32'd0;
+  wire [ 9:0] datatable_addr;
   wire        datatable_wren = pll_core_locked_s;
-  wire [31:0] datatable_data = (sram_present_74a | eeprom_present_74a) ? SAVE_SIZE : 32'd0;
+  wire [31:0] datatable_data;
   // pocket-end
   wire [31:0] datatable_q;
 
@@ -553,6 +608,7 @@ module core_top (
   //
 
   wire [31:0] save_rd_data;
+  wire [31:0] cache_rd_data;   // pocket: synth step - the sound-cache slot's flush reads (paprium_cache_slot; 0 elsewhere)
 
   always @(*) begin
     casex (bridge_addr)
@@ -562,6 +618,10 @@ module core_top (
       // paprium: command log, diagnostic builds only
       32'h3xxxxxxx: begin
         bridge_rd_data <= cmdlog_rd_data;
+      end
+      // pocket: synth step (MCU interface v1.3 section 21.1) - the sound-cache slot (data.json id 20, 0x60000000)
+      32'h6xxxxxxx: begin
+        bridge_rd_data <= cache_rd_data;
       end
       32'hF8xxxxxx: begin
         bridge_rd_data <= cmd_bridge_rd_data;
@@ -613,6 +673,15 @@ module core_top (
   // firmware and left the ALM count identical. The menu entry stays removed - the
   // option never did anything, because Paprium's pad read is a 3-button read - so
   // this simply sits at its default and costs nothing user-visible.
+  // 0.3.0: no longer used. With the EA 4-Way Play (paprium_pads) the game's own six-button read works on
+  // this core (measured on an RTL bench of the game's own pad code: X/Y/Z/Mode land in all three players'
+  // records; the 0.2.6 direct-port read loses pad_io's first TH rise and sees three-button pads). So the pads' six-button mode now
+  // follows the 6-Button switch (Scum! 0x44): on = six-button pads for players 1-3, which gives player 3 its
+  // X/Y/Z/Mode; off = three-button pads, which is what the game saw in 0.2.6
+  // 0.3.0 (B Jam's revised decision of 2026-10-11 on the EA 4-Way Play): that holds only while the EA 4-Way Play is
+  // present. Without it the ports are 0.2.6's, and so is their MODE: this register again (pads section below)
+  // 0.3.0 test build 4 (B Jam 2026-10-16): no longer read. pad_io now counts the first TH rise of the direct-port read,
+  // so the 6-Button switch gives real six-button pads on the direct ports too, and it is the pads' MODE everywhere
   reg cfg_6btn = 1;
 
   // paprium: CRAM Dots and Composite Blend menus removed and both tied off. The dot is
@@ -630,9 +699,11 @@ module core_top (
   // pocket: Scum! (0.2.6), four entries at the bottom of the core's menu. Little-Man (the cheats) is one
   // list whose value is the {lives,pills,health} mask. The stages need two lists, since
   // a list holds 16 choices: page 1 writes 0 or 1-15, page 2 writes 0 or 16-25 (25 is
-  // Arena, stage 0x1E). Any stage switches Arcade Mode on. The Pocket replays saved
-  // settings in a fixed order at boot, so "last one changed" cannot be known here:
-  // page 2 wins whenever it holds a stage
+  // Arena, stage 0x1E). The Pocket replays saved settings in a fixed order at boot, so
+  // "last one changed" cannot be known here: page 2 wins whenever it holds a stage.
+  // 0.3.0: Arcade Mode is its own list ($5C: 0 Off, 1 On, 2 Multiplayer); the stage lists only
+  // pick the stage, and only while Arcade Mode is on (0.2.6: any stage switched Arcade Mode on).
+  // Multiplayer adds the Grand Stick III DIP bit (Scum! G_ARC3P): three players in Arcade
   reg [2:0] scum_cheats  = 0;
   reg [4:0] scum_stage_a = 0;
   reg [4:0] scum_stage_b = 0;
@@ -642,10 +713,44 @@ module core_top (
   reg       scum_32x     = 0;
   reg [4:0] scum_stage   = 0;
   reg       scum_arcade  = 0;
+  // 0.3.0: Arcade Mode. Synth step (B Jam's decision 6b of 2026-10-21): 0 Off, 1 On, 2 Multiplayer, 3 Stick Only
+  reg [1:0] scum_arcmode = 0;
+  reg       scum_arc3p   = 0;
+  // 0.3.0 (B Jam's revised decision of 2026-10-11 on the EA 4-Way Play): "3-Player Mode" ($60, check, default Off). The
+  // EA 4-Way Play is present when 3-Player Mode = On or Arcade Mode = Multiplayer (which needs it); the pads section
+  // takes it at boot. Synth step (B Jam's decision 6a): never with the Grand Stick III on; then the stick's EXT socket
+  // is Dock controller 3
+  reg       scum_3p      = 0;
+  reg       scum_tap     = 0;
+  // 0.3.0 synth step (B Jam's decisions 6a-6c of 2026-10-19 / 2026-10-21): the Grand Stick III. Arcade Mode On,
+  // Multiplayer and Stick Only put a virtual Grand Stick III in port 1 (paprium_pads / paprium_gs3), and the game runs
+  // its own arcade code from the stick's switches on the unpatched ROM (the Scum! Arcade patch, the pad hook and the
+  // coin stub are gone). The switch byte (DIP 1-6 = bits 0-5): Arcade Mode On or Multiplayer = ARCADE (bit 5);
+  // Multiplayer = 3 PLAYERS (bit 0); "Arcade Coins" ($64): 1 Coin 1 Credit = no bit, 2 Coins 1 Credit = TWO COINS
+  // (bit 2), "Inf. Credits (0012)" = INF. CREDITS (bit 4), which the game answers with its red 0012 stop, by design,
+  // as on B Jam's stick; "Attract Only" ($68, check) = DEMO (bit 3); NO HIT FX (bit 1) is left out (nothing to see on
+  // a Pocket). Stick Only = a stick with every switch off (B Jam's own stick), so Coins and Attract Only apply only
+  // with Arcade on. Select is the coin only while Arcade is on; with Stick Only it is the stick's Mode button. The
+  // EXT socket holds Dock controller 3 with Multiplayer or 3-Player Mode (no EA 4-Way Play with the stick on). All
+  // taken at boot with the adapter (below), as the game reads the stick's switches once per power-on or reset
+  reg [1:0] scum_coins   = 0;     // synth step: Arcade Coins, 0 1C1C, 1 2C1C, 2 Inf. Credits (0012)
+  reg       scum_attract = 0;     // synth step: Attract Only
+  reg       gs3_on_74    = 0;
+  reg       gs3_pt_74    = 0;
+  reg       gs3_coin_74  = 0;
+  reg [5:0] gs3_dip_74   = 0;
 
   always @(posedge clk_74a) begin
-    scum_stage  <= (scum_stage_b != 5'd0) ? scum_stage_b : scum_stage_a;
-    scum_arcade <= (scum_stage_b != 5'd0) | (scum_stage_a != 5'd0);
+    scum_arcade <= (scum_arcmode == 2'd1) | (scum_arcmode == 2'd2);
+    scum_arc3p  <= (scum_arcmode == 2'd2);
+    scum_tap    <= scum_3p & (scum_arcmode == 2'd0);                 // synth step: no 4-Way Play with the stick on
+    scum_stage  <= ((scum_arcmode == 2'd1) | (scum_arcmode == 2'd2)) ?
+                   ((scum_stage_b != 5'd0) ? scum_stage_b : scum_stage_a) : 5'd0;
+    gs3_on_74   <= (scum_arcmode != 2'd0);
+    gs3_pt_74   <= (scum_arcmode != 2'd0) & ((scum_arcmode == 2'd2) | scum_3p);
+    gs3_coin_74 <= (scum_arcmode == 2'd1) | (scum_arcmode == 2'd2);
+    gs3_dip_74  <= ((scum_arcmode == 2'd1) | (scum_arcmode == 2'd2)) ?
+                   {1'b1, (scum_coins == 2'd2), scum_attract, (scum_coins == 2'd1), 1'b0, (scum_arcmode == 2'd2)} : 6'd0;
   end
 
   // pocket: 0.2.6 options: Console (list, $54), Mega CD (list, $50,
@@ -658,42 +763,70 @@ module core_top (
   //   clk_sys : the cart MCU's GPIO input, {MegaWire, $1FE4 model bits} (opt_mcu_sync); the
   //             firmware copies them into $1FE4/$1FE6 at its reset (ppm_reset)
   // All are read by the game at boot ($BC944), so a change needs a reset, as 32X Mode does.
-  reg [2:0] opt_console = 3'd0;
+  reg [3:0] opt_console = 4'd0;    // 0.3.0: 4 bits, 8 = TeraDrive
   reg [3:0] opt_megacd  = 4'd0;
   reg       opt_mwire   = 1'b0;
 
+  // New core (MCU_INTERFACE 4.1 CTRL bit 5): the "options apply at reset" latch, built
+  // DORMANT. OPT_AT_RESET_EN = 0 (configuration, every reset, and until firmware writes it) selects the live
+  // option registers below, exactly as 0.2.6; the copies follow them every clk_74a. With 1, every option
+  // consumer (paprium_opts, so the version nibble, TMSS-lite, DISK, JAP, the CD stub, cd_real, and the MCU's
+  // GPIO copy) holds the values from the clock before it went to 1, and a change the APF makes waits for the
+  // next reset, which clears bit 5 (as a fix our 0.2.6 hardware study proposed: one consistent machine per boot). For
+  // diagnosis only; if it is never switched on, the 0.3.0 release fit removes it (B Jam 2026-10-11)
+  wire                          opt_at_reset_en;       // fpgio ctrl[5], clk_sys_53_69
+  wire                          opt_at_reset_en_74a;
+  synch_3 opt_at_reset_sync (.i(opt_at_reset_en), .o(opt_at_reset_en_74a), .clk(clk_74a));
+  reg  [$bits(opt_console)-1:0] opt_console_q = '0;
+  reg  [$bits(opt_megacd)-1:0]  opt_megacd_q  = '0;
+  reg                           opt_mwire_q   = 1'b0;
+  always @(posedge clk_74a) begin
+    if (!opt_at_reset_en_74a) begin
+      opt_console_q <= opt_console;
+      opt_megacd_q  <= opt_megacd;
+      opt_mwire_q   <= opt_mwire;
+    end
+  end
+  wire [$bits(opt_console)-1:0] opt_console_e = opt_at_reset_en_74a ? opt_console_q : opt_console;
+  wire [$bits(opt_megacd)-1:0]  opt_megacd_e  = opt_at_reset_en_74a ? opt_megacd_q  : opt_megacd;
+  wire                          opt_mwire_e   = opt_at_reset_en_74a ? opt_mwire_q   : opt_mwire;
+
   wire       opt_jap, opt_ver1, opt_disk_n, opt_cd_real;
+  wire       opt_td_en;           // 0.3.0: the TeraDrive stub (md_board's vram_td_stub)
   wire [3:0] opt_model, opt_cd_unit;
 
   paprium_opts opts (
       .clk    (clk_74a),
-      .console(opt_console),
-      .megacd (opt_megacd),
+      .console(opt_console_e),   // new core: through the dormant latch
+      .megacd (opt_megacd_e),
       .jap    (opt_jap),
       .ver1   (opt_ver1),
       .model  (opt_model),
       .cd_unit(opt_cd_unit),
       .disk_n (opt_disk_n),
-      .cd_real(opt_cd_real)
+      .cd_real(opt_cd_real),
+      .td_en  (opt_td_en)
   );
   assign cfg_jap = opt_jap;
 
-  wire       opt_ver1_s, opt_disk_n_s;
+  wire       opt_ver1_s, opt_disk_n_s, opt_td_en_s;
   wire [3:0] opt_cd_unit_s;
-  wire [4:0] mcu_opts_s;          // {MegaWire, $1FE4 bit 10, 9, 8, 6}, clk_sys_53_69
+  wire [5:0] mcu_opts_s;          // {Japan, MegaWire, $1FE4 bit 10, 9, 8, 6}, clk_sys_53_69 (new core: + Japan)
 
   synch_3 #(
-      .WIDTH(6)
+      .WIDTH(7)
   ) opt_md_sync (
-      .i({opt_ver1, opt_disk_n, opt_cd_unit}),
-      .o({opt_ver1_s, opt_disk_n_s, opt_cd_unit_s}),
+      .i({opt_td_en, opt_ver1, opt_disk_n, opt_cd_unit}),
+      .o({opt_td_en_s, opt_ver1_s, opt_disk_n_s, opt_cd_unit_s}),
       .clk(clk_md_107_39)
   );
 
   synch_3 #(
-      .WIDTH(5)
+      .WIDTH(6)
   ) opt_mcu_sync (
-      .i({opt_mwire, opt_model}),
+      // pocket: new core - adds opt_jap (option word bit 25) and takes MegaWire through the dormant latch.
+      // opt_jap and opt_model come from paprium_opts, which already sees the latched Console / Mega CD
+      .i({opt_jap, opt_mwire_e, opt_model}),
       .o(mcu_opts_s),
       .clk(clk_sys_53_69)
   );
@@ -704,6 +837,7 @@ module core_top (
 
   reg  [13:0] reset_counter = 0;
   wire        core_reset = (reset_counter != 0);
+  reg         cr_req_74a = 1'b0;   // pocket: test build S3c - the Console Reset action: one change per press
 
   always @(posedge clk_74a) begin
     if (reset_counter != 0) begin
@@ -727,11 +861,16 @@ module core_top (
         32'h00000048: scum_stage_b <= bridge_wr_data[4:0];
         32'h0000004C: scum_32x     <= bridge_wr_data[0];
         32'h00000050: opt_megacd   <= bridge_wr_data[3:0];   // 0.2.6
-        32'h00000054: opt_console  <= bridge_wr_data[2:0];
+        32'h00000054: opt_console  <= bridge_wr_data[3:0];   // 0.3.0: + TeraDrive (8)
         32'h00000058: opt_mwire    <= bridge_wr_data[0];
+        32'h0000005C: scum_arcmode <= bridge_wr_data[1:0];   // 0.3.0: Arcade Mode
+        32'h00000060: scum_3p      <= bridge_wr_data[0];     // 0.3.0: 3-Player Mode
+        32'h00000064: scum_coins   <= bridge_wr_data[1:0];   // synth step: Arcade Coins (Grand Stick III switches)
+        32'h00000068: scum_attract <= bridge_wr_data[0];     // synth step: Attract Only
         32'hF0000000: begin
           reset_counter <= RESET_PULSE;
         end
+        32'hF0000004: cr_req_74a <= ~cr_req_74a;   // pocket: test build S3c - Console Reset (interact.json "Console Reset")
       endcase
     end
   end
@@ -739,17 +878,21 @@ module core_top (
   wire       reset_n_s;
   wire       core_reset_s;
   wire       dataslot_allcomplete_s;
+  wire       scum_6btn_s;
   wire       cfg_6btn_s;
   wire       inmenu_sys_s;
 
   synch_3 #(
-      .WIDTH(5)
+      .WIDTH(6)
   ) settings_sync (
-      .i({reset_n, core_reset, dataslot_allcomplete, cfg_6btn, osnotify_inmenu}),
+      // 0.3.0: 6-Button; and (B Jam's revised decision on the EA 4-Way Play) 0.2.6's cfg_6btn again, the pads' MODE
+      // without the EA 4-Way Play
+      .i({reset_n, core_reset, dataslot_allcomplete, scum_6btn, cfg_6btn, osnotify_inmenu}),
       .o({
         reset_n_s,
         core_reset_s,
         dataslot_allcomplete_s,
+        scum_6btn_s,
         cfg_6btn_s,
         inmenu_sys_s
       }),
@@ -793,6 +936,17 @@ module core_top (
       .clk(clk_md_107_39)
   );
 
+  // Fafrium: the boot stub's GO (cartridge -> paprium_cart -> mcu_core, clk_sys, a power-on flag) restarts the reset
+  // envelope below once, as the end of an APF load does (reset_delay_count to 0: shell_reset -> sys_reset for 2-3
+  // ram_clear_addr steps), so the firmware starts from the same reset as one built into the bitstream did
+  wire       fw_go;
+  wire       fw_go_md;
+  // Fafrium: fw_len_bad is 1 unless the Fafrium slot's last load was exactly 256 KB (cartridge.sv's length mark,
+  // which covers files up to 32 MB).
+  // It goes to XLINK FAFRIUM, where only the boot stub reads it. It reads 0 once fw_done is set.
+  wire       fw_len_bad;
+  synch_3 fw_go_sync (.i(fw_go), .o(), .rise(fw_go_md), .clk(clk_md_107_39));
+
   reg        btn_reset = 0;
   reg        md_reset = 0;
   reg        shell_reset = 0;
@@ -807,7 +961,7 @@ module core_top (
     end
 
     prev_md_reset_req <= md_reset_req_s;
-    if (loading_s | (~prev_md_reset_req & md_reset_req_s)) begin
+    if (loading_s | (~prev_md_reset_req & md_reset_req_s) | fw_go_md) begin   // Fafrium: + fw_go_md
       reset_delay_count <= 0;
     end
 
@@ -853,24 +1007,31 @@ module core_top (
   wire [24:0] ioctl_addr;
   wire [15:0] ioctl_data;
 
-  data_loader #(
-      .ADDRESS_MASK_UPPER_4 (4'h1),
-      .ADDRESS_SIZE         (25),
-      .OUTPUT_WORD_SIZE     (2),
-      .WRITE_MEM_CLOCK_DELAY(24)
-  ) rom_data_loader (
-      .clk_74a   (clk_74a),
-      .clk_memory(clk_sys_53_69),
+  // pocket: synth step (a logic saving) - in the Paprium build the ROM region is served by the sound-cache slot's
+  // loader (paprium_cache_slot ROM_SHARE = 1, xmem block: the same stock data_loader, word size 2, delay 24, 25 address
+  // bits, with its own ROM output registers), so this loader is the other builds' only
+  generate
+    if (!PAPRIUM) begin : rom_ld
+      data_loader #(
+          .ADDRESS_MASK_UPPER_4 (4'h1),
+          .ADDRESS_SIZE         (25),
+          .OUTPUT_WORD_SIZE     (2),
+          .WRITE_MEM_CLOCK_DELAY(24)
+      ) rom_data_loader (
+          .clk_74a   (clk_74a),
+          .clk_memory(clk_sys_53_69),
 
-      .bridge_wr           (bridge_wr),
-      .bridge_endian_little(bridge_endian_little),
-      .bridge_addr         (bridge_addr),
-      .bridge_wr_data      (bridge_wr_data),
+          .bridge_wr           (bridge_wr),
+          .bridge_endian_little(bridge_endian_little),
+          .bridge_addr         (bridge_addr),
+          .bridge_wr_data      (bridge_wr_data),
 
-      .write_en  (ioctl_wr),
-      .write_addr(ioctl_addr),
-      .write_data(ioctl_data)
-  );
+          .write_en  (ioctl_wr),
+          .write_addr(ioctl_addr),
+          .write_data(ioctl_data)
+      );
+    end
+  endgenerate
 
   reg [11:0] cart_dl_hold = 0;
 
@@ -884,6 +1045,23 @@ module core_top (
 
   wire        cart_dl = ~dataslot_allcomplete_s | (cart_dl_hold != 0);
   // pocket-end
+
+  // Fafrium: while the boot stub runs (from the first sys_reset release after a complete load until GO), paprium_cart's
+  // reset ignores sys_reset, so a Soft Reset or the Quit's Reset Enter cannot stop the copy half way (a new load,
+  // cart_dl, still resets it; the Quit's read-back raises cart_dl). From the clock after GO the cart is held in reset
+  // until the envelope's own sys_reset is up (fw_done, a power-on flag: from then the boot view is closed), so the MCU
+  // runs nothing between GO and the restart. Outside the stub phase and that gap pap_reset is a register equal to
+  // sys_reset on every clock (the same next-state function), so the cart's release is sys_reset's own clock
+  reg         fw_stub   = 1'b0;
+  reg         fw_done   = 1'b0;
+  reg         pap_reset = 1'b0;
+  wire        sys_reset_nx = (&shell_reset_sync) ? 1'b1 : (shell_reset_sync == 2'b00) ? 1'b0 : sys_reset;
+  wire        fw_stub_nx   = ~fw_go & ~cart_dl & (fw_stub | ~sys_reset);
+  always @(posedge clk_sys_53_69) begin
+    fw_stub   <= fw_stub_nx;
+    if (fw_go & sys_reset) fw_done <= 1'b1;
+    pap_reset <= (sys_reset_nx & ~fw_stub_nx) | (fw_go & ~fw_done);
+  end
 
 
   //
@@ -941,7 +1119,7 @@ module core_top (
   );
 
   // paprium: command-log read-back on its own bridge region (0x3xxxxxxx) and its
-  // own data slot, so a diagnostic capture can never touch the 4 KB save.
+  // own data slot, so a diagnostic capture can never touch the 8 KB save.
   wire [13:0] cmdlog_read_addr;
   wire  [7:0] cmdlog_read_data;
   wire [31:0] cmdlog_rd_data;
@@ -1062,6 +1240,16 @@ module core_top (
   wire signed [15:0] paprium_sfx_l;
   wire signed [15:0] paprium_sfx_r;
 
+  // pocket: 0.3.0 new core - Pocket-menu music mute (MCU_INTERFACE 4.1, CTRL bit 4). While
+  // the Pocket menu is open and the firmware has set MENU_MUTE_EN, the album pauses in place
+  // (cdda_play stops taking samples and outputs 0, then carries on from the same ring
+  // address) and the cart SFX pair is forced to 0. FM/PSG keep 0.2.6's audio_cond mute on
+  // inmenu_sys_s alone. Both terms are on clk_sys (settings_sync, fpgio): no new crossing.
+  // MENU_MUTE_EN is 0 until the firmware writes it, so 0.2.6's firmware keeps 0.2.6's sound
+  wire        paprium_menu_mute_en;
+  wire        menu_mute = inmenu_sys_s & paprium_menu_mute_en;
+  // pocket-end
+
   wire        mdp_track_request;
   wire  [7:0] mdp_track_num;
   wire        mdp_track_loop;
@@ -1072,18 +1260,107 @@ module core_top (
   wire        mdp_volume_request;
   wire        mdp_active;
 
-  wire        md_reset_effective = md_reset | (paprium_active & paprium_md_reset);
+  // New core: the 68000 is held from the first clk_md of every reset. shell_reset (clk_md, high from the
+  // clock after the reset request until the MCU leaves reset) covers the window before the MCU's HOLD bit
+  // (fpgio ctrl[0], reset to 1 by every sys_reset) has crossed; HOLD keeps it held after shell_reset falls,
+  // until the firmware releases it. HOLD comes from clk_sys through a synch_3 (core_constraints.sdc: false path into
+  // its first stage, *|synch_3:paprium_hold_sync|stage_1*), so the 68000 release moves ~3 clk_md (~28 ns) once a boot
+  //
+  // Fit round 2: md_reset_effective is a register (md_reset_eff_q) that holds, on every clk_md, exactly the value
+  // of the old expression md_reset | (paprium_active & (paprium_md_reset_s | shell_reset)): it loads the same function
+  // of its inputs' NEXT values - md_reset's and shell_reset's own D inputs (the always block above), the HOLD
+  // synchroniser's stage_2 (nxt = what o takes next), paprium_active a build constant. Fit round 1 had the OR as a LUT
+  // in front of the arbiter's reset gate (fc1004 SRES -> ym6045 w76 -> INTAK -> the VDP decode -> VD): the md_reset ->
+  // VD[5] path set the vd_bus class at -0.821 ns (slow 85C, seed 1) and HOLD's o -> VD[5] failed the fit gate's
+  // hold_out query (-0.668). Now the reset gate sees one register. The HOLD synchroniser itself is unchanged (stage_1
+  // keeps its false path; stage_1 -> stage_2 is still a plain flop hop); the release still moves ~3 clk_md once a boot,
+  // exactly as before. Exact by construction; checked on our reset bench: the register against the old expression on
+  // every clock
+  wire        paprium_md_reset_nx;   // the synchroniser's o after this clock (o itself has no other reader now)
+  synch_3 paprium_hold_sync (.i(paprium_md_reset), .o(), .clk(clk_md_107_39), .nxt(paprium_md_reset_nx));
+  wire        md_reset_nx    = loading_s ? 1'b1 : (reset_delay_count == 3) ? 1'b0 : md_reset;
+  wire        shell_reset_nx = (reset_delay_count < 3);
+  reg         md_reset_eff_q = 1'b0;   // power-up: md_reset, shell_reset and the synchroniser all 0
+  always @(posedge clk_md_107_39)
+    md_reset_eff_q <= md_reset_nx | (paprium_active & (paprium_md_reset_nx | shell_reset_nx));
+  wire        md_reset_effective = md_reset_eff_q;
   wire        addon_dtack;        // 0.2.6: TMSS-lite registers ($A14000-3, $A14101)
+
+  // pocket: test build S3c (the MegaWire step; B Jam's decision of 2026-10-18 to add a cart-exact Console Reset) - the
+  // console's own Reset button, 68000-only, as a Pocket menu action. A real console's Reset resets the 68000 and (through
+  // the bus arbiter's one-shot, which clears $A11200) holds the Z80 until the game releases it; the VDP, work RAM, Z80 RAM
+  // and the cart keep running, and the cart chip only acknowledges its EXTI13 line. So this presses md_board's
+  // reset_button alone - never ext_reset (SRES), md_reset (the RAM clears), shell_reset or sys_reset (the MCU) - and
+  // raises FPGAIO CAUSE.V (= the chip's EXTI13). What the 68000 then fetches is the board's warm vector page, the one
+  // variant that reproduces every Reset captured on the cart: PC $00010100 and the boot page's own
+  // exception vectors in RAMDP $0000-$00FF, the rest of RAMDP and work RAM as the game left them. The firmware's board
+  // layer writes that page on CAUSE.V and only then acknowledges it, so ext_vres (the 68000's RESET + HALT, nothing
+  // else) holds the 68000 from the press until the acknowledgement AND the end of the button pulse: no 68000 cycle can
+  // fetch a vector before the page is in. Nothing here is a timer or a list of lock screens: whether the game locks
+  // ($80B78's guard before its first entry; F5 stamps in $0200-$09FF during a zoom) follows from that state alone.
+  // The button pulse is 31 wraps of ram_clear_addr (~9.2-9.5 ms), Soft Reset's btn_reset length. A press while the
+  // 68000 is held anyway (power-on, a load, Soft Reset, the MCU's boot hold), or during a Console Reset still being
+  // served, is dropped. The Pocket menu's pause (pause_req) is left as it is: a press from the open menu resets the
+  // 68000 at once and it starts again once the menu closes. Non-Paprium variants: every output 0 (no menu entry there).
+  wire        cr_btn;               // -> md_board reset_button, with btn_reset
+  wire        cr_hold;              // -> md_board ext_vres
+  wire        cr_post_sys;          // clk_sys: one pulse per accepted press -> cartridge (FPGAIO CAUSE.V)
+  wire        cr_cause_v;           // clk_sys: CAUSE.V pending (from the cartridge)
+  generate
+    if (PAPRIUM) begin : console_reset
+      wire       req_md;
+      synch_3 req_sync (.i(cr_req_74a), .o(req_md), .clk(clk_md_107_39));
+      wire       v_md;
+      synch_3 v_sync (.i(cr_cause_v), .o(v_md), .clk(clk_md_107_39));
+      reg        req_q = 1'b0;
+      reg        btn_q = 1'b0;
+      reg        hold_q = 1'b0;
+      reg        seen_q = 1'b0;     // CAUSE.V seen pending since the press
+      reg        acc_q = 1'b0;      // one change per accepted press (to clk_sys)
+      reg  [4:0] cnt_q = 5'd0;
+      always @(posedge clk_md_107_39) begin
+        req_q <= req_md;
+        if (md_reset_effective | btn_reset | loading_s) begin      // another reset owns the console
+          btn_q  <= 1'b0;
+          hold_q <= 1'b0;
+          seen_q <= 1'b0;
+        end else if ((req_md ^ req_q) & ~hold_q) begin             // a press: accepted
+          btn_q  <= 1'b1;
+          hold_q <= 1'b1;
+          seen_q <= 1'b0;
+          cnt_q  <= 5'd0;
+          acc_q  <= ~acc_q;
+        end else begin
+          if (btn_q & (&ram_clear_addr)) cnt_q <= cnt_q + 1'd1;
+          if (&cnt_q) btn_q <= 1'b0;
+          if (v_md) seen_q <= 1'b1;
+          if (~btn_q & seen_q & ~v_md) hold_q <= 1'b0;             // page written and acknowledged, button up
+        end
+      end
+      assign cr_btn  = btn_q;
+      assign cr_hold = hold_q;
+      wire       acc_sys, acc_rise, acc_fall;
+      synch_3 acc_sync (.i(acc_q), .o(acc_sys), .clk(clk_sys_53_69), .rise(acc_rise), .fall(acc_fall));
+      assign cr_post_sys = acc_rise | acc_fall;
+    end else begin : no_console_reset
+      assign cr_btn = 1'b0;
+      assign cr_hold = 1'b0;
+      assign cr_post_sys = 1'b0;
+    end
+  endgenerate
+  // pocket-end
 
   // Paprium reads the real cartridge OE; everything else keeps the early DMA strobe
   assign      cart_oe = paprium_active ? cart_oe_raw : cart_oe_early;
 
-  // pocket: xram stage 2 - option D: the stub's busy bit and COMSTAT2 come from
+  // pocket: xram step 2 - option D: the stub's busy bit and COMSTAT2 come from
   // paprium_mcd_link (xmem block below); tied to 0 in the other variants
   wire        od_busy;
   wire [15:0] od_comstat2;
   wire  [7:0] od_g3;
   wire  [6:0] od_link_status;
+  wire        od_post_bit;   // pocket: new core - XLINK posts_s[0], clk_sys: FPGAIO CAUSE.S (one event a post)
+  wire        paprium_vs_tog_s;   // pocket: new core (MCU interface v1.1) - paprium_vs_tap below, clk_sys: FPGAIO VSCNT
 
   // pocket: the 32X / Mega CD boot-probe stubs (declared with the cart wires above)
   paprium_addons addons (
@@ -1109,7 +1386,7 @@ module core_top (
   assign cart_data    = addon_data_en ? addon_data : cart_data_cart;
   assign cart_data_en = addon_data_en | cart_data_en_cart;
 
-  // pocket: xram stage 1 - the Paprium MCU's external-memory bus and the CDDA ring's
+  // pocket: xram step 1 - the Paprium MCU's external-memory bus and the CDDA ring's
   // CRAM port. Declared here because the CDDA block, the xram block and the cartridge all use them.
   wire        xb_req;
   wire  [1:0] xb_region;
@@ -1124,242 +1401,49 @@ module core_top (
   wire [21:0] cr_waddr, cr_raddr;
   wire [15:0] cr_wdata, cr_rdata;
 
+  // pocket: synth step (MCU interface v1.3 sections 3.9 / 21.2) - the first-boot bar: XLINK BAR (clk_sys, xmem block)
+  // to paprium_bar on the dot clock (video section) through bar_sync, and its W read-back through bar_w_sync
+  wire        xl_bar_en;
+  wire [10:0] xl_bar_px;
+  wire [10:0] bar_w_sys;
+
   // the SFX echo line (audio_sfx mix_bank) on paprium_cram port E instead of 32 M10K
   wire        echo_ready, echo_wr, echo_rd, echo_rd_done;
   wire [12:0] echo_wslot, echo_rslot;
   wire [31:0] echo_wdata, echo_rdata;
+  // pocket: synth step (PAPRIUM_SYNTH) - the synth's CRAM clients (paprium_synth_cram) on paprium_cram ports C and E
+  wire        syn_c_rd, syn_c_rd_done, syn_e_wr, syn_e_wpair, syn_e_rd, syn_e_rpair, syn_e_rd_done, syn_e_wbusy;
+  wire [20:0] syn_c_raddr;
+  wire [15:0] syn_c_rdata;
+  wire [21:0] syn_e_waddr, syn_e_raddr;
+  wire [31:0] syn_e_wdata, syn_e_rdata;
   // pocket-end
 
   // ==========================================================================
-  // paprium: CDDA background music. Replaces MiSTer's HPS-fed DDR3 ring with an
-  // APF data slot the core drives itself - see docs/CDDA_DESIGN.md.
-  //
-  //   fetch (clk_74a)  openfile + chunked reads -> BRIDGE 0x3xxxxxxx
-  //   data_loader      catches those writes, crosses to clk_sys
-  //   buf              ring, 16-bit in / 32-bit out, chunk flow control
-  //   play (clk_sys)   48 kHz consume, fade, volume, pause
+  // paprium: CDDA background music - REMOVED in the 0.3.0 synth step (test build 4a on; MCU interface v1.3 section
+  // 21.5). The album path (paprium_cdda_fetch, the bridge 0x3 / 0x5 landing loaders, paprium_cdda_buf_cram's ring in
+  // CRAM and paprium_cdda_play) shared CRAM port A with the sound-cache slot, which takes the port now (xmem block
+  // below; data.json slot id 300 is gone, id 20 takes its place). Its outputs are constants: no music, no target
+  // dataslot command, the MD+ block's status reads "not playing" (FEAT.MDP stays 1: region 0x07 answers as on test
+  // build 4, the firmware sees every track as finished, as before the streamer existed). The CDDA source files stay in
+  // the tree, unreachable (paprium.qip), until the synth integration deletes them with the rest of the interim
+  // audio. The cdda mix terms below fold away.
   // ==========================================================================
-  wire signed [15:0] cdda_l;
-  wire signed [15:0] cdda_r;
-  wire        [15:0] cdda_underruns;
-  wire               mdp_playing;
-  wire        [7:0]  mdp_current_track;
+  wire signed [15:0] cdda_l            = 16'sd0;
+  wire signed [15:0] cdda_r            = 16'sd0;
+  wire        [15:0] cdda_underruns    = 16'd0;   // XLINK UNDERRUN[15:0] reads 0
+  wire               mdp_playing       = 1'b0;
+  wire        [7:0]  mdp_current_track = 8'd0;
 
-  generate
-  if(PAPRIUM) begin : cdda
-
-    localparam CDDA_CHUNK  = 4096;
-    localparam CDDA_CHUNKS = 4;      // 16 KB, ~85 ms at 48 kHz
-    // PAPRIUM_CDDA_DBG reports openfile's error code as playback duration - see the
-    // parameter comment in paprium_cdda_fetch.sv. Shipping is 0.
-    localparam CDDA_DIAG   = PAPRIUM_CDDA_DBG;
-
-    // The diagnostic readout must not be truncated. A $13xx stop carrying
-    // fade_sectors == 0 latches `paused` in paprium_cdda_play and hard-mutes it
-    // until the next track, so a scene-change stop would cut a burst short and
-    // read as a SMALLER number - a believable wrong answer, the one failure mode
-    // this diagnostic cannot afford. While a readout is in progress (mdp_playing,
-    // which DIAG_MODE holds from the request through the last burst) the stop is
-    // dropped for both consumers. Shipping builds are untouched.
-    wire mdp_stop_gated = CDDA_DIAG ? (mdp_stop_request & ~mdp_playing)
-                                    : mdp_stop_request;
-
-    // Header reads land in their own tiny bridge region so they cannot be
-    // confused with audio arriving in the ring.
-    wire        cdda_hdr_wr_en;
-    wire  [4:0] cdda_hdr_wr_addr;
-    wire [15:0] cdda_hdr_wr_data;
-
-    data_loader #(
-        .ADDRESS_MASK_UPPER_4 (4'h5),
-        .ADDRESS_SIZE         (5),      // 32 B: the 24-byte file header, or a 16-byte entry
-        .OUTPUT_WORD_SIZE     (2),
-        .WRITE_MEM_CLOCK_DELAY(24)
-    ) cdda_hdr_loader (
-        .clk_74a   (clk_74a),
-        .clk_memory(clk_74a),           // the fetch sequencer lives in this domain
-
-        .bridge_wr           (bridge_wr),
-        .bridge_endian_little(bridge_endian_little),
-        .bridge_addr         (bridge_addr),
-        .bridge_wr_data      (bridge_wr_data),
-
-        .write_en  (cdda_hdr_wr_en),
-        .write_addr(cdda_hdr_wr_addr),
-        .write_data(cdda_hdr_wr_data)
-    );
-
-    // ---- command channel across to the bridge domain -------------------
-    // mdp_track_request and mdp_stop_request are single clk_sys pulses. A
-    // toggle survives the crossing where a pulse would not; synch_3 hands back
-    // both edges, so either one is a request.
-    reg  trk_toggle = 0, stop_toggle = 0;
-    always @(posedge clk_sys_53_69) begin
-      if(mdp_track_request) trk_toggle  <= ~trk_toggle;
-      if(mdp_stop_gated)    stop_toggle <= ~stop_toggle;
-    end
-
-    wire trk_rise, trk_fall, stop_rise, stop_fall;
-    synch_3 trk_synch (.i(trk_toggle),  .o(), .clk(clk_74a), .rise(trk_rise),  .fall(trk_fall));
-    synch_3 stop_synch(.i(stop_toggle), .o(), .clk(clk_74a), .rise(stop_rise), .fall(stop_fall));
-
-    // track_num and track_loop are written alongside the request and held until
-    // the next one, so they are stable long before the toggle lands.
-    wire [7:0] trk_num_s;
-    wire       trk_loop_s;
-    synch_3 #(.WIDTH(8)) trk_num_synch (.i(mdp_track_num), .o(trk_num_s), .clk(clk_74a));
-    synch_3            trk_loop_synch(.i(mdp_track_loop), .o(trk_loop_s), .clk(clk_74a));
-
-    wire [15:0] wr_chunk_gray, rd_chunk_gray;
-    wire        fetch_playing;
-    wire  [7:0] fetch_track;
-
-    paprium_cdda_fetch #(
-        .CHUNK_BYTES(CDDA_CHUNK),
-        .NUM_CHUNKS (CDDA_CHUNKS),
-        .DIAG_MODE  (CDDA_DIAG)
-    ) cdda_fetch (
-        .clk_74a(clk_74a),
-        .reset  (~pll_core_locked_s),
-
-        .track_request(trk_rise | trk_fall),
-        .track_num    (trk_num_s),
-        .track_loop   (trk_loop_s),
-        .stop_request (stop_rise | stop_fall),
-
-
-        .target_dataslot_read      (target_dataslot_read),
-        .target_dataslot_ack       (target_dataslot_ack),
-        .target_dataslot_done      (target_dataslot_done),
-        .target_dataslot_err       (target_dataslot_err),
-        .target_dataslot_id        (target_dataslot_id),
-        .target_dataslot_slotoffset(target_dataslot_slotoffset),
-        .target_dataslot_bridgeaddr(target_dataslot_bridgeaddr),
-        .target_dataslot_length    (target_dataslot_length),
-
-        .hdr_wr_en  (cdda_hdr_wr_en),
-        .hdr_wr_addr(cdda_hdr_wr_addr),
-        .hdr_wr_data(cdda_hdr_wr_data),
-
-        .rd_chunk_gray(rd_chunk_gray[2:0]),
-        .wr_chunk_gray(wr_chunk_gray[2:0]),
-
-        .playing      (fetch_playing),
-        .current_track(fetch_track)
-    );
-
-    // ---- landing buffer ------------------------------------------------
-    wire        cdda_wr_en;
-    wire [13:0] cdda_wr_addr;
-    wire [15:0] cdda_wr_data;
-
-    data_loader #(
-        .ADDRESS_MASK_UPPER_4 (4'h3),
-        .ADDRESS_SIZE         (14),     // 16 KB ring
-        .OUTPUT_WORD_SIZE     (2),
-        .WRITE_MEM_CLOCK_DELAY(24)
-    ) cdda_data_loader (
-        .clk_74a   (clk_74a),
-        .clk_memory(clk_sys_53_69),
-
-        .bridge_wr           (bridge_wr),
-        .bridge_addr         (bridge_addr),
-        .bridge_wr_data      (bridge_wr_data),
-
-        .write_en  (cdda_wr_en),
-        .write_addr(cdda_wr_addr),
-        .write_data(cdda_wr_data)
-    );
-
-    wire [12:0] ring_rd_ptr;
-    wire [31:0] ring_rd_data;
-    wire [12:0] ring_fill;
-    wire        ring_consumed;
-
-    // pocket: xram stage 1 - the ring lives in CRAM (paprium_cram port A, in the xmem block),
-    // not in 16 M10K; same parameters and ports as paprium_cdda_buf
-    paprium_cdda_buf_cram #(
-        .CHUNK_BYTES(CDDA_CHUNK),
-        .NUM_CHUNKS (CDDA_CHUNKS)
-    ) cdda_buf (
-        .clk  (clk_sys_53_69),
-        .reset(sys_reset),
-
-        .wr_en  (cdda_wr_en),
-        .wr_addr(cdda_wr_addr[13:1]),   // data_loader gives a byte address
-        .wr_data(cdda_wr_data),
-
-        .wr_chunk_gray(wr_chunk_gray[2:0]),
-        .rd_chunk_gray(rd_chunk_gray[2:0]),
-
-        .rd_ptr         (ring_rd_ptr),
-        .rd_data        (ring_rd_data),
-        .sample_consumed(ring_consumed),
-        .fill_level     (ring_fill),
-
-        .flush(mdp_track_request),
-
-        .cr_wr     (cr_wr),
-        .cr_waddr  (cr_waddr),
-        .cr_wdata  (cr_wdata),
-        .cr_rd     (cr_rd),
-        .cr_raddr  (cr_raddr),
-        .cr_rd_done(cr_rd_done),
-        .cr_rdata  (cr_rdata)
-    );
-
-    paprium_cdda_play #(
-        .RING_SAMPLES(CDDA_CHUNK * CDDA_CHUNKS / 4)
-    ) cdda_play (
-        .clk  (clk_sys_53_69),
-        .reset(sys_reset),
-
-        .active        (mdp_active),
-        .track_start   (mdp_track_request),
-        .stop_request  (mdp_stop_gated),
-        .fade_sectors  (mdp_fade_sectors),
-        .volume        (mdp_volume),
-        .resume_request(mdp_resume_request),
-        .osd_pause     (1'b0),
-
-        .rd_ptr         (ring_rd_ptr),
-        .rd_data        (ring_rd_data),
-        .fill_level     (ring_fill),
-        .sample_consumed(ring_consumed),
-
-        .underruns(cdda_underruns),
-        .audio_l  (cdda_l),
-        .audio_r  (cdda_r)
-    );
-
-    // ---- status back to the MCU ----------------------------------------
-    synch_3            playing_synch(.i(fetch_playing), .o(mdp_playing), .clk(clk_sys_53_69));
-    synch_3 #(.WIDTH(8)) track_synch(.i(fetch_track), .o(mdp_current_track), .clk(clk_sys_53_69));
-
-  end
-  else begin : no_cdda
-    assign target_dataslot_read       = 0;
-    assign target_dataslot_id         = 0;
-    assign target_dataslot_slotoffset = 0;
-    assign target_dataslot_bridgeaddr = 0;
-    assign target_dataslot_length     = 0;
-    assign cdda_l                     = 0;
-    assign cdda_r                     = 0;
-    assign cdda_underruns             = 0;
-    assign mdp_playing                = 0;
-    assign mdp_current_track          = 0;
-    assign cr_wr                      = 0;   // pocket: xram stage 1
-    assign cr_waddr                   = 0;
-    assign cr_wdata                   = 0;
-    assign cr_rd                      = 0;
-    assign cr_raddr                   = 0;
-  end
-  endgenerate
-  // paprium-end
+  assign target_dataslot_read       = 1'b0;
+  assign target_dataslot_id         = 16'd0;
+  assign target_dataslot_slotoffset = 32'd0;
+  assign target_dataslot_bridgeaddr = 32'd0;
+  assign target_dataslot_length     = 32'd0;
   // paprium-end
 
   // ==========================================================================
-  // pocket: xram stage 1. The Pocket's spare memories, which the
+  // pocket: xram step 1. The Pocket's spare memories, which the
   // other variants still tie off:
   //   SRAM  AS6C2016-55BIN, 128K x 16 = 256 KB: the MCU's window 0x08000000, loaded by an APF
   //         data slot at bridge 0x4xxxxxxx (0.2.6 defines no such slot; the snoop's Word RAM
@@ -1384,27 +1468,57 @@ module core_top (
     wire [31:0] xcfg;
 
     // ---- APF loader for the SRAM (bridge 0x4xxxxxxx, byte addresses, 16-bit words) ----
+    // pocket: synth step (a logic saving) - served by the sound-cache slot's loader (paprium_cache_slot SHARE = 1: the
+    // same stock data_loader, word size 2, delay 24, with a region bit), no longer a data_loader of its own here
     wire        xld_wr;
     wire [17:0] xld_addr;
     wire [15:0] xld_data;
 
-    data_loader #(
-        .ADDRESS_MASK_UPPER_4 (4'h4),
-        .ADDRESS_SIZE         (18),     // 256 KB
-        .OUTPUT_WORD_SIZE     (2),
-        .WRITE_MEM_CLOCK_DELAY(24)
-    ) xram_data_loader (
+    // ---- pocket: synth step (MCU interface v1.3 section 21.1, test builds 4a / 4b) - the sound-cache slot ----
+    // data.json id 20 at bridge 0x6xxxxxxx: the load writes CRAM die 0 through port A-write (file byte i = MCU byte
+    // 0x0900_0000 + i), the flush reads it back through port A-read, CACHE_LOADED counts what landed, and the datatable
+    // word 5 = XLINK CACHE.VALID ? CACHE.SIZE : 0. Everything here resets at power-on only (the flush runs while
+    // sys_reset reboots the MCU). Port A was the album ring's (gone on test build 4a). It also drives the datatable's
+    // core-side write port (words 3 and 5, alternating)
+    wire        xl_cache_valid;
+    wire [22:0] xl_cache_size;
+    wire [22:0] cache_loaded;
+
+    paprium_cache_slot #(.BRIDGE_UPPER_4(4'h6), .SHARE(1), .SHARE_UPPER_4(4'h4), .ROM_SHARE(1), .ROM_UPPER_4(4'h1)) cache_slot (
         .clk_74a   (clk_74a),
-        .clk_memory(clk_sys_53_69),
+        .reset_74a (~pll_ever_locked),
+        .clk_sys   (clk_sys_53_69),
+        .reset_sys (xmem_reset),
 
         .bridge_wr           (bridge_wr),
+        .bridge_rd           (bridge_rd),
         .bridge_endian_little(bridge_endian_little),
         .bridge_addr         (bridge_addr),
         .bridge_wr_data      (bridge_wr_data),
+        .bridge_rd_data      (cache_rd_data),
 
-        .write_en  (xld_wr),
-        .write_addr(xld_addr),
-        .write_data(xld_data)
+        .cache_valid(xl_cache_valid),
+        .cache_size (xl_cache_size),
+        .save_dt    (save_dt),
+        .dt_addr    (datatable_addr),
+        .dt_data    (datatable_data),
+        .loaded     (cache_loaded),
+
+        .xld_wr  (xld_wr),
+        .xld_addr(xld_addr),
+        .xld_data(xld_data),
+
+        .rom_wr  (ioctl_wr),             // pocket: synth step (a logic saving) - the ROM download (was core_top's rom_data_loader)
+        .rom_addr(ioctl_addr),
+        .rom_data(ioctl_data),
+
+        .cr_wr     (cr_wr),
+        .cr_waddr  (cr_waddr),
+        .cr_wdata  (cr_wdata),
+        .cr_rd     (cr_rd),
+        .cr_raddr  (cr_raddr),
+        .cr_rd_done(cr_rd_done),
+        .cr_rdata  (cr_rdata)
     );
 
     // ---- xbus demux: one request, three slaves, ack and data back by region ----
@@ -1416,7 +1530,7 @@ module core_top (
     wire [31:0] xs_ld_words, xs_sn_words;
     wire [15:0] xs_ld_lost;
 
-    // ---- xram stage 2: option D (paprium_mcd_link, clk_md) and the snoop (clk_sys) ----
+    // ---- xram step 2: option D (paprium_mcd_link, clk_md) and the snoop (clk_sys) ----
     wire [23:0] xl_d_word, xl_d_busy;
     wire [15:0] xl_pend;
     wire        xl_arm_tg, xl_od_en;
@@ -1430,8 +1544,8 @@ module core_top (
     wire        od_en_mirror, od_en_prg;
 
     // the option-D state resets with the cartridge (shell_reset, the clk_md source of sys_reset,
-    // which resets the MCU), not with md_reset (gate rule R1)
-    paprium_mcd_link mcd_link (
+    // which resets the MCU), not with md_reset
+    paprium_mcd_link #(.CLK_MD_HZ(CLK_MD_HZ)) mcd_link (
         .clk         (clk_md_107_39),
         .reset       (shell_reset),
         .en_cd       (scum_s[19]),
@@ -1498,7 +1612,7 @@ module core_top (
         .ld_addr(xld_addr),
         .ld_data(xld_data),
 
-        .sn_valid(sn_valid),            // stage 2: the 68000 Word RAM / PRG snoop
+        .sn_valid(sn_valid),            // xram step 2: the 68000 Word RAM / PRG snoop
         .sn_waddr(sn_waddr),
         .sn_data (sn_data),
         .sn_be   (sn_be),
@@ -1535,7 +1649,7 @@ module core_top (
         .cfg_rd(xcfg[11:8]),
         .cfg_we(xcfg[15:12]),
 
-        .a_wr     (cr_wr),
+        .a_wr     (cr_wr),              // synth step: the sound-cache slot's load / flush (was the CDDA ring)
         .a_waddr  (cr_waddr),
         .a_wdata  (cr_wdata),
         .a_rd     (cr_rd),
@@ -1543,18 +1657,25 @@ module core_top (
         .a_rd_done(cr_rd_done),
         .a_rdata  (cr_rdata),
 
-        .c_rd     (1'b0),               // reserved, unused
-        .c_raddr  (21'd0),
-        .c_rd_done(),
-        .c_rdata  (),
+        // synth step: port C = the synth's stream reads (PAPRIUM_SYNTH), else unused; port E = the synth's rings and
+        // dac_buf (PAPRIUM_SYNTH), else test build 4 / 4a's SFX echo line, slot s = the pair {8'h84, s, 1'b0} (die word
+        // 0x210000 + 2s, as the controller's old E_BASE_W)
+        .c_rd     (PAPRIUM_SYNTH ? syn_c_rd : 1'b0),
+        .c_raddr  (PAPRIUM_SYNTH ? syn_c_raddr : 21'd0),
+        .c_rd_done(syn_c_rd_done),
+        .c_rdata  (syn_c_rdata),
 
-        .e_wr     (echo_wr),            // the SFX echo line (audio_sfx mix_bank)
-        .e_wslot  (echo_wslot),
-        .e_wdata  (echo_wdata),
-        .e_rd     (echo_rd),
-        .e_rslot  (echo_rslot),
+        .e_wr     (PAPRIUM_SYNTH ? syn_e_wr    : echo_wr),
+        .e_waddr  (PAPRIUM_SYNTH ? syn_e_waddr : {8'h84, echo_wslot, 1'b0}),
+        .e_wpair  (PAPRIUM_SYNTH ? syn_e_wpair : 1'b1),
+        .e_wdata  (PAPRIUM_SYNTH ? syn_e_wdata : echo_wdata),
+        .e_rd     (PAPRIUM_SYNTH ? syn_e_rd    : echo_rd),
+        .e_raddr  (PAPRIUM_SYNTH ? syn_e_raddr : {8'h84, echo_rslot, 1'b0}),
+        .e_rpair  (PAPRIUM_SYNTH ? syn_e_rpair : 1'b1),
         .e_rd_done(echo_rd_done),
         .e_rdata  (echo_rdata),
+        .e_wbusy  (syn_e_wbusy),
+        .e_rbusy  (),
 
         .b_req  (xb_req & (xb_region == 2'd1)),
         .b_addr (xb_addr[21:0]),
@@ -1583,6 +1704,8 @@ module core_top (
     );
 
     assign echo_ready = xc_ready;
+    assign syn_e_rd_done = echo_rd_done;   // synth step: port E answers its one client
+    assign syn_e_rdata   = echo_rdata;
 
     paprium_xlink #(.STAGE2(1'b1)) xlink (
         .clk  (clk_sys_53_69),
@@ -1590,7 +1713,7 @@ module core_top (
         .od_reset(sys_reset),
 
         .req  (xb_req & (xb_region == 2'd2)),
-        .addr (xb_addr[5:0]),
+        .addr (xb_addr[6:0]),           // synth step (v1.3): addr[6:2], 32 word slots (was addr[5:0])
         .wr   (xb_wr),
         .wdata(xb_wdata),
         .rdata(xl_rdata),
@@ -1612,7 +1735,17 @@ module core_top (
         .clr_toggle(xl_clr_tg), .od_en(xl_od_en), .od_hold(xl_hold),
         .stub_lstat({od_sbrq, od_sres, od_armed, od_busy, od_flags}),
         .stub_late_count(od_late), .stub_post_count(od_posts), .stub_tick(od_tick),
-        .link_status(od_link_status)
+        .link_status(od_link_status),
+        .post_bit(od_post_bit),      // pocket: new core
+
+        // pocket: synth step (MCU interface v1.3 section 3.9) - CACHE, CACHE_LOADED, BAR
+        .cache_valid    (xl_cache_valid),
+        .cache_size     (xl_cache_size),
+        .st_cache_loaded(cache_loaded),
+        .bar_en         (xl_bar_en),
+        .bar_px         (xl_bar_px),
+        .bar_w          (bar_w_sys),
+        .st_fw_len_bad  (fw_len_bad)       // Fafrium: XLINK FAFRIUM bit 0 (from cartridge.sv, on clk_sys)
     );
 
   end
@@ -1620,6 +1753,11 @@ module core_top (
     assign echo_ready   = 0;    // pocket: no CRAM controller, no echo line
     assign echo_rd_done = 0;
     assign echo_rdata   = 0;
+    assign syn_c_rd_done = 0;   // pocket: synth step - nor the synth's ports
+    assign syn_c_rdata   = 0;
+    assign syn_e_rd_done = 0;
+    assign syn_e_rdata   = 0;
+    assign syn_e_wbusy   = 0;
 
     // tie off PSRAM, unused (ROM lives in SDRAM)
     assign cram0_a     = 'h0;
@@ -1644,11 +1782,22 @@ module core_top (
 
     assign xb_ack      = 1'b1;
     assign xb_rdata    = 32'hffffffff;
-    assign od_busy        = 1'b0;   // pocket: xram stage 2
+    assign od_busy        = 1'b0;   // pocket: xram step 2
     assign od_comstat2    = 16'd0;
     assign od_link_status = 7'd0;
+    assign od_post_bit    = 1'b0;   // pocket: new core
     assign cr_rd_done  = 1'b0;
     assign cr_rdata    = 16'd0;
+    assign cr_wr       = 1'b0;      // pocket: synth step - no cache slot without the Paprium memories
+    assign cr_waddr    = 22'd0;
+    assign cr_wdata    = 16'd0;
+    assign cr_rd       = 1'b0;
+    assign cr_raddr    = 22'd0;
+    assign cache_rd_data  = 32'd0;
+    assign datatable_addr = 10'd3;      // the save's size word alone, as before the synth step
+    assign datatable_data = save_dt;
+    assign xl_bar_en   = 1'b0;
+    assign xl_bar_px   = 11'd0;
   end
   endgenerate
   // pocket-end
@@ -1656,30 +1805,64 @@ module core_top (
   // pocket: Scum! switches and the pads' X/Y/Z/Mode, straight from the APF side into
   // the cartridge's clk_ram domain. {MODE,X,Y,Z} = Select, L, X, R, the buttons
   // input.json already labels Mode, X, Y and Z
-  wire [19:0] scum_s;
+  wire [21:0] scum_s;
 
   synch_3 #(
-      .WIDTH(20)
+      .WIDTH(22)
   ) scum_sync (
-      .i({opt_cd_real, scum_32x,      // 0.2.6: bit 19 = a recognised Mega CD unit (was Mega CD Mode)
+      .i({scum_tap,                   // 0.3.0: bit 21 = the EA 4-Way Play asked for (taken at boot below)
+          scum_arc3p,                 // 0.3.0: bit 20 = Arcade Mode Multiplayer
+          opt_cd_real, scum_32x,      // 0.2.6: bit 19 = a recognised Mega CD unit (was Mega CD Mode)
           cont2_key[14], cont2_key[8], cont2_key[6], cont2_key[9],
           cont1_key[14], cont1_key[8], cont1_key[6], cont1_key[9],
           scum_stage, scum_6btn, scum_arcade, scum_cheats}),
       .o(scum_s),
       .clk(clk_md_107_39)
   );
+
+  // 0.3.0 (B Jam's revised decision of 2026-10-11 on the EA 4-Way Play): the game looks for the EA 4-Way Play once, at
+  // boot ($B1E3C), so the adapter is taken only while the 68000 is held in reset (md_reset_effective: power-on and
+  // loading, every core reset and Soft Reset, the MCU's HOLD) and held while the game runs; a menu change waits for the
+  // next Soft Reset. Off (the default) gives the ports exactly as 0.2.6. tap_md feeds the Scum! pad hook (cartridge,
+  // this clock) and, through tap_sync, the pads (clk_sys); it changes only while the 68000 is held, so the crossing is
+  // quiet
+  reg         tap_md = 1'b0;
+  always @(posedge clk_md_107_39) if (md_reset_effective) tap_md <= scum_s[21];
+  wire        tap_sys;
+  wire        tap_sys_nx;   // fit round 2: the value tap_sys takes at the next clk_sys (paprium_pads' look-ahead)
+  synch_3 tap_sync (.i(tap_md), .o(tap_sys), .clk(clk_sys_53_69), .nxt(tap_sys_nx));
+
+  // 0.3.0 synth step: the Grand Stick III's settings, taken at boot exactly as the adapter is ({on, EXT socket,
+  // Select = coin, switch byte}): the game detects the stick at boot ($B1DBC) and reads its switches once per power-on
+  // or reset ($B5A32), so a menu change waits for the next Soft Reset, and the crossing into clk_sys is quiet (they
+  // change only while the 68000 is held)
+  wire  [8:0] gs3_s;
+  synch_3 #(.WIDTH(9)) gs3_md_sync (.i({gs3_on_74, gs3_pt_74, gs3_coin_74, gs3_dip_74}), .o(gs3_s), .clk(clk_md_107_39));
+  reg   [8:0] gs3_md = 9'd0;
+  always @(posedge clk_md_107_39) if (md_reset_effective) gs3_md <= gs3_s;
+  wire  [8:0] gs3_sys;
+  wire  [8:0] gs3_sys_nx;   // the value gs3_sys takes at the next clk_sys (paprium_pads' look-ahead uses bit 8)
+  synch_3 #(.WIDTH(9)) gs3_sys_sync (.i(gs3_md), .o(gs3_sys), .clk(clk_sys_53_69), .nxt(gs3_sys_nx));
   // pocket-end
 
   cartridge #(
       .SVP(SVP),
       .PAPRIUM(PAPRIUM),
       .PAPRIUM_SFX(PAPRIUM_SFX),
-      .PAPRIUM_CMDLOG(PAPRIUM_CMD_LOG)
+      .PAPRIUM_CMDLOG(PAPRIUM_CMD_LOG),
+      .CLK_HZ(CLK_HZ),
+      .CLK_MD_HZ(CLK_MD_HZ),  // pocket: new core - clk_md, on to sdram's refresh compares
+      .PAPRIUM_FEAT(PAPRIUM_FEAT),  // pocket: synth step - FPGAIO FEAT (MCU interface v1.3 section 4.10)
+      .PAPRIUM_SYNTH(PAPRIUM_SYNTH) // pocket: synth step - region 0x06 = the synth
   ) cartridge (
       .clk        (clk_sys_53_69),
       .clk_ram    (clk_md_107_39),
       .reset      (sys_reset),
       .reset_sdram(~pll_core_locked),
+      .pap_reset  (pap_reset),   // Fafrium
+      .fw_done    (fw_done),     // Fafrium
+      .fw_go      (fw_go),       // Fafrium
+      .fw_len_bad (fw_len_bad),  // Fafrium
 
       .SDRAM_CLK (dram_clk),
       .SDRAM_CKE (dram_cke),
@@ -1727,11 +1910,16 @@ module core_top (
       // requested track as finished immediately
       .paprium_active  (paprium_active),
       .paprium_md_reset(paprium_md_reset),
+      .paprium_cd_none (opt_cd_unit_s == 4'd0),   // new core: Mega CD None, clk_md
+      .paprium_opt_at_reset_en(opt_at_reset_en),   // new core: CTRL bit 5
+      .paprium_console_reset(cr_post_sys),        // pocket: test build S3c - Console Reset -> FPGAIO CAUSE.V
+      .paprium_cause_v(cr_cause_v),               // pocket: test build S3c - CAUSE.V pending: the 68000 stays held
       .cmdlog_read_addr(cmdlog_read_addr),
       .cmdlog_read_data(cmdlog_read_data),
 
       .paprium_sfx_l   (paprium_sfx_l),
       .paprium_sfx_r   (paprium_sfx_r),
+      .paprium_menu_mute_en(paprium_menu_mute_en),   // pocket: 0.3.0 new core, the Pocket-menu music mute
 
       .mdp_track_request (mdp_track_request),
       .mdp_track_num     (mdp_track_num),
@@ -1750,12 +1938,14 @@ module core_top (
       .scum_pills (scum_s[1]),
       .scum_lives (scum_s[2]),
       .scum_arcade(scum_s[3]),
+      .scum_arc3p (scum_s[20]),      // 0.3.0: Arcade Mode Multiplayer
+      .scum_tap   (tap_md),          // 0.3.0: the EA 4-Way Play present (taken at boot)
       .scum_6btn  (scum_s[4]),
       .scum_stage (scum_s[9:5]),
       .scum_pad1  (scum_s[13:10]),
       .scum_pad2  (scum_s[17:14]),
 
-      // pocket: xram stage 1
+      // pocket: xram step 1
       .xb_req   (xb_req),
       .xb_region(xb_region),
       .xb_addr  (xb_addr),
@@ -1765,9 +1955,13 @@ module core_top (
       .xb_rdata (xb_rdata),
       .xb_ack   (xb_ack),
 
-      // pocket: xram stage 2
+      // pocket: xram step 2
       .link_status(od_link_status),
-      .mcu_opts   (mcu_opts_s),     // 0.2.6: the cart MCU's GPIO input
+      .link_post  (od_post_bit),    // pocket: new core
+      .vs_tog     (paprium_vs_tog_s),   // pocket: new core (MCU interface v1.1) - FPGAIO VSCNT
+      // 0.2.6: the cart MCU's GPIO input. New core (MCU_INTERFACE v1.0 section 5): {PAL build, Console region
+      // is Japan, Pocket menu open, MegaWire, model bits}; the top three become option word bits 26, 25, 24
+      .mcu_opts   ({PAL ? 1'b1 : 1'b0, mcu_opts_s[5], inmenu_sys_s, mcu_opts_s[4:0]}),
 
       .echo_ready  (echo_ready),
       .echo_wr     (echo_wr),
@@ -1777,6 +1971,22 @@ module core_top (
       .echo_rslot  (echo_rslot),
       .echo_rd_done(echo_rd_done),
       .echo_rdata  (echo_rdata),
+
+      // pocket: synth step - the synth's CRAM clients (unused while PAPRIUM_SYNTH = 0)
+      .syn_c_rd     (syn_c_rd),
+      .syn_c_raddr  (syn_c_raddr),
+      .syn_c_rd_done(syn_c_rd_done),
+      .syn_c_rdata  (syn_c_rdata),
+      .syn_e_wr     (syn_e_wr),
+      .syn_e_waddr  (syn_e_waddr),
+      .syn_e_wpair  (syn_e_wpair),
+      .syn_e_wdata  (syn_e_wdata),
+      .syn_e_rd     (syn_e_rd),
+      .syn_e_raddr  (syn_e_raddr),
+      .syn_e_rpair  (syn_e_rpair),
+      .syn_e_rd_done(syn_e_rd_done),
+      .syn_e_rdata  (syn_e_rdata),
+      .syn_e_wbusy  (syn_e_wbusy),
 
       .md_addr()                    // MiSTer's cheat engine watches the bus, this port has none
   );
@@ -1839,12 +2049,23 @@ module core_top (
   // pads
   //
 
-  // pocket: two pads straight onto the MD controller ports, no md_io.sv, because
-  // nothing on the Pocket needs its multitap, keyboard, lightgun or J-Cart muxing. MD
-  // A-B-C lands on Y-B-A as on the fpgagen Genesis core, and the EXT port reads back
-  // whatever the console drives, since there is nothing plugged into it
+  // pocket: the controller ports, no md_io.sv, because nothing on the Pocket needs its keyboard, lightgun or
+  // J-Cart muxing. 0.3.0 (paprium_pads.sv): Pocket controllers 1-3 behind an emulated EA 4-Way Play on ports
+  // A and B; the game finds it at boot and reads pads A-C through it, so its own three-player modes work with three
+  // Dock controllers. Controller 3 counts only as a docked pad (type 2 or 3). 0.3.0 (B Jam's revised decision of
+  // 2026-10-11 on the EA 4-Way Play):
+  // the adapter is present only when 3-Player Mode = On or Arcade Mode = Multiplayer (tap_sys, taken at boot,
+  // above), and its pads are six-button pads with 6-Button on. Otherwise fourway = 0: 0.2.6's wiring (pad 1 on
+  // port A, pad 2 on port B). Test build 4 (B Jam 2026-10-16): MODE = the 6-Button switch on the direct ports too (real
+  // six-button pads: pad_io counts the first TH rise; the Scum! hook injects nothing), and a pad whose Pocket
+  // controller is not there reads as an empty port or socket. MD A-B-C lands on Y-B-A as on the fpgagen Genesis core, and the EXT
+  // port reads back whatever the console drives, since there is nothing plugged into it. Synth step: with Arcade
+  // Mode On, Multiplayer or Stick Only, port A is a virtual Grand Stick III on controller 1 (its EXT socket = Dock
+  // controller 3, port B = pad 2, no EA 4-Way Play); Arcade Mode Off is test build 4's wiring on every clock
+
   wire [31:0] cont1_key_s;
   wire [31:0] cont2_key_s;
+  wire [31:0] cont3_key_s;
 
   synch_3 #(
       .WIDTH(32)
@@ -1862,6 +2083,18 @@ module core_top (
       .clk(clk_sys_53_69)
   );
 
+  // controller 3: the buttons and the type field only
+  wire [19:0] cont3_key_nx;   // fit round 2: the next value of {type, buttons} (paprium_pads' look-ahead uses the type)
+  synch_3 #(
+      .WIDTH(20)
+  ) cont3_sync (
+      .i  ({cont3_key[31:28], cont3_key[15:0]}),
+      .o  ({cont3_key_s[31:28], cont3_key_s[15:0]}),
+      .clk(clk_sys_53_69),
+      .nxt(cont3_key_nx)
+  );
+  assign cont3_key_s[27:16] = 12'd0;
+
   wire [6:0] PA_i;
   wire [6:0] PA_o;
   wire [6:0] PA_d;
@@ -1873,79 +2106,29 @@ module core_top (
   wire [6:0] PC_d;
 
   // port_out drives the console's port input, so pad to MD
-  pad_io pad1 (
-      .clk  (clk_sys_53_69),
-      .reset(sys_reset),
-
-      .MODE(cfg_6btn_s),
-      .SMS (1'b0),
-
-      .P_UP   (cont1_key_s[0]),
-      .P_DOWN (cont1_key_s[1]),
-      .P_LEFT (cont1_key_s[2]),
-      .P_RIGHT(cont1_key_s[3]),
-      // MD A-B-C lands on Y-B-A, as on the fpgagen Genesis core
-      .P_C    (cont1_key_s[4]),
-      .P_B    (cont1_key_s[5]),
-      .P_A    (cont1_key_s[7]),
-      .P_Y    (cont1_key_s[6]),
-      .P_X    (cont1_key_s[8]),
-      .P_Z    (cont1_key_s[9]),
-      .P_MODE (cont1_key_s[14]),
-      .P_START(cont1_key_s[15]),
-
-      .GUN_EN    (1'b0),
-      .GUN_TYPE  (1'b0),
-      .GUN_SENSOR(1'b0),
-      .GUN_A     (1'b0),
-      .GUN_B     (1'b0),
-      .GUN_C     (1'b0),
-      .GUN_START (1'b0),
-
-      .MOUSE_EN   (1'b0),
-      .MOUSE_FLIPY(1'b0),
-      .MOUSE      (25'd0),
-
-      .port_out(PA_i),
-      .port_in (PA_o),
-      .port_dir(PA_d)
-  );
-
-  pad_io pad2 (
-      .clk  (clk_sys_53_69),
-      .reset(sys_reset),
-
-      .MODE(cfg_6btn_s),
-      .SMS (1'b0),
-
-      .P_UP   (cont2_key_s[0]),
-      .P_DOWN (cont2_key_s[1]),
-      .P_LEFT (cont2_key_s[2]),
-      .P_RIGHT(cont2_key_s[3]),
-      .P_C    (cont2_key_s[4]),
-      .P_B    (cont2_key_s[5]),
-      .P_A    (cont2_key_s[7]),
-      .P_Y    (cont2_key_s[6]),
-      .P_X    (cont2_key_s[8]),
-      .P_Z    (cont2_key_s[9]),
-      .P_MODE (cont2_key_s[14]),
-      .P_START(cont2_key_s[15]),
-
-      .GUN_EN    (1'b0),
-      .GUN_TYPE  (1'b0),
-      .GUN_SENSOR(1'b0),
-      .GUN_A     (1'b0),
-      .GUN_B     (1'b0),
-      .GUN_C     (1'b0),
-      .GUN_START (1'b0),
-
-      .MOUSE_EN   (1'b0),
-      .MOUSE_FLIPY(1'b0),
-      .MOUSE      (25'd0),
-
-      .port_out(PB_i),
-      .port_in (PB_o),
-      .port_dir(PB_d)
+  paprium_pads pads (
+      .clk    (clk_sys_53_69),
+      .reset  (sys_reset),
+      .mode6  (scum_6btn_s),                          // test build 4: the 6-Button switch, adapter or not (it was
+                                                      // 0.2.6's cfg_6btn without the adapter)
+      .fourway(tap_sys),                              // 0.3.0: the EA 4-Way Play, taken at boot
+      .fourway_nx(tap_sys_nx),                        // fit round 2: their next values, for the look-ahead registers
+      .key3_type_nx(cont3_key_nx[19:16]),
+      .gs3_on   (gs3_sys[8]),                         // synth step: the Grand Stick III in port 1, taken at boot
+      .gs3_on_nx(gs3_sys_nx[8]),
+      .gs3_pt   (gs3_sys[7]),                         // its EXT socket = Dock controller 3
+      .gs3_coin (gs3_sys[6]),                         // Select is the coin
+      .gs3_dip  (gs3_sys[5:0]),                       // its switch byte
+      .hold     (inmenu_sys_s),                       // the Pocket menu froze the 68000: the stick's timer waits
+      .key1   (cont1_key_s),
+      .key2   (cont2_key_s),
+      .key3   (cont3_key_s),
+      .pa_o   (PA_o),
+      .pa_d   (PA_d),
+      .pb_o   (PB_o),
+      .pb_d   (PB_d),
+      .pa_i   (PA_i),
+      .pb_i   (PB_i)
   );
 
   assign PC_i = PC_d | PC_o;
@@ -1986,13 +2169,21 @@ module core_top (
   wire        vdp_m5;
   wire        vdp_rs1;
 
-  md_board md_board (
+  // pocket: synth step, the FM-chip trims T1-T6 (measurement only) - the Paprium build ties off FM-chip (ym3438)
+  // features the cart's Z80 driver never uses. YM_TRIM bits: 0 T1 LFO (reg 22), 2 T3 ch3 mode / CSM / A8-AE, 3 T4
+  // timers A / B, 4 T5 test registers 21 / 2C and the debug read. Bit 1 (T2 SSG-EG, needs well-formed packets) and bit
+  // 5 (T6 AM, data-dependent) act only where two separate patches of ours add their code (not in this repository).
+  // Every other
+  // variant builds the full chip (YM_TRIM = 0, the die-derived RTL unchanged).
+  localparam [5:0] YM_TRIM = PAPRIUM ? 6'h1D : 6'h00;
+
+  md_board #(.YM_TRIM(YM_TRIM)) md_board (
       .MCLK2(clk_md_107_39),
 
       .ext_reset   (md_reset_effective),  // paprium: the MCU holds the 68000 while it boots
-      .reset_button(btn_reset),
+      .reset_button(btn_reset | cr_btn),   // pocket: test build S3c - + the Console Reset's button press
       // md_board.v reads these, MiSTer leaves them dangling
-      .ext_vres    (1'b0),
+      .ext_vres    (cr_hold),             // pocket: test build S3c - the 68000 held until the warm page is in (Console Reset)
       .ext_zres    (1'b0),
 
       .ram_68k_address(ram_68k_address),
@@ -2033,6 +2224,7 @@ module core_top (
       .jap             (cfg_jap_s),
       .disk_n          (opt_disk_n_s),               // 0.2.6: version register bit 5
       .version         ({3'b000, opt_ver1_s}),       // 0.2.6: version nibble
+      .td_en           (opt_td_en_s),                // 0.3.0: TeraDrive stub (128 KB VRAM test)
 
       .V_R       (vdp_r),
       .V_G       (vdp_g),
@@ -2082,6 +2274,19 @@ module core_top (
       .dma_z80_req         (dma_z80_req),
       .dma_z80_ack         (dma_z80_ack),
       .res_z80             (res_z80)
+  );
+  // pocket-end
+
+  // pocket: 0.3.0 new core (MCU interface v1.1) - the VS counter for the TEST freeze telemetry (the firmware's freeze
+  // counters, B Jam 2026-10-13): every start of the VDP's vertical sync flips one bit on clk_md, which crosses into
+  // clk_sys through a synch_3 (SDC block VS: false path into its first stage only) and is counted by fpgio into FPGAIO
+  // slot 16. A frozen count beside a live MCU heartbeat says the VDP stopped; a live count with no 9494 posts says the
+  // 68000 did
+  paprium_vs_tap paprium_vs_tap (
+      .clk_md  (clk_md_107_39),
+      .vs_n    (vdp_vs),
+      .clk_sys (clk_sys_53_69),
+      .vs_tog_s(paprium_vs_tog_s)
   );
   // pocket-end
 
@@ -2158,8 +2363,9 @@ module core_top (
   reg video_de_reg;
   reg [23:0] video_rgb_reg;
 
-  assign video_de   = video_de_reg;
-  assign video_rgb  = video_rgb_reg;
+  // pocket: synth step (test build 5, a project decision) - video_de / video_rgb / video_hs / video_vs are chosen
+  // below, after the core's own picture, by paprium_holdvid (black frames with the first-boot bar while the console is
+  // held)
   assign video_skip = 0;
 
   wire h32_s;
@@ -2178,13 +2384,22 @@ module core_top (
       .clk(clk_vid)
   );
 
-  // The VDP syncs come out active low, the filler's edge detects want active high
-  wire        vid_hs = ~core_hs;
-  wire        vid_vs = ~core_vs;
+  // The VDP syncs come out active low and the filler's edge detects want active high. pocket (0.3.0, from the new
+  // core's fit gate): the filler takes them active low (SYNC_N) and inverts them after its capture registers, so the
+  // clk_md -> dot clock crossing has no logic in it (an inverter here was one LUT level on two of the 28 pairs, which
+  // the same-edge window forbids)
 
   wire [23:0] filler_rgb;
   wire        filler_de;
   wire [ 7:0] snap_index;
+  wire        filler_hs;   // pocket: synth step (test build 5) - the filler's syncs; paprium_holdvid picks video_hs / video_vs
+  wire        filler_vs;
+  // pocket: synth step (test build 5, a project decision) - paprium_holdvid's outputs (below the bar block): gen = it
+  // drives all four video outputs on this clock (its DE / RGB are registered one clock behind its syncs, as
+  // video_de_reg / video_rgb_reg are behind the filler's), w = its active width
+  wire        hv_gen, hv_hs, hv_vs, hv_de;
+  wire [23:0] hv_rgb;
+  wire [10:0] hv_w;
 
   // A 224 to 240 change moves video_cond's blanking window in the same frame the
   // scaler is told the new height, so that frame comes out short. The filler pads
@@ -2193,25 +2408,48 @@ module core_top (
   scanline_filler #(
       .SNAP_COUNT (2),
       .SNAP_POINTS('{240, 224}),
-      .HSYNC_DELAY(7)
+      .HSYNC_DELAY(7),
+      .SYNC_N     (1'b1)
   ) scanline_filler (
       .clk(clk_vid),
 
-      .hsync_in(vid_hs),
-      .vsync_in(vid_vs),
+      .hsync_in(core_hs),   // active low (SYNC_N)
+      .vsync_in(core_vs),
 
       .vblank_in(core_vblank),
       .hblank_in(core_hblank),
       .rgb_in   (core_rgb),
 
-      .hsync(video_hs),
-      .vsync(video_vs),
+      .hsync(filler_hs),
+      .vsync(filler_vs),
 
       .de (filler_de),
       .rgb(filler_rgb),
 
       .snap_index(snap_index)
   );
+
+  // pocket: synth step (MCU interface v1.3 sections 3.9 / 21.2, test builds 4a / 4b) - the first-boot bar. XLINK BAR
+  // (clk_sys) crosses into the dot clock through bar_sync, a three-flop synchroniser whose first stage is a false path
+  // (core_constraints.sdc, the dot-clock RULE: no timed pair into clk_vid from another clock); paprium_bar lights the
+  // last 4 active lines for PX pixels from the first active pixel while EN = 1, and measures W, which goes back to
+  // XLINK through bar_w_sync (first stage false path too). Both values are quasi-static (a PX write per unpack chunk;
+  // W changes only at an H32 / H40 switch), so a word caught mid-change is right again one clock later. EN = 0 (every
+  // reset, and the firmware clears it before it releases the 68000) leaves the picture as the core makes it
+  wire [11:0] bar_vid;   // {EN, PX} on clk_vid
+  wire        bar_lit;
+  wire [10:0] bar_w_vid;
+  synch_3 #(.WIDTH(12)) bar_sync (.i({xl_bar_en, xl_bar_px}), .o(bar_vid), .clk(clk_vid));
+  paprium_bar paprium_bar (
+      .clk(clk_vid),
+      .en (bar_vid[11]),
+      .px (bar_vid[10:0]),
+      .de (filler_de),
+      .vs (filler_vs),
+      .lit(bar_lit),
+      .w  (bar_w_vid)
+  );
+  synch_3 #(.WIDTH(11)) bar_w_sync (.i(hv_gen ? hv_w : bar_w_vid), .o(bar_w_sys), .clk(clk_sys_53_69));
 
   reg prev_de = 0;
   reg prev_vs = 0;
@@ -2221,11 +2459,11 @@ module core_top (
 
   always @(posedge clk_vid) begin
     prev_de <= filler_de;
-    prev_vs <= video_vs;
+    prev_vs <= filler_vs;
 
     video_de_reg <= 0;
 
-    if (video_vs && ~prev_vs) begin
+    if (filler_vs && ~prev_vs) begin
       latched_snap_index <= snap_index;
       slot_h32           <= h32_s;
       slot_arcorr        <= cfg_arcorr_s;
@@ -2239,9 +2477,46 @@ module core_top (
       video_rgb_reg <= {8'b0, slot_arcorr & ~slot_h32, slot_h32, ~latched_snap_index[0], 13'b0};
     end else if (filler_de) begin
       video_de_reg  <= 1;
-      video_rgb_reg <= filler_rgb;
+      video_rgb_reg <= filler_rgb | {24{bar_lit}};   // pocket: synth step - the first-boot bar is white (0xFFFFFF)
+    end else begin
+      // pocket (0.3.0): the APF wants rgb at 0 while DE is low, apart from the slot word on
+      // the first blanked pixel. It used to stay on the bus until the next line's DE
+      video_rgb_reg <= 24'd0;
     end
   end
+
+  // pocket: synth step (test build 5; a project decision, confirmed by B Jam 2026-10-23) - a valid picture for the
+  // whole cart hold. While md_reset_effective holds the console (the first start's ~20 s unpack among others) the VDP
+  // makes no sync and the Dock kept a stale frame (test build 4b). paprium_holdvid then puts black frames at the VDP's
+  // own rates on the four APF video outputs, with the first-boot bar on them, and hands back to the core's picture on
+  // the filler's first VS after the release. It only selects between two complete pictures after everything above:
+  // md_board, the filler, paprium_bar and the slot-word registers are untouched, so the picture outside a hold and the
+  // game's boot are as before. The hold crosses from clk_md through hold_vid_sync, whose first stage is a false path
+  // (core_constraints.sdc HOLDV, the dot-clock RULE); the Paprium variant only (elsewhere the input is 0 and synthesis
+  // removes the block)
+  wire hold_vid;
+  synch_3 hold_vid_sync (.i(PAPRIUM ? md_reset_effective : 1'b0), .o(hold_vid), .clk(clk_vid));
+  paprium_holdvid #(.PAL(PAL)) paprium_holdvid (
+      .clk   (clk_vid),
+      .hold  (hold_vid),
+      .h32   (h32_s),
+      .arcorr(cfg_arcorr_s),
+      .bar_en(bar_vid[11]),
+      .bar_px(bar_vid[10:0]),
+      .f_vs  (filler_vs),
+      .gen   (hv_gen),
+      .hs    (hv_hs),
+      .vs    (hv_vs),
+      .de_q  (hv_de),
+      .rgb_q (hv_rgb),
+      .w     (hv_w)
+  );
+  // One select for all four: each clock's outputs are one picture's own sample, so the handover clock and every clock
+  // after it are video_de_reg / video_rgb_reg / the filler's syncs exactly, and VS never meets the other picture's DE
+  assign video_hs  = hv_gen ? hv_hs  : filler_hs;
+  assign video_vs  = hv_gen ? hv_vs  : filler_vs;
+  assign video_de  = hv_gen ? hv_de  : video_de_reg;
+  assign video_rgb = hv_gen ? hv_rgb : video_rgb_reg;
   // pocket-end
 
 
@@ -2312,8 +2587,13 @@ module core_top (
   wire signed [17:0] cdda_att_l    = cdda_scaled_l >>> 8;
   wire signed [17:0] cdda_att_r    = cdda_scaled_r >>> 8;
 
-  wire signed [18:0] mix_l = $signed(base_audio_l) + $signed(paprium_sfx_l) + $signed(cdda_att_l);
-  wire signed [18:0] mix_r = $signed(base_audio_r) + $signed(paprium_sfx_r) + $signed(cdda_att_r);
+  // pocket: 0.3.0 new core, the Pocket-menu music mute - the cart SFX pair is 0 while menu_mute holds (see its
+  // declaration)
+  wire signed [15:0] sfx_mix_l = menu_mute ? 16'sd0 : paprium_sfx_l;
+  wire signed [15:0] sfx_mix_r = menu_mute ? 16'sd0 : paprium_sfx_r;
+
+  wire signed [18:0] mix_l = $signed(base_audio_l) + $signed(sfx_mix_l) + $signed(cdda_att_l);
+  wire signed [18:0] mix_r = $signed(base_audio_r) + $signed(sfx_mix_r) + $signed(cdda_att_r);
 
   wire mix_l_ov = (mix_l[18:15] != 4'b0000) && (mix_l[18:15] != 4'b1111);
   wire mix_r_ov = (mix_r[18:15] != 4'b0000) && (mix_r[18:15] != 4'b1111);

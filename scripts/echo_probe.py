@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure whether the cartridge applies an echo, and with what delay and feedback.
 
-    python scripts/echo_probe.py --hw "1E Gothic.mkv" --ref renders/v2/Gothic.wav
+    python scripts/echo_probe.py --hw CAPTURE.mkv --ref RENDER.wav
                                  [--moduledir DIR --track 30]
                                  [--seconds 55] [--rate 32000]
                                  [--lag-min 40] [--lag-max 600]

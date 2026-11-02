@@ -22,13 +22,22 @@
  *      org, andkorzh, HardWareMan (emu-russia):
  *          help & support.
  */
+// Changes: Copyright (C) 2026 Marsupial Solutions LLC (GPL-3.0-or-later)
  
  // Z80(NMOS)
 
 module z80cpu
+	#(
+	parameter IR_LA = 0   // pocket (0.3.0 stage 1, G1 round 3): 1 = w147 (the instruction register) as a look-ahead register
+	)
 	(
 	input MCLK,
 	input CLK,
+	// pocket (0.3.0 stage 1, G1 round 3): CLK's value at the next MCLK edge, as the VDP's zclk_q look-ahead offers it:
+	// CLK(next) = CLK_nsel ? CLK_nx1 : CLK_nx0 (ym7101 zclk_nx, split at its test-register select). Read only when IR_LA.
+	input CLK_nx0,
+	input CLK_nx1,
+	input CLK_nsel,
 	output [15:0] ADDRESS,
 	output ADDRESS_z,
 	input [7:0] DATA_i,
@@ -1784,12 +1793,8 @@ module z80cpu
 			w145 <= w145;
 	end
 	
-	always @(posedge MCLK)
-	begin
-		w147_prev <= w147;
-	end
-	
-	assign w147 = w49 ? w147_prev : ~w146;
+	// pocket (0.3.0 stage 1, G1 round 3): w147 (w49 ? w147_prev : ~w146) is built at the end of the module, after the
+	// bus logic its look-ahead form reads.
 	
 	// pla
 	assign pla[0] = (w147 & 8'hf7) == 8'hd3 & w90; // out(n), a; in(n), a
@@ -4008,6 +4013,72 @@ module z80cpu
 			w513 <= bus_comb_3;
 		end
 	end
+	
+	// pocket (0.3.0 stage 1, G1 round 3): the instruction register w147 as an exact look-ahead register.
+	// Nuked builds it as a transparent latch, w147 = w49 ? w147_prev : ~w146 with w49 = ~(w48 | ~clk & ~l16): one LUT
+	// per bit fed by clk (zclk_q), l16, rs48, w147_prev and w146, fanout ~40 into the PLA. In the G1 fits that LUT was
+	// the head of every Z80 path below +0.3 ns (z80_enable through its clk input, z80_internal through the others).
+	// w147_r loads the value w147 takes at the next MCLK edge, so the PLA reads a register:
+	//   w147(next) = w49(next) ? w147 : ~w146(next)                         (w147_prev(next) = w147)
+	//   w49(next)  = ~w48(next) & (clk(next) | l16(next))
+	//   w48(next)  = ~(w48_i & (clk | l17))          rs48 (nand): q = ~(nq & nset), nset = clk | l17
+	//   l16(next)  = clk ? ~(w107 & w127 & w41) : l16   dl16: en = clk
+	//   clk(next)  = CLK_nsel ? CLK_nx1 : CLK_nx0    the board's ZCLK at the next edge (ym7101 zclk_nx)
+	//   w146(next) = the bus resolution above (w146's own D)
+	// Built so the two late inputs enter only the last LUT: CLK_nsel (the VDP test-register write decode, 4 LUTs deep)
+	// and the DAA correction bits of w146(next) (bcd_val: w147 -> pla[21] -> w443 / w444). Shannon expansion on both:
+	//   ir_y<k><d> = h_k ? w147 : ~w146(next with the BCD bits = d),  h_k = w49(next) when clk(next) = CLK_nx<k>
+	//   w147(next) = CLK_nsel ? (bcd ? y11 : y10) : (bcd ? y01 : y00), bitwise, bcd = bcd_val (1 on bits 0, 3, 4, 7)
+	// The y nets are kept, so each bit's last LUT is the 6-input select. Power-up: every source is 0 (rs48 q 0, l16 0,
+	// clk 0, w146 0), so w49 = 0 and w147 = ~w146 = 8'hff: w147_r starts there. Exact by construction; the benches
+	// assert w147_r == w49 ? w147(prev) : ~w146 on every clock. IR_LA = 0 keeps Nuked's latch.
+	generate
+	if (IR_LA)
+	begin : ir_la
+		wire ir_w48_nx = ~(w48_i & (clk | l17));
+		wire ir_l16_nx = clk ? ~(w107 & w127 & w41) : l16;
+		wire ir_h0 = ~ir_w48_nx & (CLK_nx0 | ir_l16_nx);
+		wire ir_h1 = ~ir_w48_nx & (CLK_nx1 | ir_l16_nx);
+		// w146(next) with bcd_val forced: x0 = the DAA bits (6, 5, 2, 1) at 0, x1 = all 1
+		wire [7:0] ir_bcd_x0 = 8'b1001_1001;
+		wire [7:0] ir_b2d_x0 = ({8{w370}} & ~ir_bcd_x0) | (status_mask & ~status_val) | ({8{~w518}} & ~w515[7:0]);
+		wire [7:0] ir_b2u_x0 = ({8{w370}} & ir_bcd_x0) | (status_mask & status_val) | ({8{~w518}} & w515[7:0]);
+		wire [7:0] ir_b2d_x1 = (status_mask & ~status_val) | ({8{~w518}} & ~w515[7:0]);
+		wire [7:0] ir_b2u_x1 = {8{w370}} | (status_mask & status_val) | ({8{~w518}} & w515[7:0]);
+		wire [7:0] ir_bus_x0 = (w369 & w419) ? (((w146 & w484 & w513) | bus1_pullu | ir_b2u_x0 | bus3_pullu) & ~(bus1_pulld | ir_b2d_x0 | bus3_pulld))
+		                     : w369 ? (((w146 & w484) | bus1_pullu | ir_b2u_x0) & ~(bus1_pulld | ir_b2d_x0))
+		                     : bus_comb_1;
+		wire [7:0] ir_bus_x1 = (w369 & w419) ? (((w146 & w484 & w513) | bus1_pullu | ir_b2u_x1 | bus3_pullu) & ~(bus1_pulld | ir_b2d_x1 | bus3_pulld))
+		                     : w369 ? (((w146 & w484) | bus1_pullu | ir_b2u_x1) & ~(bus1_pulld | ir_b2d_x1))
+		                     : bus_comb_1;
+		wire [7:0] ir_y00 /* synthesis keep */;
+		wire [7:0] ir_y01 /* synthesis keep */;
+		wire [7:0] ir_y10 /* synthesis keep */;
+		wire [7:0] ir_y11 /* synthesis keep */;
+		assign ir_y00 = ir_h0 ? w147 : ~ir_bus_x0;
+		assign ir_y01 = ir_h0 ? w147 : ~ir_bus_x1;
+		assign ir_y10 = ir_h1 ? w147 : ~ir_bus_x0;
+		assign ir_y11 = ir_h1 ? w147 : ~ir_bus_x1;
+		wire [7:0] ir_nx = CLK_nsel ? ((bcd_val & ir_y11) | (~bcd_val & ir_y10))
+		                            : ((bcd_val & ir_y01) | (~bcd_val & ir_y00));
+		reg [7:0] w147_r = 8'hff;
+		always @(posedge MCLK)
+		begin
+			w147_r <= ir_nx;
+		end
+		assign w147 = w147_r;
+	end
+	else
+	begin : ir_comb
+		always @(posedge MCLK)
+		begin
+			w147_prev <= w147;
+		end
+		
+		assign w147 = w49 ? w147_prev : ~w146;
+	end
+	endgenerate
+	// pocket-end
 	
 	integer i;
 	initial begin

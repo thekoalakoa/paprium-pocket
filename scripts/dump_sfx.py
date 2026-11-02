@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dump the Paprium cartridge SFX sample bank to WAV.
+"""Write the Paprium cartridge's SFX sample bank out as WAV files.
 
     python scripts/dump_sfx.py <paprium.md> [outdir]
 
